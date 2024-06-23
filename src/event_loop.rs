@@ -39,6 +39,7 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                             app.state.key_left();
                         }
                         KeyCode::Char('l') | KeyCode::Right => {
+
                         }
                         KeyCode::Enter => {
                             // HACK the api has a cleaner way

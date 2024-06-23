@@ -99,15 +99,17 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         .expect("all item identifiers are unique")
         .block(
             Block::bordered()
-            .title("Tree Widget")
-            .title_bottom(format!("{:?}", app.state)),
+            .title("Nix builders list")
+            .title_bottom("TAB - toggle all, j/k - up down, esc/q to quit, ENTER - selectively open ")
+            // good for debugging
+            // .title_bottom(format!("{:?}", app.state)),
         )
-        .experimental_scrollbar(Some(
-                Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .track_symbol(None)
-                .end_symbol(None),
-        ))
+        // .experimental_scrollbar(Some(
+        //         Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        //         .begin_symbol(None)
+        //         .track_symbol(None)
+        //         .end_symbol(None),
+        // ))
         .highlight_style(
             Style::new()
             .fg(Color::Black)
