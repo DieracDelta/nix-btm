@@ -26,7 +26,7 @@
           defaultPackage = self.devShell.${system};
           devShell = pkgs.mkShell.override { } {
             shellHook = ''
-              export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_ditrs/nix_rustc";
+              # export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_ditrs/nix_rustc";
             '';
             RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
             buildInputs =
@@ -35,6 +35,7 @@
                 fenix.packages.${system}.rust-analyzer
                 just
                 libiconv
+                cargo-generate
                 ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
                   pkgs.darwin.apple_sdk.frameworks.CoreServices
                   pkgs.darwin.apple_sdk.frameworks.SystemConfiguration

@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 crossterm = "0.27.0"
-rand = "0.8.5"
+rand = {version = "0.8.5", features = ["small_rng"]}
 ratatui = "0.26.3"
-tachyonfx = {git = "https://github.com/junkdog/tachyonfx"}
-sysinfo = {version = "0.30.12", features = ["debug"]}
+# tachyonfx = {git = "https://github.com/junkdog/tachyonfx"}
+sysinfo = {version = "0.30.12"} #, features = ["debug"]}
+tui-tree-widget = "0.20.0"
