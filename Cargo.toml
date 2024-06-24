@@ -9,6 +9,7 @@ readme = "README.md"
 repository = "https://github.com/DieracDelta/DAWN"
 keywords = ["nix", "monitor", "system-info", "tui"]
 categories = ["development-tools::debugging"]
+description = "A nix process monitor"
 
 [dependencies]
 crossterm = "0.27.0"
