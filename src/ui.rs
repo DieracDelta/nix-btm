@@ -91,13 +91,13 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         {
             rows.push([
                 &id.to_string(),
-                &env.into_iter().cloned().collect::<Vec<_>>().join(" "),
+                &env.to_vec().join(" "),
                 parent,
                 &p_mem.to_string(),
                 &v_mem.to_string(),
                 &run_time.to_string(),
-                &cmd.into_iter().take(3).cloned().collect::<Vec<_>>().join(" "),
-            ].into_iter().map(|content| Cell::from(Text::from(format!("{content}")))).collect::<Row>()
+                &cmd.iter().take(8).cloned().collect::<Vec<_>>().join(" "),
+            ].into_iter().map(|content| Cell::from(Text::from(content.to_string()))).collect::<Row>()
             )
         }
     }

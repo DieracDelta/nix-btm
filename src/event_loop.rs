@@ -99,14 +99,29 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                                 app.state.select(vec![sorted_users[0].clone()]);
                             }
                         }
-                        KeyCode::Char('h') | KeyCode::Left => {
+                        KeyCode::Char('h') => {
                             if app.which_pane == WhichPane::Right {
                                 app.which_pane = WhichPane::Left;
                             }
                         }
-                        KeyCode::Char('l') | KeyCode::Right => {
+                        KeyCode::Char('l') => {
                             if app.which_pane == WhichPane::Left {
                                 app.which_pane = WhichPane::Right;
+                            }
+                        }
+                        KeyCode::Left => {
+                            if app.which_pane == WhichPane::Right {
+                                app.horizontal_scroll = app.horizontal_scroll.saturating_sub(1);
+                                app.horizontal_scroll_state =
+                                    app.horizontal_scroll_state.position(app.horizontal_scroll);
+
+                            }
+                        }
+                        KeyCode::Right => {
+                            if app.which_pane == WhichPane::Right {
+                                app.horizontal_scroll = app.horizontal_scroll.saturating_add(1);
+                                app.horizontal_scroll_state =
+                                    app.horizontal_scroll_state.position(app.horizontal_scroll);
                             }
                         }
                         KeyCode::Enter => {
