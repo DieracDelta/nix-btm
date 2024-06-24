@@ -13,7 +13,7 @@ use crate::{App, WhichPane};
 use crate::{
     get_stats::{gen_tree, get_active_users_and_pids, ProcMetadata},
 };
-use crate::gruvbox::Gruvbox::{BlueBright, Dark0, Dark0Hard, Dark1, Light2, YellowBright, YellowDim};
+use crate::gruvbox::Gruvbox::{BlueBright, Dark0, Dark0Hard, Dark1, Light2, YellowBright, YellowDim, OrangeDim, OrangeBright};
 
 
 pub fn ui(f: &mut Frame, app: &mut App) {
@@ -63,8 +63,12 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         )
         .highlight_style(
             Style::new()
-            .fg(Color::Black)
-            .bg(Color::LightGreen)
+            .fg(Dark0.into())
+            .bg(if app.which_pane == WhichPane::Left {
+                OrangeBright.into()
+            } else {
+                OrangeDim.into()
+            })
             .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("> ")
@@ -99,13 +103,13 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     }
 
     let widths = [
+        Constraint::Percentage(4),
         Constraint::Percentage(14),
         Constraint::Percentage(14),
         Constraint::Percentage(14),
         Constraint::Percentage(14),
         Constraint::Percentage(14),
-        Constraint::Percentage(14),
-        Constraint::Percentage(16),
+        Constraint::Percentage(26),
     ];
     let table = Table::new(rows, widths)
         .header(header)
@@ -116,7 +120,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                     title_style_unselected
                 })
             .border_style(
-                if app.which_pane == WhichPane::Left {
+                if app.which_pane == WhichPane::Right {
                     border_style_selected
                 } else {
                     border_style_unselected
