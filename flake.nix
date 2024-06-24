@@ -22,8 +22,8 @@
             allowUnfree = true;
           };
         };
-        in {
-          defaultPackage = with pkgs;
+        nix-btm =
+with pkgs;
             rustPlatform.buildRustPackage {
               pname = "nix-btm";
               version = "0.1.0";
@@ -43,6 +43,9 @@
                 mainProgram = "nix-btm";
               };
             };
+        in {
+          defaultPackage = nix-btm;
+          packages.nix-btm = nix-btm;
           devShell = pkgs.mkShell.override { } {
             shellHook = ''
               # export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_ditrs/nix_rustc";
