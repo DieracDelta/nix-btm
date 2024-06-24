@@ -19,5 +19,6 @@ Nix output monitor is really great! `nix-btm` targets the usecases where NOM can
 - [ ] grouping by build instead of builder (not sure if this *is* possible but we might be able to grep)
 - [ ] build history
 - [ ] build analytics
+- [ ] pop up manpage
 
 

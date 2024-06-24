@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::io::Stdout;
-use std::time::Duration;
 use std::{io, panic};
 
 pub mod event_loop;
@@ -14,10 +13,9 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use event_loop::event_loop;
-use get_stats::get_active_users_and_pids;
 use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::ScrollbarState;
-use tui_tree_widget::{TreeItem, TreeState};
+use tui_tree_widget::TreeState;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
@@ -31,22 +29,18 @@ pub enum WhichPane {
 
 #[derive(Default)]
 pub struct App {
-    // TODO delete lol this is leftovers
-    last_tick: Duration,
     pub vertical_scroll_state: ScrollbarState,
-    pub horizontal_scroll_state: ScrollbarState,
     pub vertical_scroll: usize,
     pub horizontal_scroll: usize,
     state: TreeState<String>,
     pub which_pane: WhichPane,
+    pub man_toggle: bool,
 }
 
 pub fn main() {
     if !sysinfo::IS_SUPPORTED_SYSTEM {
         panic!("This OS is supported!");
     }
-
-    // get_active_users_and_pids();
 
     run().unwrap();
 }

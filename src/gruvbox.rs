@@ -1,3 +1,4 @@
+// copied at verbatim from https://github.com/junkdog/tachyonfx
 use ratatui::prelude::*;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]

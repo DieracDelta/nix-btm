@@ -6,10 +6,7 @@ use sysinfo::Users;
 use crate::{get_stats::get_nix_users, ui::ui, App, Terminal, WhichPane};
 
 pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
-    let mut last_frame_instant = std::time::Instant::now();
     loop {
-        app.last_tick = last_frame_instant.elapsed();
-        last_frame_instant = std::time::Instant::now();
         terminal.draw(|f| ui(f, &mut app))?;
 
         // TODO fix scrolling to only scroll by root node
@@ -120,18 +117,14 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                                 app.which_pane = WhichPane::Right;
                             }
                         }
-                        KeyCode::Left => {
+                        KeyCode::Char('<') | KeyCode::Left => {
                             if app.which_pane == WhichPane::Right {
                                 app.horizontal_scroll = app.horizontal_scroll.saturating_sub(1);
-                                app.horizontal_scroll_state =
-                                    app.horizontal_scroll_state.position(app.horizontal_scroll);
                             }
                         }
-                        KeyCode::Right => {
+                        KeyCode::Char('>') | KeyCode::Right => {
                             if app.which_pane == WhichPane::Right {
-                                app.horizontal_scroll = app.horizontal_scroll.saturating_add(1);
-                                app.horizontal_scroll_state =
-                                    app.horizontal_scroll_state.position(app.horizontal_scroll);
+                                app.horizontal_scroll += 1;
                             }
                         }
                         KeyCode::Enter => {
@@ -139,6 +132,9 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                             if !app.state.key_right() {
                                 app.state.key_left();
                             }
+                        }
+                        KeyCode::Char('M') => {
+                            app.man_toggle = !app.man_toggle;
                         }
                         _ => {}
                     }

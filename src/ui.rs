@@ -1,5 +1,6 @@
+use ratatui::layout::Rect;
 use ratatui::text::{Line, Masked, Span, Text};
-use ratatui::widgets::Cell;
+use ratatui::widgets::{Cell, Wrap};
 use ratatui::Frame;
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Margin},
@@ -15,6 +16,24 @@ use crate::gruvbox::Gruvbox::{
 };
 use crate::{App, WhichPane};
 
+/// borrowed from ratatui popup example
+/// helper function to create a centered rect using up certain percentage of the available rect `r`
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .split(r);
+
+    Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(popup_layout[1])[1]
+}
+
 pub fn ui(f: &mut Frame, app: &mut App) {
     let border_style_selected = Style::default().fg(YellowBright.into());
     let border_style_unselected = Style::default().fg(YellowDim.into());
@@ -29,115 +48,146 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     let user_map = get_active_users_and_pids();
     let items = gen_tree(&user_map);
     let size = f.size();
-    let chunks = Layout::horizontal([
-        // title
-        Constraint::Percentage(20),
-        //content
-        Constraint::Percentage(80),
-    ])
-    .split(size);
-
-    let widget = Tree::new(&items)
-        .expect("all item identifiers are unique")
-        .block(
-            Block::bordered()
-                .title("Nix builders list")
-                .title_bottom("")
-                .title_style(if app.which_pane == WhichPane::Left {
-                    title_style_selected
-                } else {
-                    title_style_unselected
-                })
-                .border_style(if app.which_pane == WhichPane::Left {
-                    border_style_selected
-                } else {
-                    border_style_unselected
-                }), // good for debugging
-                    // .title_bottom(format!("{:?}", app.state)),
-        )
-        .highlight_style(
-            Style::new()
-                .fg(Dark0.into())
-                .bg(if app.which_pane == WhichPane::Left {
-                    OrangeBright.into()
-                } else {
-                    OrangeDim.into()
-                })
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("> ");
-    f.render_stateful_widget(widget, chunks[0], &mut app.state);
-
-    let mut table_state = TableState::default();
-    let header = [
-        "pid",
-        "env",
-        "parent pid",
-        "p_mem",
-        "v_mem",
-        "runtime",
-        "cmd",
-    ]
-    .into_iter()
-    .map(Cell::from)
-    .collect::<Row>();
-    let mut rows = Vec::new();
-    if let Some(selected) = app.state.selected().first() {
-        for ProcMetadata {
-            id,
-            env,
-            parent,
-            p_mem,
-            v_mem,
-            run_time,
-            cmd,
-        } in user_map.get(selected).unwrap().iter()
-        {
-            rows.push(
-                [
-                    &id.to_string(),
-                    &env.to_vec().join(" "),
-                    parent,
-                    &p_mem.to_string(),
-                    &v_mem.to_string(),
-                    &run_time.to_string(),
-                    &cmd.iter().take(8).cloned().collect::<Vec<_>>().join(" "),
-                ]
-                .into_iter()
-                .map(|content| Cell::from(Text::from(content.to_string())))
-                .collect::<Row>(),
+    if app.man_toggle {
+        let area = centered_rect(60, 20, size);
+        let text = vec![
+            Line::from("q - QUIT").alignment(Alignment::Left),
+            Line::from("M - TOGGLE MANUAL").alignment(Alignment::Left),
+            Line::from("g - SCROLL TO TOP OF BUILDER LIST").alignment(Alignment::Left),
+            Line::from("G - SCROLL TO BOTTOM OF BUILDER LIST").alignment(Alignment::Left),
+            Line::from("h - MOVE TO PANEL TO THE LEFT").alignment(Alignment::Left),
+            Line::from("l - MOVE TO PANEL TO THE RIGHT").alignment(Alignment::Left),
+            Line::from("j - SCROLL UP BUILDER LIST").alignment(Alignment::Left),
+            Line::from("k - SCROLL DOWN BUILDER LIST ").alignment(Alignment::Left),
+            Line::from("< - SCROLL LEFT BUILDER INFO").alignment(Alignment::Left),
+            Line::from("> - SCROLL RIGHT BUILDER LIST").alignment(Alignment::Left),
+        ];
+        let man = Paragraph::new(text)
+            .block(
+                Block::bordered()
+                    .title("MANUAL")
+                    .title_style(title_style_selected)
+                    .border_style(border_style_selected),
             )
-        }
-    }
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
+        f.render_widget(man, area);
+    } else {
+        let chunks = Layout::horizontal([
+            // title
+            Constraint::Percentage(20),
+            //content
+            Constraint::Percentage(80),
+        ])
+        .split(size);
 
-    let widths = [
-        Constraint::Percentage(6),
-        Constraint::Percentage(0),
-        Constraint::Percentage(6),
-        Constraint::Percentage(6),
-        Constraint::Percentage(6),
-        Constraint::Percentage(7),
-        Constraint::Percentage(69),
-    ];
-    let table = Table::new(rows, widths)
-        .header(header)
-        .block(
-            Block::bordered()
-                .title("BuilderInfo")
-                .title_bottom(
-                    " TAB - toggle all, j/k - up down, q to quit, ENTER - selectively open ",
+        let widget = Tree::new(&items)
+            .expect("all item identifiers are unique")
+            .block(
+                Block::bordered()
+                    .title("Nix builders list")
+                    .title_bottom("")
+                    .title_style(if app.which_pane == WhichPane::Left {
+                        title_style_selected
+                    } else {
+                        title_style_unselected
+                    })
+                    .border_style(if app.which_pane == WhichPane::Left {
+                        border_style_selected
+                    } else {
+                        border_style_unselected
+                    }), // good for debugging
+                        // .title_bottom(format!("{:?}", app.state)),
+            )
+            .highlight_style(
+                Style::new()
+                    .fg(Dark0.into())
+                    .bg(if app.which_pane == WhichPane::Left {
+                        OrangeBright.into()
+                    } else {
+                        OrangeDim.into()
+                    })
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("> ");
+        f.render_stateful_widget(widget, chunks[0], &mut app.state);
+
+        let mut table_state = TableState::default();
+        let header = [
+            "pid",
+            "env",
+            "parent pid",
+            "p_mem",
+            "v_mem",
+            "runtime",
+            "cmd",
+        ]
+        .into_iter()
+        .map(Cell::from)
+        .collect::<Row>();
+        let mut rows = Vec::new();
+        if let Some(selected) = app.state.selected().first() {
+            for ProcMetadata {
+                id,
+                env,
+                parent,
+                p_mem,
+                v_mem,
+                run_time,
+                cmd,
+            } in user_map.get(selected).unwrap().iter()
+            {
+                rows.push(
+                    [
+                        &id.to_string(),
+                        &env.to_vec().join(" "),
+                        parent,
+                        &p_mem.to_string(),
+                        &v_mem.to_string(),
+                        &run_time.to_string(),
+                        &cmd.iter().take(8).cloned().collect::<Vec<_>>().join(" "),
+                    ]
+                    .into_iter()
+                    .map(|content| Cell::from(Text::from(content.to_string())))
+                    .collect::<Row>(),
                 )
-                .title_style(if app.which_pane == WhichPane::Right {
-                    title_style_selected
-                } else {
-                    title_style_unselected
-                })
-                .border_style(if app.which_pane == WhichPane::Right {
-                    border_style_selected
-                } else {
-                    border_style_unselected
-                }),
-        )
-        .highlight_style(Style::new());
-    f.render_stateful_widget(table, chunks[1], &mut table_state);
+            }
+        }
+
+        let widths = [
+            Constraint::Percentage(if app.horizontal_scroll == 0 { 6 } else { 0 }),
+            Constraint::Percentage(0),
+            Constraint::Percentage(if app.horizontal_scroll <= 1 { 6 } else { 0 }),
+            Constraint::Percentage(if app.horizontal_scroll <= 2 { 6 } else { 0 }),
+            Constraint::Percentage(if app.horizontal_scroll <= 3 { 6 } else { 0 }),
+            Constraint::Percentage(if app.horizontal_scroll <= 4 { 6 } else { 0 }),
+            Constraint::Percentage(match app.horizontal_scroll {
+                0 => 69,
+                1 => 75,
+                2 => 81,
+                3 => 87,
+                4 => 93,
+                _ => 100,
+            }),
+        ];
+        let table = Table::new(rows, widths)
+            .header(header)
+            .block(
+                Block::bordered()
+                    .title("BUILDER INFO")
+                    .title_bottom("M TO TOGGLE MANUAL")
+                    .title_style(if app.which_pane == WhichPane::Right {
+                        title_style_selected
+                    } else {
+                        title_style_unselected
+                    })
+                    .border_style(if app.which_pane == WhichPane::Right {
+                        border_style_selected
+                    } else {
+                        border_style_unselected
+                    }),
+            )
+            .highlight_style(Style::new());
+        f.render_stateful_widget(table, chunks[1], &mut table_state);
+    }
 }
