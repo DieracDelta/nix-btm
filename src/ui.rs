@@ -94,7 +94,15 @@ use crate::App;
 pub fn ui(f: &mut Frame, app: &mut App) {
     let user_map = get_active_users_and_pids();
     let items = gen_tree(&user_map);
-    let area = f.size();
+    let size = f.size();
+    let chunks = Layout::horizontal([
+        // title
+        Constraint::Percentage(20),
+        //content
+        Constraint::Percentage(80),
+    ])
+    .split(size);
+
     let widget = Tree::new(&items)
         .expect("all item identifiers are unique")
         .block(
@@ -104,18 +112,12 @@ pub fn ui(f: &mut Frame, app: &mut App) {
             // good for debugging
             // .title_bottom(format!("{:?}", app.state)),
         )
-        // .experimental_scrollbar(Some(
-        //         Scrollbar::new(ScrollbarOrientation::VerticalRight)
-        //         .begin_symbol(None)
-        //         .track_symbol(None)
-        //         .end_symbol(None),
-        // ))
         .highlight_style(
             Style::new()
             .fg(Color::Black)
             .bg(Color::LightGreen)
             .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol(">> ");
-    f.render_stateful_widget(widget, area, &mut app.state);
+        .highlight_symbol("> ");
+    f.render_stateful_widget(widget, chunks[0], &mut app.state);
 }

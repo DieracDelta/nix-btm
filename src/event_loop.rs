@@ -12,6 +12,7 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
         last_frame_instant = std::time::Instant::now();
         terminal.draw(|f| ui(f, &mut app))?;
 
+        // TODO fix scrolling to only scroll by root node
         if event::poll(Duration::from_millis(32))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
