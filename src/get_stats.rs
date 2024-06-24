@@ -111,8 +111,9 @@ pub fn gen_tree(user_map: &HashMap<String, BTreeSet<ProcMetadata>>) -> Vec<TreeI
 
     // TODO refactor to a function, pass in to this function, ...
     sorted_user_map.sort_by(|&x, &y| {
-        let x_num: usize = x.0[6..].parse().unwrap();
-        let y_num: usize = y.0[6..].parse().unwrap();
+        let offset = if x.0.starts_with('_') { 7 } else { 6 };
+        let x_num: usize = x.0[offset..].parse().unwrap();
+        let y_num: usize = y.0[offset..].parse().unwrap();
         x_num.partial_cmp(&y_num).unwrap()
     });
 

@@ -19,24 +19,28 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                     match key.code {
                         KeyCode::Char('g') => {
                             let users = Users::new_with_refreshed_list();
-                            let mut sorted_users: Vec<String> = get_nix_users(&users).into_iter().collect();
+                            let mut sorted_users: Vec<String> =
+                                get_nix_users(&users).into_iter().collect();
                             sorted_users.sort_by(|x, y| {
-                                let x_num: usize = x[6..].parse().unwrap();
-                                let y_num: usize = y[6..].parse().unwrap();
+                                let offset = if x.starts_with('_') { 7 } else { 6 };
+                                let x_num: usize = x[offset..].parse().unwrap();
+                                let y_num: usize = y[offset..].parse().unwrap();
                                 x_num.partial_cmp(&y_num).unwrap()
                             });
                             app.state.select(vec![sorted_users[0].clone()]);
-
                         }
                         KeyCode::Char('G') => {
-                                let users = Users::new_with_refreshed_list();
-                                let mut sorted_users: Vec<String> = get_nix_users(&users).into_iter().collect();
-                                sorted_users.sort_by(|x, y| {
-                                    let x_num: usize = x[6..].parse().unwrap();
-                                    let y_num: usize = y[6..].parse().unwrap();
-                                    x_num.partial_cmp(&y_num).unwrap()
-                                });
-                                app.state.select(vec![sorted_users[sorted_users.len()-1].clone()]);
+                            let users = Users::new_with_refreshed_list();
+                            let mut sorted_users: Vec<String> =
+                                get_nix_users(&users).into_iter().collect();
+                            sorted_users.sort_by(|x, y| {
+                                let offset = if x.starts_with('_') { 7 } else { 6 };
+                                let x_num: usize = x[offset..].parse().unwrap();
+                                let y_num: usize = y[offset..].parse().unwrap();
+                                x_num.partial_cmp(&y_num).unwrap()
+                            });
+                            app.state
+                                .select(vec![sorted_users[sorted_users.len() - 1].clone()]);
                         }
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                         KeyCode::Tab => {
@@ -54,10 +58,12 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                         KeyCode::Char('j') | KeyCode::Down => {
                             if let Some(selected) = app.state.selected().first() {
                                 let users = Users::new_with_refreshed_list();
-                                let mut sorted_users: Vec<String> = get_nix_users(&users).into_iter().collect();
+                                let mut sorted_users: Vec<String> =
+                                    get_nix_users(&users).into_iter().collect();
                                 sorted_users.sort_by(|x, y| {
-                                    let x_num: usize = x[6..].parse().unwrap();
-                                    let y_num: usize = y[6..].parse().unwrap();
+                                    let offset = if x.starts_with('_') { 7 } else { 6 };
+                                    let x_num: usize = x[offset..].parse().unwrap();
+                                    let y_num: usize = y[offset..].parse().unwrap();
                                     x_num.partial_cmp(&y_num).unwrap()
                                 });
                                 let idx = sorted_users.iter().position(|x| x == selected).unwrap();
@@ -65,24 +71,27 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                                 app.state.select(vec![sorted_users[new_idx].clone()]);
                             } else {
                                 let users = Users::new_with_refreshed_list();
-                                let mut sorted_users: Vec<String> = get_nix_users(&users).into_iter().collect();
+                                let mut sorted_users: Vec<String> =
+                                    get_nix_users(&users).into_iter().collect();
                                 sorted_users.sort_by(|x, y| {
-                                    let x_num: usize = x[6..].parse().unwrap();
-                                    let y_num: usize = y[6..].parse().unwrap();
+                                    let offset = if x.starts_with('_') { 7 } else { 6 };
+                                    let x_num: usize = x[offset..].parse().unwrap();
+                                    let y_num: usize = y[offset..].parse().unwrap();
                                     x_num.partial_cmp(&y_num).unwrap()
                                 });
                                 app.state.select(vec![sorted_users[0].clone()]);
                             }
-
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
                             if let Some(selected) = app.state.selected().first() {
                                 let users = Users::new_with_refreshed_list();
-                                let mut sorted_users: Vec<String> = get_nix_users(&users).into_iter().collect();
+                                let mut sorted_users: Vec<String> =
+                                    get_nix_users(&users).into_iter().collect();
                                 sorted_users.sort_by(|x, y| {
                                     // TODO don't hardcode offsets
-                                    let x_num: usize = x[6..].parse().unwrap();
-                                    let y_num: usize = y[6..].parse().unwrap();
+                                    let offset = if x.starts_with('_') { 7 } else { 6 };
+                                    let x_num: usize = x[offset..].parse().unwrap();
+                                    let y_num: usize = y[offset..].parse().unwrap();
                                     x_num.partial_cmp(&y_num).unwrap()
                                 });
                                 let idx = sorted_users.iter().position(|x| x == selected).unwrap();
@@ -90,10 +99,12 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                                 app.state.select(vec![sorted_users[new_idx].clone()]);
                             } else {
                                 let users = Users::new_with_refreshed_list();
-                                let mut sorted_users: Vec<String> = get_nix_users(&users).into_iter().collect();
+                                let mut sorted_users: Vec<String> =
+                                    get_nix_users(&users).into_iter().collect();
                                 sorted_users.sort_by(|x, y| {
-                                    let x_num: usize = x[6..].parse().unwrap();
-                                    let y_num: usize = y[6..].parse().unwrap();
+                                    let offset = if x.starts_with('_') { 7 } else { 6 };
+                                    let x_num: usize = x[offset..].parse().unwrap();
+                                    let y_num: usize = y[offset..].parse().unwrap();
                                     x_num.partial_cmp(&y_num).unwrap()
                                 });
                                 app.state.select(vec![sorted_users[0].clone()]);
@@ -114,7 +125,6 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                                 app.horizontal_scroll = app.horizontal_scroll.saturating_sub(1);
                                 app.horizontal_scroll_state =
                                     app.horizontal_scroll_state.position(app.horizontal_scroll);
-
                             }
                         }
                         KeyCode::Right => {
