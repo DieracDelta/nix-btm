@@ -32,8 +32,9 @@ with pkgs;
 
               cargoHash = "sha256-I/ZU8G6jlCd+3AT/rVzT8VtB73LAcrQM80E9v3buAlo=";
 
-              buildInputs = lib.optionals stdenv.isDarwin [
-                Security
+              buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
+                  pkgs.darwin.apple_sdk.frameworks.CoreServices
+                  pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
               ];
 
               meta = with lib; {

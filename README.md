@@ -6,9 +6,9 @@
 
 `nix-btm` is intended to be the spiritual successor of `nix-top`, which has been recently deleted.
 
-As it stands currently, `nix-btm` has feature parity with `nix-top` on linux. On macos, feature parity is reached on if run as root.
+As it stands currently, `nix-btm` has feature parity with `nix-top` on Linux. On Macos, feature parity is reached if run as root.
 
-# What's the usecase this fills?
+# What's the usecase?
 
 Nix output monitor is really great! `nix-btm` targets the usecases where NOM cannot be used. Specifically, the user might wish to monitor multiple builds happening at the same time (for example if the machine is being used as a remotebuilder).
 
