@@ -23,7 +23,26 @@
           };
         };
         in {
-          defaultPackage = self.devShell.${system};
+          defaultPackage = with pkgs;
+            rustPlatform.buildRustPackage {
+              pname = "nix-btm";
+              version = "0.1.0";
+
+              src = ./.;
+
+              cargoHash = "sha256-I/ZU8G6jlCd+3AT/rVzT8VtB73LAcrQM80E9v3buAlo=";
+
+              buildInputs = lib.optionals stdenv.isDarwin [
+                Security
+              ];
+
+              meta = with lib; {
+                description = "Rust tool to monitor nix processes";
+                homepage = "https://github.com/DieracDelta/nix-btm";
+                license = licenses.mit;
+                mainProgram = "nix-btm";
+              };
+            };
           devShell = pkgs.mkShell.override { } {
             shellHook = ''
               # export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_ditrs/nix_rustc";

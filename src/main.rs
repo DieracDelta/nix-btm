@@ -6,7 +6,6 @@ use std::{io, panic};
 pub mod event_loop;
 pub mod get_stats;
 pub mod gruvbox;
-pub mod tui_tree_items;
 pub mod ui;
 
 use crossterm::event::DisableMouseCapture;
