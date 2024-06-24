@@ -15,6 +15,7 @@ use crossterm::terminal::{
 };
 use crossterm::{execute};
 use event_loop::event_loop;
+use get_stats::get_active_users_and_pids;
 use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::ScrollbarState;
 use tui_tree_widget::{TreeItem, TreeState};
@@ -39,7 +40,10 @@ pub fn main() {
         panic!("This OS is supported!");
     }
 
-    run().unwrap();
+    get_active_users_and_pids();
+
+
+    // run().unwrap();
 }
 
 fn run() -> Result<()> {

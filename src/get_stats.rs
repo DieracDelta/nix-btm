@@ -23,19 +23,21 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<Pid>> {
     }
     let system = System::new_all();
 
-    // FIXME requires sudo on macos unclear why
+    // requires sudo to work on macos anyway
+    // might as well assume that you have root
     system
         .processes()
         .iter()
         .filter_map(move |(pid, proc)| {
-            // println!("pid: {pid:?} proc: {proc:?}");
             let user_id = proc.effective_user_id()?;
             let user = users.get_user_by_id(user_id)?;
             let name = user.name().to_string();
             // println!("name: {:?}, pid {}, proc {:?}", name, pid, proc);
-            nix_users.contains(&name).then_some((name, pid))
+            nix_users.contains(&name).then_some((name, pid, proc))
         })
-        .for_each(|(name, pid)| match map.entry(name) {
+        .for_each(|(name, pid, proc)| {
+            println!("pid: {pid:?} proc: {proc:?}");
+            match map.entry(name) {
             Entry::Occupied(mut o) => {
                 let entry: &mut BTreeSet<Pid> = o.get_mut();
                 entry.insert(*pid);
@@ -45,7 +47,7 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<Pid>> {
                 entry_new.insert(*pid);
                 v.insert(entry_new);
             }
-        });
+        }});
     map
 }
 
@@ -72,7 +74,7 @@ pub fn gen_tree(user_map: &HashMap<String, BTreeSet<Pid>>)
             let t_pid = Text::from(pid.to_string());
             leaves.push(TreeItem::new_leaf(pid.to_string(), t_pid));
         }
-        let t_user = Text::from(user.clone());
+        let t_user = Text::from(format!("{} ({})", user.clone(), map.len()));
         let root = TreeItem::new(user.clone(), t_user, leaves).unwrap();
         r_vec.push(root);
     }
