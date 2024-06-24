@@ -2,7 +2,7 @@
 use std::{cmp::Ordering, collections::{hash_map::Entry, BTreeSet, HashMap, HashSet}};
 
 use ratatui::text::Text;
-use sysinfo::{Pid, System, Users};
+use sysinfo::{Pid, Process, System, Users};
 use tui_tree_widget::TreeItem;
 
 pub fn get_nix_users(users: &Users) -> HashSet<String> {
@@ -14,10 +14,36 @@ pub fn get_nix_users(users: &Users) -> HashSet<String> {
         .collect()
 }
 
-pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<Pid>> {
+#[derive(Debug, Clone)]
+pub struct ProcMetadata {
+    id: Pid,
+}
+
+impl PartialEq for ProcMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl PartialOrd for ProcMetadata {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.id.cmp(&other.id))
+    }
+}
+
+impl Ord for ProcMetadata {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl Eq for ProcMetadata {}
+
+
+pub fn get_active_users_and_pids() -> (HashMap<String, BTreeSet<ProcMetadata>>) {
     let users = Users::new_with_refreshed_list();
     let nix_users = get_nix_users(&users);
-    let mut map = HashMap::<String, BTreeSet<Pid>>::new();
+    let mut map = HashMap::<String, BTreeSet<ProcMetadata>>::new();
     for user in &nix_users {
         map.insert(user.to_string(), BTreeSet::default());
     }
@@ -33,21 +59,22 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<Pid>> {
             let user = users.get_user_by_id(user_id)?;
             let name = user.name().to_string();
             // println!("name: {:?}, pid {}, proc {:?}", name, pid, proc);
-            nix_users.contains(&name).then_some((name, pid, proc))
+            nix_users.contains(&name).then_some((name, ProcMetadata { id: *pid }))
         })
-        .for_each(|(name, pid, proc)| {
-            println!("pid: {pid:?} proc: {proc:?}");
-            match map.entry(name) {
+    .for_each(|(name, proc_metadata)| {
+        match map.entry(name) {
             Entry::Occupied(mut o) => {
-                let entry: &mut BTreeSet<Pid> = o.get_mut();
-                entry.insert(*pid);
+                let entry: &mut BTreeSet<ProcMetadata> = o.get_mut();
+                entry.insert(proc_metadata);
             }
             Entry::Vacant(v) => {
+                // TODO nuke this case it's never hit since it's pre-inserted
                 let mut entry_new = BTreeSet::new();
-                entry_new.insert(*pid);
+                entry_new.insert(proc_metadata);
                 v.insert(entry_new);
             }
-        }});
+        };
+    });
     map
 }
 
