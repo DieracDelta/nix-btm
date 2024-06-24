@@ -23,6 +23,13 @@ use tui_tree_widget::{TreeItem, TreeState};
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WhichPane {
+    #[default]
+    Left,
+    Right,
+}
+
 #[derive(Default)]
 pub struct App {
     // TODO delete lol this is leftovers
@@ -32,7 +39,7 @@ pub struct App {
     pub vertical_scroll: usize,
     pub horizontal_scroll: usize,
     state: TreeState<String>,
-    // items: Vec<TreeItem<'static, &'static str>>,
+    pub which_pane: WhichPane,
 }
 
 pub fn main() {

@@ -3,7 +3,7 @@ use std::{io, time::Duration};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use sysinfo::Users;
 
-use crate::{get_stats::get_nix_users, ui::ui, App, Terminal};
+use crate::{get_stats::get_nix_users, ui::ui, App, Terminal, WhichPane};
 
 pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
     let mut last_frame_instant = std::time::Instant::now();
@@ -100,9 +100,15 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                             }
                         }
                         KeyCode::Char('h') | KeyCode::Left => {
-                            app.state.key_left();
+                            if app.which_pane == WhichPane::Right {
+                                app.which_pane = WhichPane::Left;
+                            }
                         }
-                        KeyCode::Char('l') | KeyCode::Right => {}
+                        KeyCode::Char('l') | KeyCode::Right => {
+                            if app.which_pane == WhichPane::Left {
+                                app.which_pane = WhichPane::Right;
+                            }
+                        }
                         KeyCode::Enter => {
                             // HACK the api has a cleaner way
                             if !app.state.key_right() {

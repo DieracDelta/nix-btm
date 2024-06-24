@@ -9,13 +9,26 @@ use ratatui::{
 };
 use tui_tree_widget::Tree;
 
-use crate::App;
+use crate::{App, WhichPane};
 use crate::{
     get_stats::{gen_tree, get_active_users_and_pids, ProcMetadata},
-    gruvbox::Gruvbox::{Dark0Hard, Dark0Soft, Light0Soft},
 };
+use crate::gruvbox::Gruvbox::{BlueBright, Dark0, Dark0Hard, Dark1, Light2, YellowBright, YellowDim};
+
 
 pub fn ui(f: &mut Frame, app: &mut App) {
+    let border_style_selected = Style::default()
+        .fg(YellowBright.into());
+    let border_style_unselected = Style::default()
+        .fg(YellowDim.into());
+    let title_style_selected = Style::default()
+        .fg(Dark0.into())
+        .bg(YellowBright.into())
+        .add_modifier(Modifier::BOLD);
+    let title_style_unselected = Style::default()
+        .fg(Dark0.into())
+        .bg(YellowDim.into())
+        .add_modifier(Modifier::BOLD);
     let user_map = get_active_users_and_pids();
     let items = gen_tree(&user_map);
     let size = f.size();
@@ -25,23 +38,37 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         //content
         Constraint::Percentage(80),
     ])
-    .split(size);
+        .split(size);
 
     let widget = Tree::new(&items)
         .expect("all item identifiers are unique")
         .block(
             Block::bordered().title("Nix builders list").title_bottom(
                 "TAB - toggle all, j/k - up down, esc/q to quit, ENTER - selectively open ",
-            ), // good for debugging
-               // .title_bottom(format!("{:?}", app.state)),
+            )
+            .title_style(
+                if app.which_pane == WhichPane::Left {
+                    title_style_selected
+                } else {
+                    title_style_unselected
+                })
+            .border_style(
+                if app.which_pane == WhichPane::Left {
+                    border_style_selected
+                } else {
+                    border_style_unselected
+                })
+            , // good for debugging
+              // .title_bottom(format!("{:?}", app.state)),
         )
         .highlight_style(
             Style::new()
-                .fg(Color::Black)
-                .bg(Color::LightGreen)
-                .add_modifier(Modifier::BOLD),
+            .fg(Color::Black)
+            .bg(Color::LightGreen)
+            .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol("> ");
+        .highlight_symbol("> ")
+        ;
     f.render_stateful_widget(widget, chunks[0], &mut app.state);
 
     let mut table_state = TableState::default();
@@ -82,7 +109,21 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     ];
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::new().title("BuilderInfo"))
-        .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+        .block(Block::bordered().title("BuilderInfo").title_style(
+                if app.which_pane == WhichPane::Right {
+                    title_style_selected
+                } else {
+                    title_style_unselected
+                })
+            .border_style(
+                if app.which_pane == WhichPane::Left {
+                    border_style_selected
+                } else {
+                    border_style_unselected
+                })
+        )
+        .highlight_style(
+            Style::new()
+        );
     f.render_stateful_widget(table, chunks[1], &mut table_state);
 }
