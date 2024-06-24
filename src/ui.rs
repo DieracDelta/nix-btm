@@ -44,7 +44,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         .expect("all item identifiers are unique")
         .block(
             Block::bordered().title("Nix builders list").title_bottom(
-                "TAB - toggle all, j/k - up down, esc/q to quit, ENTER - selectively open ",
+                "",
             )
             .title_style(
                 if app.which_pane == WhichPane::Left {
@@ -76,7 +76,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     f.render_stateful_widget(widget, chunks[0], &mut app.state);
 
     let mut table_state = TableState::default();
-    let header = ["pid", "env", "parent pid", "physical mem", "virtual mem", "run time", "cmd"].into_iter().map(Cell::from).collect::<Row>();
+    let header = ["pid", "env", "parent pid", "p_mem", "v_mem", "runtime", "cmd"].into_iter().map(Cell::from).collect::<Row>();
     let mut rows = Vec::new();
     if let Some(selected) = app.state.selected().first() {
         for ProcMetadata {
@@ -104,16 +104,16 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     let widths = [
         Constraint::Percentage(4),
-        Constraint::Percentage(14),
-        Constraint::Percentage(14),
-        Constraint::Percentage(14),
-        Constraint::Percentage(14),
-        Constraint::Percentage(14),
-        Constraint::Percentage(26),
+        Constraint::Percentage(0),
+        Constraint::Percentage(4),
+        Constraint::Percentage(4),
+        Constraint::Percentage(4),
+        Constraint::Percentage(4),
+        Constraint::Percentage(80),
     ];
     let table = Table::new(rows, widths)
         .header(header)
-        .block(Block::bordered().title("BuilderInfo").title_style(
+        .block(Block::bordered().title("BuilderInfo").title_bottom(" TAB - toggle all, j/k - up down, q to quit, ENTER - selectively open ").title_style(
                 if app.which_pane == WhichPane::Right {
                     title_style_selected
                 } else {
