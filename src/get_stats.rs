@@ -5,7 +5,7 @@ use std::{
 };
 
 use ratatui::text::Text;
-use sysinfo::{Pid, Process, System, Users};
+use sysinfo::{Pid, System, Users};
 use tui_tree_widget::TreeItem;
 
 pub fn get_nix_users(users: &Users) -> HashSet<String> {

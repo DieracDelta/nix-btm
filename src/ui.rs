@@ -1,19 +1,16 @@
 use ratatui::layout::Rect;
-use ratatui::text::{Line, Masked, Span, Text};
+use ratatui::text::{Line, Text};
 use ratatui::widgets::{Cell, Wrap};
 use ratatui::Frame;
 use ratatui::{
-    layout::{Alignment, Constraint, Layout, Margin},
-    style::{Color, Modifier, Style, Stylize},
-    symbols::scrollbar,
-    widgets::{Block, Paragraph, Row, Scrollbar, ScrollbarOrientation, Table, TableState},
+    layout::{Alignment, Constraint, Layout},
+    style::{Modifier, Style},
+    widgets::{Block, Paragraph, Row, Table, TableState},
 };
 use tui_tree_widget::Tree;
 
 use crate::get_stats::{gen_tree, get_active_users_and_pids, ProcMetadata};
-use crate::gruvbox::Gruvbox::{
-    BlueBright, Dark0, Dark0Hard, Dark1, Light2, OrangeBright, OrangeDim, YellowBright, YellowDim,
-};
+use crate::gruvbox::Gruvbox::{Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim};
 use crate::{App, WhichPane};
 
 pub fn format_bytes(size: usize) -> String {
