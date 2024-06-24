@@ -16,6 +16,19 @@ use crate::gruvbox::Gruvbox::{
 };
 use crate::{App, WhichPane};
 
+pub fn format_bytes(size: usize) -> String {
+    const MB: usize = 1024 * 1024;
+    const GB: usize = 1024 * 1024 * 1024; // 1024 * 1024 * 1024
+
+    if size >= GB {
+        format!("{:.3} GB", size as f64 / GB as f64)
+    } else if size >= MB {
+        format!("{:.2} MB", size as f64 / MB as f64)
+    } else {
+        format!("{} bytes", size)
+    }
+}
+
 /// borrowed from ratatui popup example
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -142,9 +155,9 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                         &id.to_string(),
                         &env.to_vec().join(" "),
                         parent,
-                        &p_mem.to_string(),
-                        &v_mem.to_string(),
-                        &run_time.to_string(),
+                        &format_bytes(*p_mem as usize),
+                        &format_bytes(*v_mem as usize),
+                        &format!("{}s", run_time),
                         &cmd.iter().take(8).cloned().collect::<Vec<_>>().join(" "),
                     ]
                     .into_iter()
