@@ -3,17 +3,17 @@ use std::io::Stdout;
 use std::time::Duration;
 use std::{io, panic};
 
-pub mod get_stats;
 pub mod event_loop;
-pub mod ui;
+pub mod get_stats;
 pub mod gruvbox;
 pub mod tui_tree_items;
+pub mod ui;
 
-use crossterm::event::{DisableMouseCapture};
+use crossterm::event::DisableMouseCapture;
+use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
-use crossterm::{execute};
 use event_loop::event_loop;
 use get_stats::get_active_users_and_pids;
 use ratatui::backend::CrosstermBackend;
@@ -40,10 +40,9 @@ pub fn main() {
         panic!("This OS is supported!");
     }
 
-    get_active_users_and_pids();
+    // get_active_users_and_pids();
 
-
-    // run().unwrap();
+    run().unwrap();
 }
 
 fn run() -> Result<()> {

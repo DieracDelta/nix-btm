@@ -1,5 +1,8 @@
 // note: bailing on btreemap because I want sorted by builder number, not string
-use std::{cmp::Ordering, collections::{hash_map::Entry, BTreeSet, HashMap, HashSet}};
+use std::{
+    cmp::Ordering,
+    collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
+};
 
 use ratatui::text::Text;
 use sysinfo::{Pid, Process, System, Users};
@@ -16,7 +19,13 @@ pub fn get_nix_users(users: &Users) -> HashSet<String> {
 
 #[derive(Debug, Clone)]
 pub struct ProcMetadata {
-    id: Pid,
+    pub id: Pid,
+    pub env: Vec<String>,
+    pub parent: String,
+    pub p_mem: u64,
+    pub v_mem: u64,
+    pub run_time: u64,
+    pub cmd: Vec<String>,
 }
 
 impl PartialEq for ProcMetadata {
@@ -39,8 +48,7 @@ impl Ord for ProcMetadata {
 
 impl Eq for ProcMetadata {}
 
-
-pub fn get_active_users_and_pids() -> (HashMap<String, BTreeSet<ProcMetadata>>) {
+pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
     let users = Users::new_with_refreshed_list();
     let nix_users = get_nix_users(&users);
     let mut map = HashMap::<String, BTreeSet<ProcMetadata>>::new();
@@ -59,38 +67,52 @@ pub fn get_active_users_and_pids() -> (HashMap<String, BTreeSet<ProcMetadata>>) 
             let user = users.get_user_by_id(user_id)?;
             let name = user.name().to_string();
             // println!("name: {:?}, pid {}, proc {:?}", name, pid, proc);
-            nix_users.contains(&name).then_some((name, ProcMetadata { id: *pid }))
+            nix_users.contains(&name).then_some((
+                name,
+                // TODO should probably query on-demand instead of carrying all this around
+                ProcMetadata {
+                    id: *pid,
+                    env: proc.environ().into(),
+                    // ignore this is useless
+                    parent: proc
+                        .parent()
+                        .map(|p| p.to_string())
+                        .unwrap_or("".to_string()),
+                    p_mem: proc.memory(),
+                    v_mem: proc.virtual_memory(),
+                    run_time: proc.run_time(),
+                    cmd: proc.cmd().into(),
+                },
+            ))
         })
-    .for_each(|(name, proc_metadata)| {
-        match map.entry(name) {
-            Entry::Occupied(mut o) => {
-                let entry: &mut BTreeSet<ProcMetadata> = o.get_mut();
-                entry.insert(proc_metadata);
-            }
-            Entry::Vacant(v) => {
-                // TODO nuke this case it's never hit since it's pre-inserted
-                let mut entry_new = BTreeSet::new();
-                entry_new.insert(proc_metadata);
-                v.insert(entry_new);
-            }
-        };
-    });
+        .for_each(|(name, proc_metadata)| {
+            // println!("{:?}", proc_metadata);
+            match map.entry(name) {
+                Entry::Occupied(mut o) => {
+                    let entry: &mut BTreeSet<ProcMetadata> = o.get_mut();
+                    entry.insert(proc_metadata);
+                }
+                Entry::Vacant(v) => {
+                    // TODO nuke this case it's never hit since key is pre-inserted
+                    let mut entry_new = BTreeSet::new();
+                    entry_new.insert(proc_metadata);
+                    v.insert(entry_new);
+                }
+            };
+        });
     map
 }
 
 // TODO there's definitely some optimization here to not query/process every time
-pub fn gen_tree(user_map: &HashMap<String, BTreeSet<Pid>>)
-    -> Vec<TreeItem<'_, String>>
-{
-
+pub fn gen_tree(user_map: &HashMap<String, BTreeSet<ProcMetadata>>) -> Vec<TreeItem<'_, String>> {
     let mut r_vec = Vec::new();
 
-    let mut sorted_user_map : Vec<_> = user_map.iter().collect();
+    let mut sorted_user_map: Vec<_> = user_map.iter().collect();
 
     // TODO refactor to a function, pass in to this function, ...
     sorted_user_map.sort_by(|&x, &y| {
-        let x_num : usize = x.0[6..].parse().unwrap();
-        let y_num : usize = y.0[6..].parse().unwrap();
+        let x_num: usize = x.0[6..].parse().unwrap();
+        let y_num: usize = y.0[6..].parse().unwrap();
         x_num.partial_cmp(&y_num).unwrap()
     });
 
@@ -98,8 +120,8 @@ pub fn gen_tree(user_map: &HashMap<String, BTreeSet<Pid>>)
         let mut leaves = Vec::new();
         for pid in map {
             // gross there's definitely a better way
-            let t_pid = Text::from(pid.to_string());
-            leaves.push(TreeItem::new_leaf(pid.to_string(), t_pid));
+            let t_pid = Text::from(pid.id.to_string());
+            leaves.push(TreeItem::new_leaf(pid.id.to_string(), t_pid));
         }
         let t_user = Text::from(format!("{} ({})", user.clone(), map.len()));
         let root = TreeItem::new(user.clone(), t_user, leaves).unwrap();
@@ -108,4 +130,3 @@ pub fn gen_tree(user_map: &HashMap<String, BTreeSet<Pid>>)
 
     r_vec
 }
-

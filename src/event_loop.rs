@@ -29,7 +29,7 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                                     app.state.open(vec![user]);
                                 }
                             }
-                        },
+                        }
                         KeyCode::Char('j') | KeyCode::Down => {
                             app.state.key_down();
                         }
@@ -39,12 +39,10 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                         KeyCode::Char('h') | KeyCode::Left => {
                             app.state.key_left();
                         }
-                        KeyCode::Char('l') | KeyCode::Right => {
-
-                        }
+                        KeyCode::Char('l') | KeyCode::Right => {}
                         KeyCode::Enter => {
                             // HACK the api has a cleaner way
-                            if !app.state.key_right(){
+                            if !app.state.key_right() {
                                 app.state.key_left();
                             }
                         }
@@ -55,4 +53,3 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
         }
     }
 }
-
