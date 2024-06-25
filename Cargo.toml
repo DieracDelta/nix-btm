@@ -1,6 +1,6 @@
 [package]
 name = "nix-btm"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 exclude = ["target_dirs", ".github", "target"]
 authors = [ "Justin Restivo (justin.p.restivo@gmail.com)"]
