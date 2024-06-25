@@ -17,6 +17,19 @@ pub fn get_nix_users(users: &Users) -> HashSet<String> {
         .collect()
 }
 
+// TODO make users global
+pub fn get_sorted_nix_users() -> Vec<String> {
+    let users = Users::new_with_refreshed_list();
+    let mut nix_users: Vec<_> = get_nix_users(&users).into_iter().collect();
+    nix_users.sort_by(|x, y| {
+        let offset = if x.starts_with('_') { 7 } else { 6 };
+        let x_num: usize = x[offset..].parse().unwrap();
+        let y_num: usize = y[offset..].parse().unwrap();
+        x_num.partial_cmp(&y_num).unwrap()
+    });
+    nix_users
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcMetadata {
     pub id: Pid,
