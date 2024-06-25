@@ -56,14 +56,10 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                             }
                         }
                         KeyCode::Char('h') => {
-                            if app.which_pane == WhichPane::Right {
-                                app.which_pane = WhichPane::Left;
-                            }
+                            app.go_left();
                         }
                         KeyCode::Char('l') => {
-                            if app.which_pane == WhichPane::Left {
-                                app.which_pane = WhichPane::Right;
-                            }
+                            app.go_right();
                         }
                         KeyCode::Char('<') | KeyCode::Left => {
                             if app.which_pane == WhichPane::Right {

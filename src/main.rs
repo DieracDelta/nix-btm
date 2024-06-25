@@ -37,6 +37,20 @@ pub struct App {
     pub man_toggle: bool,
 }
 
+impl App {
+    pub fn go_right(&mut self) {
+        if self.which_pane == WhichPane::Left {
+            self.which_pane = WhichPane::Right;
+        }
+    }
+
+    pub fn go_left(&mut self) {
+        if self.which_pane == WhichPane::Right {
+            self.which_pane = WhichPane::Left;
+        }
+    }
+}
+
 pub fn main() {
     if !sysinfo::IS_SUPPORTED_SYSTEM {
         panic!("This OS is supported!");
