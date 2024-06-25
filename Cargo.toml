@@ -18,3 +18,4 @@ ratatui = "0.26.3"
 # tachyonfx = {git = "https://github.com/junkdog/tachyonfx"}
 sysinfo = {version = "0.30.12"} #, features = ["debug"]}
 tui-tree-widget = "0.20.0"
+lazy_static = "1.5.0"

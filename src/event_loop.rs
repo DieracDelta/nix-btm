@@ -1,10 +1,9 @@
-use std::{io, time::Duration};
+use std::{io, ops::Deref, time::Duration};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use sysinfo::Users;
 
 use crate::{
-    get_stats::{get_nix_users, get_sorted_nix_users},
+    get_stats::{NIX_USERS, SORTED_NIX_USERS},
     ui::ui,
     App, Terminal, WhichPane,
 };
@@ -19,47 +18,41 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('g') => {
-                            let sorted_users: Vec<String> = get_sorted_nix_users();
-                            app.state.select(vec![sorted_users[0].clone()]);
+                            app.state.select(vec![SORTED_NIX_USERS[0].clone()]);
                         }
                         KeyCode::Char('G') => {
-                            let sorted_users: Vec<String> = get_sorted_nix_users();
                             app.state
-                                .select(vec![sorted_users[sorted_users.len() - 1].clone()]);
+                                .select(vec![SORTED_NIX_USERS[SORTED_NIX_USERS.len() - 1].clone()]);
                         }
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                         KeyCode::Tab => {
                             let num_open = app.state.opened().len();
-                            let users = Users::new_with_refreshed_list();
-                            let users = get_nix_users(&users);
-                            if num_open == users.len() {
+                            if num_open == NIX_USERS.len() {
                                 app.state.close_all();
                             } else {
-                                for user in users {
-                                    app.state.open(vec![user]);
+                                for user in Deref::deref(&NIX_USERS) {
+                                    app.state.open(vec![user.to_string()]);
                                 }
                             }
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
                             if let Some(selected) = app.state.selected().first() {
-                                let sorted_users: Vec<String> = get_sorted_nix_users();
-                                let idx = sorted_users.iter().position(|x| x == selected).unwrap();
-                                let new_idx = (idx + 1) % sorted_users.len();
-                                app.state.select(vec![sorted_users[new_idx].clone()]);
+                                let idx =
+                                    SORTED_NIX_USERS.iter().position(|x| x == selected).unwrap();
+                                let new_idx = (idx + 1) % SORTED_NIX_USERS.len();
+                                app.state.select(vec![SORTED_NIX_USERS[new_idx].clone()]);
                             } else {
-                                let sorted_users: Vec<String> = get_sorted_nix_users();
-                                app.state.select(vec![sorted_users[0].clone()]);
+                                app.state.select(vec![SORTED_NIX_USERS[0].clone()]);
                             }
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
                             if let Some(selected) = app.state.selected().first() {
-                                let sorted_users: Vec<String> = get_sorted_nix_users();
-                                let idx = sorted_users.iter().position(|x| x == selected).unwrap();
-                                let new_idx = (idx - 1) % sorted_users.len();
-                                app.state.select(vec![sorted_users[new_idx].clone()]);
+                                let idx =
+                                    SORTED_NIX_USERS.iter().position(|x| x == selected).unwrap();
+                                let new_idx = (idx - 1) % SORTED_NIX_USERS.len();
+                                app.state.select(vec![SORTED_NIX_USERS[new_idx].clone()]);
                             } else {
-                                let sorted_users: Vec<String> = get_sorted_nix_users();
-                                app.state.select(vec![sorted_users[0].clone()]);
+                                app.state.select(vec![SORTED_NIX_USERS[0].clone()]);
                             }
                         }
                         KeyCode::Char('h') => {

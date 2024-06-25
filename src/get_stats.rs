@@ -4,9 +4,21 @@ use std::{
     collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
 };
 
+use lazy_static::lazy_static;
+
 use ratatui::text::Text;
 use sysinfo::{Pid, System, Users};
 use tui_tree_widget::TreeItem;
+
+lazy_static! {
+    /// This is an example for using doc comment attributes
+    pub static ref NIX_USERS: HashSet<String> = {
+        get_nix_users(&Users::new_with_refreshed_list()).into_iter().collect()
+    };
+    pub static ref SORTED_NIX_USERS: Vec<String> = {
+        get_sorted_nix_users()
+    };
+}
 
 pub fn get_nix_users(users: &Users) -> HashSet<String> {
     users
