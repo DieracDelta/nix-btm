@@ -30,7 +30,10 @@ with pkgs;
 
               src = ./.;
 
-              cargoHash = "sha256-I/ZU8G6jlCd+3AT/rVzT8VtB73LAcrQM80E9v3buAlo=";
+              cargoLock = {
+                lockFile = ./Cargo.lock;
+              };
+
 
               buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
                   pkgs.darwin.apple_sdk.frameworks.CoreServices
