@@ -127,18 +127,10 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
     f.render_stateful_widget(widget, chunks[0], &mut app.state);
 
     let mut table_state = TableState::default();
-    let header = [
-        "pid",
-        "env",
-        "parent pid",
-        "p_mem",
-        "v_mem",
-        "runtime",
-        "cmd",
-    ]
-    .into_iter()
-    .map(Cell::from)
-    .collect::<Row>();
+    let header = ["pid", "env", "parent pid", "p_mem", "v_mem", "⏰", "cmd"]
+        .into_iter()
+        .map(Cell::from)
+        .collect::<Row>();
     let mut rows = Vec::new();
     if let Some(selected) = app.state.selected().first() {
         for ProcMetadata {
