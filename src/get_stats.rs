@@ -2,6 +2,7 @@
 use std::{
     cmp::Ordering,
     collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
+    ops::Deref,
 };
 
 use lazy_static::lazy_static;
@@ -13,7 +14,10 @@ use tui_tree_widget::TreeItem;
 lazy_static! {
     /// This is an example for using doc comment attributes
     pub static ref NIX_USERS: HashSet<String> = {
-        get_nix_users(&Users::new_with_refreshed_list()).into_iter().collect()
+        get_nix_users(&USERS).into_iter().collect()
+    };
+    pub static ref USERS: Users = {
+        Users::new_with_refreshed_list()
     };
     pub static ref SORTED_NIX_USERS: Vec<String> = {
         get_sorted_nix_users()
@@ -29,10 +33,8 @@ pub fn get_nix_users(users: &Users) -> HashSet<String> {
         .collect()
 }
 
-// TODO make users global
 pub fn get_sorted_nix_users() -> Vec<String> {
-    let users = Users::new_with_refreshed_list();
-    let mut nix_users: Vec<_> = get_nix_users(&users).into_iter().collect();
+    let mut nix_users: Vec<_> = Deref::deref(&NIX_USERS).iter().cloned().collect();
     nix_users.sort_by(|x, y| {
         let offset = if x.starts_with('_') { 7 } else { 6 };
         let x_num: usize = x[offset..].parse().unwrap();
@@ -74,10 +76,8 @@ impl Ord for ProcMetadata {
 impl Eq for ProcMetadata {}
 
 pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
-    let users = Users::new_with_refreshed_list();
-    let nix_users = get_nix_users(&users);
     let mut map = HashMap::<String, BTreeSet<ProcMetadata>>::new();
-    for user in &nix_users {
+    for user in Deref::deref(&NIX_USERS) {
         map.insert(user.to_string(), BTreeSet::default());
     }
     let system = System::new_all();
@@ -89,10 +89,10 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
         .iter()
         .filter_map(move |(pid, proc)| {
             let user_id = proc.effective_user_id()?;
-            let user = users.get_user_by_id(user_id)?;
+            let user = Deref::deref(&USERS).get_user_by_id(user_id)?;
             let name = user.name().to_string();
             // println!("name: {:?}, pid {}, proc {:?}", name, pid, proc);
-            nix_users.contains(&name).then_some((
+            NIX_USERS.contains(&name).then_some((
                 name,
                 // TODO should probably query on-demand instead of carrying all this around
                 ProcMetadata {
@@ -117,11 +117,8 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
                     let entry: &mut BTreeSet<ProcMetadata> = o.get_mut();
                     entry.insert(proc_metadata);
                 }
-                Entry::Vacant(v) => {
-                    // TODO nuke this case it's never hit since key is pre-inserted
-                    let mut entry_new = BTreeSet::new();
-                    entry_new.insert(proc_metadata);
-                    v.insert(entry_new);
+                Entry::Vacant(_v) => {
+                    unreachable!("How did this happen");
                 }
             };
         });

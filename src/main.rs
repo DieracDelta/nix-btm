@@ -14,14 +14,18 @@ use crossterm::terminal::{
 };
 use event_loop::event_loop;
 use ratatui::backend::CrosstermBackend;
+use ratatui::style::Style;
 use ratatui::widgets::ScrollbarState;
 use tui_tree_widget::TreeState;
+use ui::{
+    BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED, TITLE_STYLE_UNSELECTED,
+};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum WhichPane {
+pub enum Pane {
     #[default]
     Left,
     Right,
@@ -33,20 +37,36 @@ pub struct App {
     pub vertical_scroll: usize,
     pub horizontal_scroll: usize,
     state: TreeState<String>,
-    pub which_pane: WhichPane,
+    pub selected_pane: Pane,
     pub man_toggle: bool,
 }
 
 impl App {
+    pub fn gen_title_style(&self, this_pane: Pane) -> Style {
+        if self.selected_pane == this_pane {
+            *TITLE_STYLE_SELECTED
+        } else {
+            *TITLE_STYLE_UNSELECTED
+        }
+    }
+
+    pub fn gen_border_style(&self, this_pane: Pane) -> Style {
+        if self.selected_pane == this_pane {
+            *BORDER_STYLE_SELECTED
+        } else {
+            *BORDER_STYLE_UNSELECTED
+        }
+    }
+
     pub fn go_right(&mut self) {
-        if self.which_pane == WhichPane::Left {
-            self.which_pane = WhichPane::Right;
+        if self.selected_pane == Pane::Left {
+            self.selected_pane = Pane::Right;
         }
     }
 
     pub fn go_left(&mut self) {
-        if self.which_pane == WhichPane::Right {
-            self.which_pane = WhichPane::Left;
+        if self.selected_pane == Pane::Right {
+            self.selected_pane = Pane::Left;
         }
     }
 }

@@ -5,7 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crate::{
     get_stats::{NIX_USERS, SORTED_NIX_USERS},
     ui::ui,
-    App, Terminal, WhichPane,
+    App, Pane, Terminal,
 };
 
 pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
@@ -62,12 +62,12 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                             app.go_right();
                         }
                         KeyCode::Char('<') | KeyCode::Left => {
-                            if app.which_pane == WhichPane::Right {
+                            if app.selected_pane == Pane::Right {
                                 app.horizontal_scroll = app.horizontal_scroll.saturating_sub(1);
                             }
                         }
                         KeyCode::Char('>') | KeyCode::Right => {
-                            if app.which_pane == WhichPane::Right {
+                            if app.selected_pane == Pane::Right {
                                 app.horizontal_scroll += 1;
                             }
                         }

@@ -20,5 +20,6 @@ Nix output monitor is really great! `nix-btm` targets the usecases where NOM can
 - [ ] build history
 - [ ] build analytics
 - [x] pop up manpage
+- [ ] monitor builds across multiple servers (fed in by IP address)
 
 
