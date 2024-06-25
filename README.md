@@ -14,7 +14,6 @@ Nix output monitor is really great! `nix-btm` targets the usecases where NOM can
 
 # What's it look like?
 
-https://asciinema.org/a/hG1DHrV4RC6bF0W1oO1GqvlIb
 [![asciicast](https://asciinema.org/a/hG1DHrV4RC6bF0W1oO1GqvlIb.svg)](https://asciinema.org/a/hG1DHrV4RC6bF0W1oO1GqvlIb)
 
 # Potential improvements (unchecked are unimplemented)
