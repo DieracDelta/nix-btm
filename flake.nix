@@ -57,6 +57,7 @@ with pkgs;
             RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
             buildInputs =
               with pkgs; [
+              python3
                 fenixStable
                 fenix.packages.${system}.rust-analyzer
                 just

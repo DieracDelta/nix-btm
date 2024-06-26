@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::error::Error;
 use std::io::Stdout;
 use std::{io, panic};
@@ -13,6 +14,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use event_loop::event_loop;
+use get_stats::{construct_tree, get_active_users_and_pids};
 use ratatui::backend::CrosstermBackend;
 use ratatui::style::Style;
 use ratatui::widgets::ScrollbarState;
@@ -76,7 +78,16 @@ pub fn main() {
         panic!("This OS is supported!");
     }
 
-    run().unwrap();
+    let sets = get_active_users_and_pids();
+    let mut total_set = HashSet::new();
+    for (_, set) in sets {
+        let sett: HashSet<_> = set.into_iter().collect();
+        let unioned = total_set.union(&sett).cloned();
+        total_set = unioned.collect::<HashSet<_>>();
+    }
+    let t = construct_tree(total_set);
+    println!("{t:#?}");
+    // run().unwrap();
 }
 
 fn run() -> Result<()> {

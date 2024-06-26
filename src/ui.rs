@@ -1,4 +1,4 @@
-use crate::get_stats::{gen_tree, get_active_users_and_pids, ProcMetadata};
+use crate::get_stats::{gen_ui_by_nix_builder, get_active_users_and_pids, ProcMetadata};
 use crate::gruvbox::Gruvbox::{Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim};
 use crate::{App, Pane};
 use lazy_static::lazy_static;
@@ -94,7 +94,7 @@ pub fn draw_man_page(f: &mut Frame, _app: &mut App) {
 
 pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
     let user_map = get_active_users_and_pids();
-    let items = gen_tree(&user_map);
+    let items = gen_ui_by_nix_builder(&user_map);
     let size = f.size();
     let chunks = Layout::horizontal([
         // title
@@ -141,13 +141,14 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
             v_mem,
             run_time,
             cmd,
+            name,
         } in user_map.get(selected).unwrap().iter()
         {
             rows.push(
                 [
                     &id.to_string(),
                     &env.to_vec().join(" "),
-                    parent,
+                    &parent.clone().unwrap().to_string(),
                     &format_bytes(*p_mem as usize),
                     &format_bytes(*v_mem as usize),
                     &format!("{}s", run_time),
