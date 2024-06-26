@@ -1,4 +1,5 @@
 // note: bailing on btreemap because I want sorted by builder number, not string
+use procfs::process::Process as ProcFsProcess;
 use std::{
     cmp::Ordering,
     collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
@@ -11,7 +12,6 @@ pub fn nll_todo<T>() -> T {
     None.unwrap()
 }
 
-use derivative::Derivative;
 use lazy_static::lazy_static;
 
 use ratatui::text::Text;
@@ -54,13 +54,20 @@ pub fn get_sorted_nix_users() -> Vec<String> {
 #[derive(Debug, Clone)]
 pub struct ProcMetadata {
     pub id: Pid,
-    pub name: String,
+    pub owner: String,
     pub env: Vec<String>,
     pub parent: Option<Pid>,
     pub p_mem: u64,
     pub v_mem: u64,
     pub run_time: u64,
     pub cmd: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DrvRoot {
+    pub drv: String,
+    pub human_readable_drv: String,
+    pub procs: TreeNode,
 }
 
 // possibly very cursed
@@ -104,7 +111,7 @@ pub fn from_proc(proc: &Process) -> Option<ProcMetadata> {
     let uname = user.name().to_string();
     let pid = proc.pid();
     Some(ProcMetadata {
-        name: uname,
+        owner: uname,
         id: pid,
         env: proc.environ().into(),
         // ignore this is useless
@@ -130,9 +137,9 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
         .iter()
         .filter_map(move |(_pid, proc)| {
             let pd = from_proc(proc)?;
-            NIX_USERS.contains(&pd.name).then_some({
+            NIX_USERS.contains(&pd.owner).then_some({
                 (
-                    pd.name.clone(),
+                    pd.owner.clone(),
                     // TODO should probably query on-demand instead of carrying all this around
                     from_proc(proc)?,
                 )
@@ -362,6 +369,90 @@ pub fn dump_pids(tree_nodes: &HashMap<Pid, TreeNode>, map: &HashMap<Pid, ProcMet
     }
 }
 
-pub fn strip_tf_outta_tree(tree_node: &TreeNode, pid_map: HashMap<Pid, ProcMetadata>) -> &TreeNode {
-    todo!()
+pub fn strip_tf_outta_tree(
+    tree_node: TreeNode,
+    _pid_map: &HashMap<Pid, ProcMetadata>,
+) -> HashMap<Pid, TreeNode> {
+    // go two levels deeper
+    // pid_map passed in exactly for this purpose
+    // TODO add in an assert
+    //                 cmd: [ "nix-daemon", "--daemon",
+    //                  "/run/current-system/systemd/lib/systemd/systemd",
+    let real_roots = tree_node.children.into_iter().next().unwrap().children;
+    let mut root_map = HashMap::new();
+    real_roots.into_iter().for_each(|root| {
+        root_map.insert(root.pid, root);
+    });
+    root_map
+}
+
+// function that converts string of form "/nix/var/log/nix/drvs/z4/ps207hnvyh0lsrlmgkqyyfj3bbf37l-helix-24.03.drv.bz2"
+// to string of form "/nix/store/z4ps207hnvyh0lsrlmgkqyyfj3bbf37l-helix-24.03.drv"
+fn bz2_to_drv(input: &str) -> String {
+    let mut result = "/nix/store/".to_string();
+    for ele in input.split('/') {
+        match ele {
+            "nix" | "var" | "log" | "drvs" => {}
+            s => result.push_str(s),
+        }
+    }
+    result.chars().take(result.len() - 4).collect()
+}
+
+fn drv_to_readable_drv(input: &str) -> String {
+    let mut result = "".to_string();
+    for ele in input.split('/') {
+        println!("ele: {}", ele);
+        match ele {
+            "nix" | "store" | "" => {}
+            s => {
+                let mut start_recording = false;
+                for c in s.chars() {
+                    println!("C: {}", c);
+                    if !start_recording {
+                        if c == '-' {
+                            start_recording = true;
+                        }
+                    } else {
+                        result.push(c);
+                    }
+                }
+                return result.chars().take(result.len() - 4).collect();
+            }
+        }
+    }
+    unreachable!()
+}
+
+// TODO error handling
+pub fn create_drv_root(root: TreeNode) -> DrvRoot {
+    let root_pid = root.pid;
+    // this can totally fail
+    let proc = ProcFsProcess::new(root_pid.as_u32() as i32).unwrap();
+    let fds = proc.fd().unwrap();
+    for fd in fds {
+        let Ok(fd) = fd else { continue };
+        match fd.target {
+            procfs::process::FDTarget::Path(path) => {
+                if path.to_str().unwrap().starts_with("/nix/var/log/nix/drvs/") {
+                    let drv_name = bz2_to_drv(path.to_str().unwrap());
+                    let readable = drv_to_readable_drv(&drv_name);
+                    return DrvRoot {
+                        drv: drv_name,
+                        human_readable_drv: readable,
+                        procs: root,
+                    };
+                }
+            }
+            _ => continue,
+        }
+    }
+
+    nll_todo()
+}
+
+pub fn get_drvs(map: HashMap<Pid, TreeNode>) -> HashMap<Pid, DrvRoot> {
+    map.into_iter()
+        .map(|(k, v)| (k, create_drv_root(v)))
+        .collect::<HashMap<_, _>>()
 }

@@ -141,7 +141,7 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
             v_mem,
             run_time,
             cmd,
-            name,
+            owner: name,
         } in user_map.get(selected).unwrap().iter()
         {
             rows.push(

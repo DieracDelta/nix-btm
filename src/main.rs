@@ -14,7 +14,10 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use event_loop::event_loop;
-use get_stats::{construct_pid_map, construct_tree, dump_pids, get_active_users_and_pids};
+use get_stats::{
+    construct_pid_map, construct_tree, dump_pids, get_active_users_and_pids, get_drvs,
+    strip_tf_outta_tree,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::style::Style;
 use ratatui::widgets::ScrollbarState;
@@ -86,8 +89,15 @@ pub fn main() {
         total_set = unioned.collect::<HashSet<_>>();
     }
     let mut map = construct_pid_map(total_set.clone());
-    let t = construct_tree(map.keys().cloned().collect(), &mut map);
-    dump_pids(&t, &map);
+    let total_tree = construct_tree(map.keys().cloned().collect(), &mut map)
+        .into_iter()
+        .next()
+        .unwrap()
+        .1;
+    let real_roots = strip_tf_outta_tree(total_tree, &map);
+    let drvs_roots = get_drvs(real_roots);
+    println!("{:#?}", drvs_roots);
+    // dump_pids(&real_roots, &map);
     // println!("{t:#?}");
     // run().unwrap();
 }
