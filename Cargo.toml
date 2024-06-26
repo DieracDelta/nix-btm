@@ -15,8 +15,9 @@ description = "A nix process monitor"
 crossterm = "0.27.0"
 rand = {version = "0.8.5", features = ["small_rng"]}
 # TODO upgrade
-ratatui = "0.26.3"
+ratatui = "0.27"
 # tachyonfx = {git = "https://github.com/junkdog/tachyonfx"}
 sysinfo = {version = "0.30.12"} #, features = ["debug"]}
-tui-tree-widget = "0.20.0"
+tui-tree-widget = { git = "https://github.com/DieracDelta/tui-rs-tree-widget.git", branch = "jr/version_bump"}
 lazy_static = "1.5.0"
+derivative = "2.2.0"
