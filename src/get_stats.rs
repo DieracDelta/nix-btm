@@ -1,6 +1,5 @@
 // note: bailing on btreemap because I want sorted by builder number, not string
 use std::{
-    cell::RefCell,
     cmp::Ordering,
     collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
     ops::Deref,
@@ -83,6 +82,14 @@ impl Ord for ProcMetadata {
 
 impl Eq for ProcMetadata {}
 
+pub fn construct_pid_map(set: HashSet<ProcMetadata>) -> HashMap<Pid, ProcMetadata> {
+    let mut r_map = HashMap::new();
+    for ele in set {
+        r_map.insert(ele.id, ele);
+    }
+    r_map
+}
+
 pub fn from_proc(proc: &Process) -> Option<ProcMetadata> {
     let user_id = proc.effective_user_id()?;
     let user = Deref::deref(&USERS).get_user_by_id(user_id)?;
@@ -143,16 +150,21 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
 // the treenode should only contain pids
 // and point to the metadata, which can be looked up elsewhere
 
-#[derive(Derivative, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct TreeNode {
-    proc_metadata: ProcMetadata,
-    #[derivative(PartialEq = "ignore")]
+    pid: Pid,
     children: HashSet<TreeNode>,
+}
+
+impl PartialEq for TreeNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.pid == other.pid
+    }
 }
 
 impl std::hash::Hash for TreeNode {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.proc_metadata.id.hash(state);
+        self.pid.hash(state);
     }
 }
 
@@ -174,39 +186,69 @@ pub fn merge_trees(t1: &mut TreeNode, t2: &TreeNode) {
     }
 }
 
-pub fn construct_tree(new_procs: HashSet<ProcMetadata>) -> HashMap<Pid, TreeNode> {
-    let mut roots = HashMap::<Pid, TreeNode>::new();
-    'top: for proc in new_procs {
-        let mut cur_proc = proc.clone();
-        let mut proc_subtree: HashSet<TreeNode> = HashSet::new();
-        loop {
-            match cur_proc.parent {
-                Some(p_pid) => {
-                    // TODO new_procs should be hashmap pid -> val, go off that so we don't need to
-                    // look up every time
-                    let mut system = System::new_all();
-                    system.refresh_all();
-                    match system.process(p_pid) {
-                        Some(p_metadata) => {
-                            let pd = from_proc(p_metadata).unwrap();
-                            let mut new_proc_subtree = HashSet::new();
-                            new_proc_subtree.insert(TreeNode {
-                                proc_metadata: cur_proc.clone(),
-                                children: proc_subtree,
-                            });
-                            proc_subtree = new_proc_subtree;
-                            cur_proc = pd;
-                        }
-                        None => {
-                            // we've failed. parent no longer exists
-                            continue;
-                        }
+pub enum PidParent {
+    DoesntExist,
+    IsDead,
+    IsAlive(Pid),
+}
+
+pub fn get_parent(pid: Pid, pid_map: &mut HashMap<Pid, ProcMetadata>) -> PidParent {
+    // TODO a bit more finnicking.
+    // Make pid_map mutable reference
+    // perform a query if not in the pid map
+    match pid_map.get(&pid) {
+        Some(proc) => match proc.parent {
+            Some(parent) => PidParent::IsAlive(parent),
+            None => PidParent::DoesntExist,
+        },
+        None => {
+            let mut system = System::new_all();
+            system.refresh_all();
+            match system.process(pid) {
+                Some(proc) => {
+                    // TODO sus to unwrap here. Should just have less info
+                    pid_map.insert(pid, from_proc(proc).unwrap());
+                    match proc.parent() {
+                        Some(parent) => PidParent::IsAlive(parent),
+                        None => PidParent::DoesntExist,
                     }
                 }
-                None => {
-                    let root_pid = cur_proc.id;
+                None => PidParent::IsDead,
+            }
+        }
+    }
+
+    //     .map(|proc| proc.parent).flatten() {
+    //     Some(p_pid) => IsAlive(Pid),
+    //     None => {
+    //
+    //     }
+    // }
+}
+
+pub fn construct_tree(
+    procs: HashSet<Pid>,
+    pid_map: &mut HashMap<Pid, ProcMetadata>,
+) -> HashMap<Pid, TreeNode> {
+    let mut roots = HashMap::<Pid, TreeNode>::new();
+    'top: for pid in procs {
+        let mut cur_pid = pid.clone();
+        let mut proc_subtree: HashSet<TreeNode> = HashSet::new();
+        loop {
+            match get_parent(cur_pid, pid_map) {
+                PidParent::IsAlive(p_pid) => {
+                    let mut new_proc_subtree = HashSet::new();
+                    new_proc_subtree.insert(TreeNode {
+                        pid: cur_pid.clone(),
+                        children: proc_subtree,
+                    });
+                    cur_pid = p_pid;
+                    proc_subtree = new_proc_subtree;
+                }
+                PidParent::DoesntExist => {
+                    let root_pid = cur_pid;
                     let new_tree_root = TreeNode {
-                        proc_metadata: cur_proc,
+                        pid: cur_pid,
                         // the root should always be one up from what we are iterating on
                         children: proc_subtree,
                     };
@@ -216,6 +258,9 @@ pub fn construct_tree(new_procs: HashSet<ProcMetadata>) -> HashMap<Pid, TreeNode
                         let cur_root_tree = roots.get_mut(&root_pid).unwrap();
                         merge_trees(cur_root_tree, &new_tree_root);
                     }
+                    continue 'top;
+                }
+                PidParent::IsDead => {
                     continue 'top;
                 }
             }
