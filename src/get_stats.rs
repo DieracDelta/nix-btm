@@ -2,6 +2,7 @@
 use std::{
     cmp::Ordering,
     collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
+    hash::Hash,
     ops::Deref,
 };
 
@@ -50,7 +51,7 @@ pub fn get_sorted_nix_users() -> Vec<String> {
     nix_users
 }
 
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct ProcMetadata {
     pub id: Pid,
     pub name: String,
@@ -60,6 +61,13 @@ pub struct ProcMetadata {
     pub v_mem: u64,
     pub run_time: u64,
     pub cmd: Vec<String>,
+}
+
+// possibly very cursed
+impl Hash for ProcMetadata {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
 }
 
 impl PartialEq for ProcMetadata {
@@ -156,13 +164,33 @@ pub struct TreeNode {
     children: HashSet<TreeNode>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ThickerTreeNode<'a> {
+    proc: &'a ProcMetadata,
+    children: HashSet<ThickerTreeNode<'a>>,
+}
+
+impl<'a> PartialEq for ThickerTreeNode<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.proc.id == other.proc.id
+    }
+}
+
+impl<'a> Eq for ThickerTreeNode<'a> {}
+
+impl<'a> Hash for ThickerTreeNode<'a> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.proc.hash(state);
+    }
+}
+
 impl PartialEq for TreeNode {
     fn eq(&self, other: &Self) -> bool {
         self.pid == other.pid
     }
 }
 
-impl std::hash::Hash for TreeNode {
+impl Hash for TreeNode {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.pid.hash(state);
     }
@@ -310,4 +338,30 @@ pub fn gen_ui_by_nix_builder(
     }
 
     r_vec
+}
+
+pub fn convert_to_thicker_tree_node<'a>(
+    tree_node: &TreeNode,
+    map: &'a HashMap<Pid, ProcMetadata>,
+) -> ThickerTreeNode<'a> {
+    let mut root = ThickerTreeNode {
+        proc: map.get(&tree_node.pid).unwrap(),
+        children: HashSet::new(),
+    };
+    for child in &tree_node.children {
+        let tmp = convert_to_thicker_tree_node(child, map);
+        root.children.insert(tmp);
+    }
+    root
+}
+
+pub fn dump_pids(tree_nodes: &HashMap<Pid, TreeNode>, map: &HashMap<Pid, ProcMetadata>) {
+    for tree_node in tree_nodes {
+        let thicker_tree_node = convert_to_thicker_tree_node(tree_node.1, map);
+        println!("{thicker_tree_node:#?}");
+    }
+}
+
+pub fn strip_tf_outta_tree(tree_node: &TreeNode, pid_map: HashMap<Pid, ProcMetadata>) -> &TreeNode {
+    todo!()
 }
