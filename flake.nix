@@ -32,6 +32,10 @@ with pkgs;
 
               cargoLock = {
                 lockFile = ./Cargo.lock;
+                outputHashes = {
+                  "tui-tree-widget-0.20.0" = "sha256-QNRLBT6a3vdzQENBno7GNF+/nqu7LnNqEKAYz1Y2B8A=";
+
+                };
               };
 
 

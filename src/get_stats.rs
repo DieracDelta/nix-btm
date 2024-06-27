@@ -65,9 +65,25 @@ pub struct ProcMetadata {
 
 #[derive(Debug, Clone)]
 pub struct DrvRoot {
+    pub drv: Drv,
+    pub procs: TreeNode,
+}
+
+impl DrvRoot {
+    pub fn new(drv: Drv, procs: TreeNode) -> Self {
+        DrvRoot { drv, procs }
+    }
+
+    pub fn print_drv_root(&self) -> String {
+        format!("{}^*", self.drv.drv)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
+pub struct Drv {
     pub drv: String,
     pub human_readable_drv: String,
-    pub procs: TreeNode,
+    pub deps: Vec<Drv>,
 }
 
 // possibly very cursed
@@ -438,8 +454,11 @@ pub fn create_drv_root(root: TreeNode) -> DrvRoot {
                     let drv_name = bz2_to_drv(path.to_str().unwrap());
                     let readable = drv_to_readable_drv(&drv_name);
                     return DrvRoot {
-                        drv: drv_name,
-                        human_readable_drv: readable,
+                        drv: Drv {
+                            drv: drv_name,
+                            human_readable_drv: readable,
+                            deps: Vec::new(),
+                        },
                         procs: root,
                     };
                 }
@@ -447,12 +466,28 @@ pub fn create_drv_root(root: TreeNode) -> DrvRoot {
             _ => continue,
         }
     }
-
-    nll_todo()
+    unreachable!()
 }
 
 pub fn get_drvs(map: HashMap<Pid, TreeNode>) -> HashMap<Pid, DrvRoot> {
     map.into_iter()
         .map(|(k, v)| (k, create_drv_root(v)))
         .collect::<HashMap<_, _>>()
+}
+
+pub struct DrvPath(Vec<Drv>);
+
+pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<DrvPath> {
+    // TODO
+    todo!()
+}
+
+// why depends
+// TODO probably need a map DRV_NAME -> DRV
+pub fn create_dep_tree(roots: HashSet<&Drv>) {
+    for drv1 in &roots {
+        for drv2 in &roots {
+            if *drv1 != *drv2 {}
+        }
+    }
 }
