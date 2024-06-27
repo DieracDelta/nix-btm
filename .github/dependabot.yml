@@ -1,0 +1,24 @@
+version: 2
+updates:
+  # Group all updates into a single pull request
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "update"
+    groups:
+      all:
+        patterns: ["*"]
+    allow:
+      - dependency-type: "all"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "update"
+    groups:
+      all:
+        patterns: ["*"]
