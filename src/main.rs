@@ -36,8 +36,25 @@ pub enum Pane {
     Right,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SelectedTab {
+    #[default]
+    BuilderView,
+    BirdsEyeView,
+}
+
+#[derive(Default, Debug)]
 pub struct App {
+    builder_view: BuilderViewState,
+    birds_eye_view: BirdsEyeViewState,
+    tab_selected: SelectedTab,
+}
+
+#[derive(Default, Debug)]
+pub struct BirdsEyeViewState {}
+
+#[derive(Default, Debug)]
+pub struct BuilderViewState {
     pub vertical_scroll_state: ScrollbarState,
     pub vertical_scroll: usize,
     pub horizontal_scroll: usize,
@@ -46,7 +63,7 @@ pub struct App {
     pub man_toggle: bool,
 }
 
-impl App {
+impl BuilderViewState {
     pub fn gen_title_style(&self, this_pane: Pane) -> Style {
         if self.selected_pane == this_pane {
             *TITLE_STYLE_SELECTED
@@ -81,25 +98,26 @@ pub fn main() {
         panic!("This OS is supported!");
     }
 
-    let sets = get_active_users_and_pids();
-    let mut total_set = HashSet::new();
-    for (_, set) in sets {
-        let sett: HashSet<_> = set.into_iter().collect();
-        let unioned = total_set.union(&sett).cloned();
-        total_set = unioned.collect::<HashSet<_>>();
-    }
-    let mut map = construct_pid_map(total_set.clone());
-    let total_tree = construct_tree(map.keys().cloned().collect(), &mut map)
-        .into_iter()
-        .next()
-        .unwrap()
-        .1;
-    let real_roots = strip_tf_outta_tree(total_tree, &map);
-    let drvs_roots = get_drvs(real_roots);
-    println!("{:#?}", drvs_roots);
+    //let sets = get_active_users_and_pids();
+    //let mut total_set = HashSet::new();
+    //for (_, set) in sets {
+    //    let sett: HashSet<_> = set.into_iter().collect();
+    //    let unioned = total_set.union(&sett).cloned();
+    //    total_set = unioned.collect::<HashSet<_>>();
+    //}
+    //let mut map = construct_pid_map(total_set.clone());
+    //let total_tree = construct_tree(map.keys().cloned().collect(), &mut map)
+    //    .into_iter()
+    //    .next()
+    //    .unwrap()
+    //    .1;
+    //let real_roots = strip_tf_outta_tree(total_tree, &map);
+    //let drvs_roots = get_drvs(real_roots);
+    //println!("{:#?}", drvs_roots);
     // dump_pids(&real_roots, &map);
     // println!("{t:#?}");
-    // run().unwrap();
+
+    run().unwrap();
 }
 
 fn run() -> Result<()> {

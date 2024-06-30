@@ -110,13 +110,13 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
             Block::bordered()
                 .title("Nix builders list")
                 .title_bottom("")
-                .title_style(app.gen_title_style(Pane::Left))
-                .border_style(app.gen_border_style(Pane::Left)),
+                .title_style(app.builder_view.gen_title_style(Pane::Left))
+                .border_style(app.builder_view.gen_border_style(Pane::Left)),
         )
         .highlight_style(
             Style::new()
                 .fg(Dark0.into())
-                .bg(if app.selected_pane == Pane::Left {
+                .bg(if app.builder_view.selected_pane == Pane::Left {
                     OrangeBright.into()
                 } else {
                     OrangeDim.into()
@@ -124,7 +124,7 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("> ");
-    f.render_stateful_widget(widget, chunks[0], &mut app.state);
+    f.render_stateful_widget(widget, chunks[0], &mut app.builder_view.state);
 
     let mut table_state = TableState::default();
     let header = ["pid", "env", "parent pid", "p_mem", "v_mem", "⏰", "cmd"]
@@ -132,7 +132,7 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
         .map(Cell::from)
         .collect::<Row>();
     let mut rows = Vec::new();
-    if let Some(selected) = app.state.selected().first() {
+    if let Some(selected) = app.builder_view.state.selected().first() {
         for ProcMetadata {
             id,
             env,
@@ -162,13 +162,33 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
     }
 
     let widths = [
-        Constraint::Percentage(if app.horizontal_scroll == 0 { 6 } else { 0 }),
+        Constraint::Percentage(if app.builder_view.horizontal_scroll == 0 {
+            6
+        } else {
+            0
+        }),
         Constraint::Percentage(0),
-        Constraint::Percentage(if app.horizontal_scroll <= 1 { 6 } else { 0 }),
-        Constraint::Percentage(if app.horizontal_scroll <= 2 { 6 } else { 0 }),
-        Constraint::Percentage(if app.horizontal_scroll <= 3 { 6 } else { 0 }),
-        Constraint::Percentage(if app.horizontal_scroll <= 4 { 6 } else { 0 }),
-        Constraint::Percentage(match app.horizontal_scroll {
+        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 1 {
+            6
+        } else {
+            0
+        }),
+        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 2 {
+            6
+        } else {
+            0
+        }),
+        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 3 {
+            6
+        } else {
+            0
+        }),
+        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 4 {
+            6
+        } else {
+            0
+        }),
+        Constraint::Percentage(match app.builder_view.horizontal_scroll {
             0 => 69,
             1 => 75,
             2 => 81,
@@ -183,15 +203,15 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
             Block::bordered()
                 .title("BUILDER INFO")
                 .title_bottom("M TO TOGGLE MANUAL")
-                .title_style(app.gen_title_style(Pane::Right))
-                .border_style(app.gen_border_style(Pane::Right)),
+                .title_style(app.builder_view.gen_title_style(Pane::Right))
+                .border_style(app.builder_view.gen_border_style(Pane::Right)),
         )
         .highlight_style(Style::new());
     f.render_stateful_widget(table, chunks[1], &mut table_state);
 }
 
 pub fn ui(f: &mut Frame, app: &mut App) {
-    if app.man_toggle {
+    if app.builder_view.man_toggle {
         draw_man_page(f, app);
     } else {
         draw_normal_ui(f, app)

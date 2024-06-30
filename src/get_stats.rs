@@ -524,14 +524,14 @@ fn parse_drv(line: &str) -> Drv {
     }
 }
 
-// run a shell command `nix why-depends drv1.drv drv2.drv` and save output to path
-
 // why depends
 // TODO probably need a map DRV_NAME -> DRV
 pub fn create_dep_tree(roots: HashSet<&Drv>) {
     for drv1 in &roots {
         for drv2 in &roots {
-            if *drv1 != *drv2 {}
+            if *drv1 != *drv2 {
+                ();
+            }
         }
     }
 }

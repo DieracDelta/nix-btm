@@ -18,67 +18,79 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('g') => {
-                            app.state.select(vec![SORTED_NIX_USERS[0].clone()]);
+                            app.builder_view
+                                .state
+                                .select(vec![SORTED_NIX_USERS[0].clone()]);
                         }
                         KeyCode::Char('G') => {
-                            app.state
+                            app.builder_view
+                                .state
                                 .select(vec![SORTED_NIX_USERS[SORTED_NIX_USERS.len() - 1].clone()]);
                         }
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                         KeyCode::Tab => {
-                            let num_open = app.state.opened().len();
+                            let num_open = app.builder_view.state.opened().len();
                             if num_open == NIX_USERS.len() {
-                                app.state.close_all();
+                                app.builder_view.state.close_all();
                             } else {
                                 for user in Deref::deref(&NIX_USERS) {
-                                    app.state.open(vec![user.to_string()]);
+                                    app.builder_view.state.open(vec![user.to_string()]);
                                 }
                             }
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
-                            if let Some(selected) = app.state.selected().first() {
+                            if let Some(selected) = app.builder_view.state.selected().first() {
                                 let idx =
                                     SORTED_NIX_USERS.iter().position(|x| x == selected).unwrap();
                                 let new_idx = (idx + 1) % SORTED_NIX_USERS.len();
-                                app.state.select(vec![SORTED_NIX_USERS[new_idx].clone()]);
+                                app.builder_view
+                                    .state
+                                    .select(vec![SORTED_NIX_USERS[new_idx].clone()]);
                             } else {
-                                app.state.select(vec![SORTED_NIX_USERS[0].clone()]);
+                                app.builder_view
+                                    .state
+                                    .select(vec![SORTED_NIX_USERS[0].clone()]);
                             }
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
-                            if let Some(selected) = app.state.selected().first() {
+                            if let Some(selected) = app.builder_view.state.selected().first() {
                                 let idx =
                                     SORTED_NIX_USERS.iter().position(|x| x == selected).unwrap();
                                 let new_idx = (idx - 1) % SORTED_NIX_USERS.len();
-                                app.state.select(vec![SORTED_NIX_USERS[new_idx].clone()]);
+                                app.builder_view
+                                    .state
+                                    .select(vec![SORTED_NIX_USERS[new_idx].clone()]);
                             } else {
-                                app.state.select(vec![SORTED_NIX_USERS[0].clone()]);
+                                app.builder_view
+                                    .state
+                                    .select(vec![SORTED_NIX_USERS[0].clone()]);
                             }
                         }
                         KeyCode::Char('h') => {
-                            app.go_left();
+                            app.builder_view.go_left();
                         }
                         KeyCode::Char('l') => {
-                            app.go_right();
+                            app.builder_view.go_right();
                         }
                         KeyCode::Char('<') | KeyCode::Left => {
-                            if app.selected_pane == Pane::Right {
-                                app.horizontal_scroll = app.horizontal_scroll.saturating_sub(1);
+                            if app.builder_view.selected_pane == Pane::Right {
+                                app.builder_view.horizontal_scroll =
+                                    app.builder_view.horizontal_scroll.saturating_sub(1);
                             }
                         }
                         KeyCode::Char('>') | KeyCode::Right => {
-                            if app.selected_pane == Pane::Right {
-                                app.horizontal_scroll += 1;
+                            if app.builder_view.selected_pane == Pane::Right {
+                                app.builder_view.horizontal_scroll += 1;
                             }
                         }
                         KeyCode::Enter => {
                             // HACK the api has a cleaner way
-                            if !app.state.key_right() {
-                                app.state.key_left();
+                            if !app.builder_view.state.key_right() {
+                                app.builder_view.state.key_left();
                             }
                         }
                         KeyCode::Char('M') => {
-                            app.man_toggle = !app.man_toggle;
+                            app.builder_view.man_toggle = !app.builder_view.man_toggle;
                         }
                         _ => {}
                     }
