@@ -538,6 +538,7 @@ pub fn create_dep_tree(roots: HashSet<&Drv>) {
 
 #[cfg(test)]
 mod tests {
+    // TODO fix test so it can run on any computer. This requires pre-fetching the drvs
     #[test]
     pub fn test_invoke_why_depends() {
         let parent = super::Drv {
