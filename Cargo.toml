@@ -21,3 +21,4 @@ sysinfo = {version = "0.30.12"} #, features = ["debug"]}
 tui-tree-widget = "0.21.0"
 lazy_static = "1.5.0"
 procfs = "0.16.0"
+strip-ansi-escapes = "0.2.0"

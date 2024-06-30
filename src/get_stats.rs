@@ -1,5 +1,7 @@
 // note: bailing on btreemap because I want sorted by builder number, not string
 use procfs::process::Process as ProcFsProcess;
+use std::path::PathBuf;
+use std::process::Command;
 use std::{
     cmp::Ordering,
     collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
@@ -415,16 +417,16 @@ fn bz2_to_drv(input: &str) -> String {
     result.chars().take(result.len() - 4).collect()
 }
 
-fn drv_to_readable_drv(input: &str) -> String {
+fn drv_to_readable_drv(input: &str, has_postfix: bool) -> String {
     let mut result = "".to_string();
     for ele in input.split('/') {
-        println!("ele: {}", ele);
+        // println!("ele: {}", ele);
         match ele {
             "nix" | "store" | "" => {}
             s => {
                 let mut start_recording = false;
                 for c in s.chars() {
-                    println!("C: {}", c);
+                    // println!("C: {}", c);
                     if !start_recording {
                         if c == '-' {
                             start_recording = true;
@@ -433,7 +435,8 @@ fn drv_to_readable_drv(input: &str) -> String {
                         result.push(c);
                     }
                 }
-                return result.chars().take(result.len() - 4).collect();
+                let offset = if has_postfix { 4 } else { 0 };
+                return result.chars().take(result.len() - offset).collect();
             }
         }
     }
@@ -452,7 +455,7 @@ pub fn create_drv_root(root: TreeNode) -> DrvRoot {
             procfs::process::FDTarget::Path(path) => {
                 if path.to_str().unwrap().starts_with("/nix/var/log/nix/drvs/") {
                     let drv_name = bz2_to_drv(path.to_str().unwrap());
-                    let readable = drv_to_readable_drv(&drv_name);
+                    let readable = drv_to_readable_drv(&drv_name, true);
                     return DrvRoot {
                         drv: Drv {
                             drv: drv_name,
@@ -475,12 +478,53 @@ pub fn get_drvs(map: HashMap<Pid, TreeNode>) -> HashMap<Pid, DrvRoot> {
         .collect::<HashMap<_, _>>()
 }
 
+#[derive(Clone, Debug)]
 pub struct DrvPath(Vec<Drv>);
+impl Deref for DrvPath {
+    type Target = Vec<Drv>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<DrvPath> {
-    // TODO
-    todo!()
+    let output = Command::new("nix")
+        .arg("why-depends")
+        .arg(&drv1.drv)
+        .arg(&drv2.drv)
+        .output()
+        .expect("Failed to execute command");
+
+    let mut paths = Vec::new();
+
+    if output.status.success() {
+        let path = strip_ansi_escapes::strip_str(String::from_utf8_lossy(&output.stdout).trim())
+            .to_string()
+            .replace(['└', '─'], "")
+            .trim()
+            .to_string();
+
+        for line in path.lines() {
+            let drv = parse_drv(line);
+            paths.push(drv);
+        }
+
+        Some(DrvPath(paths))
+    } else {
+        None
+    }
 }
+
+fn parse_drv(line: &str) -> Drv {
+    Drv {
+        drv: line.to_string(),
+        human_readable_drv: drv_to_readable_drv(line, false),
+        deps: Default::default(),
+    }
+}
+
+// run a shell command `nix why-depends drv1.drv drv2.drv` and save output to path
 
 // why depends
 // TODO probably need a map DRV_NAME -> DRV
@@ -489,5 +533,30 @@ pub fn create_dep_tree(roots: HashSet<&Drv>) {
         for drv2 in &roots {
             if *drv1 != *drv2 {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    pub fn test_invoke_why_depends() {
+        let parent = super::Drv {
+            drv: "/nix/store/qyw7qc22j2ngf9wip8sxagaxb0387gnq-cargo-1.78.0".to_string(),
+            human_readable_drv: "cargo-1.78.0".to_string(),
+            deps: Vec::new(),
+        };
+        let child = super::Drv {
+            drv: "/nix/store/8bdd933v69w05k5v8hfcq74bi1f9545k-openssl-3.0.13".to_string(),
+            human_readable_drv: "openssl-3.0.13".to_string(),
+            deps: Vec::new(),
+        };
+        // invoke the bash command `nix why-depends parent child` and get output into string
+        let result = super::invoke_why_depends(&parent, &child);
+        println!("{result:?}");
+        assert!(result.is_some());
+        let result_ = result.unwrap();
+        assert!(result_.len() == 2);
+        assert!(result_[0] == parent);
+        assert!(result_[1] == child);
     }
 }
