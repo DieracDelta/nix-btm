@@ -488,6 +488,7 @@ impl Deref for DrvPath {
     }
 }
 
+// will always return a tree with only one child at each node
 pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<DrvPath> {
     let output = Command::new("nix")
         .arg("why-depends")
@@ -504,6 +505,9 @@ pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<DrvPath> {
             .replace(['└', '─'], "")
             .trim()
             .to_string();
+        if path.contains("does not depend on") {
+            return None;
+        }
 
         for line in path.lines() {
             let drv = parse_drv(line);
@@ -524,13 +528,27 @@ fn parse_drv(line: &str) -> Drv {
     }
 }
 
-// why depends
-// TODO probably need a map DRV_NAME -> DRV
+pub struct DrvId(usize);
+
+// passed in a bunch of drvs, want to construct graph
 pub fn create_dep_tree(roots: HashSet<&Drv>) {
+    // drv -> drvroot
+    let drv_roots: HashMap<&str, DrvRoot> = Default::default();
+    // drv hashset
+    let all_mapped_nodes: HashSet<&str> = Default::default();
+
     for drv1 in &roots {
         for drv2 in &roots {
             if *drv1 != *drv2 {
-                ();
+                let maybe_fragment =
+                    invoke_why_depends(drv1, drv2).or_else(|| invoke_why_depends(drv2, drv1));
+                match maybe_fragment {
+                    Some(fragment) => {
+                        nll_todo();
+                        ();
+                    }
+                    None => (),
+                }
             }
         }
     }
