@@ -93,6 +93,12 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                             app.builder_view.man_toggle = !app.builder_view.man_toggle;
                         }
                         _ => {}
+                        KeyCode::Char('n') => {
+                            app.tab_selected = tab_selected.next();
+                        }
+                        KeyCode::Char('p') => {
+                            app.tab_selected = tab_selected.previous();
+                        }
                     }
                 }
             }

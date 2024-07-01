@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::io::Stdout;
 use std::{io, panic};
-use strum::{Display, EnumIter, FromRepr};
+use strum::{Display, EnumCount, EnumIter, FromRepr};
 
 pub mod event_loop;
 pub mod get_stats;
@@ -39,7 +39,18 @@ pub enum Pane {
 }
 
 #[derive(
-    Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, FromRepr, EnumIter,
+    Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Display,
+    FromRepr,
+    EnumIter,
+    EnumCount,
 )]
 pub enum SelectedTab {
     #[default]
@@ -54,17 +65,15 @@ impl SelectedTab {
         format!("  {self}  ").into()
     }
 
-    /// Get the previous tab, if there is no previous tab return the current tab.
     fn previous(self) -> Self {
         let current_index: usize = self as usize;
         let previous_index = current_index.saturating_sub(1);
         Self::from_repr(previous_index).unwrap_or(self)
     }
 
-    /// Get the next tab, if there is no next tab return the current tab.
     fn next(self) -> Self {
         let current_index = self as usize;
-        let next_index = current_index.saturating_add(1);
+        let next_index = current_index.saturating_add(1) % SelectedTab::COUNT;
         Self::from_repr(next_index).unwrap_or(self)
     }
 }
