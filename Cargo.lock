@@ -365,6 +365,7 @@ dependencies = [
  "rand",
  "ratatui",
  "strip-ansi-escapes",
+ "strum",
  "sysinfo",
  "tui-tree-widget",
 ]

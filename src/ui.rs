@@ -1,16 +1,18 @@
 use crate::get_stats::{gen_ui_by_nix_builder, get_active_users_and_pids, ProcMetadata};
 use crate::gruvbox::Gruvbox::{Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim};
-use crate::{App, Pane};
+use crate::{App, Pane, SelectedTab};
 use lazy_static::lazy_static;
 use ratatui::layout::Rect;
+use ratatui::style::{Color, Stylize};
 use ratatui::text::{Line, Text};
-use ratatui::widgets::{Cell, Wrap};
+use ratatui::widgets::{Cell, Tabs, Wrap};
 use ratatui::Frame;
 use ratatui::{
     layout::{Alignment, Constraint, Layout},
     style::{Modifier, Style},
     widgets::{Block, Paragraph, Row, Table, TableState},
 };
+use strum::IntoEnumIterator;
 use tui_tree_widget::Tree;
 
 lazy_static! {
@@ -21,6 +23,18 @@ lazy_static! {
             .add_modifier(Modifier::BOLD)
     };
     pub static ref TITLE_STYLE_UNSELECTED: Style = {
+        Style::default()
+            .fg(Dark0.into())
+            .bg(YellowDim.into())
+            .add_modifier(Modifier::BOLD)
+    };
+    pub static ref TITLE_STYLE_SELECTED_SECONDARY: Style = {
+        Style::default()
+            .fg(Dark0.into())
+            .bg(YellowBright.into())
+            .add_modifier(Modifier::BOLD)
+    };
+    pub static ref TITLE_STYLE_UNSELECTED_SECONDARY: Style = {
         Style::default()
             .fg(Dark0.into())
             .bg(YellowDim.into())
@@ -74,8 +88,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     .split(popup_layout[1])[1]
 }
 
-pub fn draw_man_page(f: &mut Frame, _app: &mut App) {
-    let size = f.size();
+pub fn draw_man_page(f: &mut Frame, size: Rect, _app: &mut App) {
     let area = centered_rect(60, 20, size);
     let text = MAN_PAGE
         .map(|s| Line::from(s).alignment(Alignment::Left))
@@ -92,10 +105,9 @@ pub fn draw_man_page(f: &mut Frame, _app: &mut App) {
     f.render_widget(man, area);
 }
 
-pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
+pub fn draw_normal_ui(f: &mut Frame, size: Rect, app: &mut App) {
     let user_map = get_active_users_and_pids();
     let items = gen_ui_by_nix_builder(&user_map);
-    let size = f.size();
     let chunks = Layout::horizontal([
         // title
         Constraint::Percentage(20),
@@ -108,7 +120,7 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
         .expect("all item identifiers are unique")
         .block(
             Block::bordered()
-                .title("Nix builders list")
+                .title("NIX BUILDERS LIST")
                 .title_bottom("")
                 .title_style(app.builder_view.gen_title_style(Pane::Left))
                 .border_style(app.builder_view.gen_border_style(Pane::Left)),
@@ -141,14 +153,14 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
             v_mem,
             run_time,
             cmd,
-            owner: name,
+            owner: _name,
         } in user_map.get(selected).unwrap().iter()
         {
             rows.push(
                 [
                     &id.to_string(),
                     &env.to_vec().join(" "),
-                    &parent.clone().unwrap().to_string(),
+                    &(*parent).unwrap().to_string(),
                     &format_bytes(*p_mem as usize),
                     &format_bytes(*v_mem as usize),
                     &format!("{}s", run_time),
@@ -210,10 +222,44 @@ pub fn draw_normal_ui(f: &mut Frame, app: &mut App) {
     f.render_stateful_widget(table, chunks[1], &mut table_state);
 }
 
+pub fn render_title(f: &mut Frame, area: Rect, s: &str) {
+    f.render_widget(s.bold(), area);
+}
+
+pub fn render_tab(f: &mut Frame, area: Rect, app: &mut App) {
+    let titles = SelectedTab::iter().map(SelectedTab::title);
+    let highlight_style = (Color::default(), Color::default());
+    let selected_tab_index = app.tab_selected as usize;
+    f.render_widget(
+        Tabs::new(titles)
+            .highlight_style(highlight_style)
+            .select(selected_tab_index)
+            .padding("", "")
+            .divider(" "),
+        area,
+    );
+}
+
 pub fn ui(f: &mut Frame, app: &mut App) {
-    if app.builder_view.man_toggle {
-        draw_man_page(f, app);
-    } else {
-        draw_normal_ui(f, app)
+    use Constraint::*;
+    let size = f.size();
+    let vertical = Layout::vertical([Length(1), Min(0)]);
+    let [header_area, inner_area] = vertical.areas(size);
+    let horizontal = Layout::horizontal([Min(0), Length(20)]);
+    let [tabs_area, title_area] = horizontal.areas(header_area);
+    render_tab(f, tabs_area, app);
+
+    match app.tab_selected {
+        SelectedTab::BuilderView => {
+            render_title(f, title_area, "Builder View");
+            if app.builder_view.man_toggle {
+                draw_man_page(f, inner_area, app);
+            } else {
+                draw_normal_ui(f, inner_area, app)
+            }
+        }
+        SelectedTab::BirdsEyeView => {
+            render_title(f, title_area, "Birds Eye View");
+        }
     }
 }
