@@ -544,7 +544,7 @@ pub fn create_dep_tree(roots: HashSet<&Drv>) {
                     invoke_why_depends(drv1, drv2).or_else(|| invoke_why_depends(drv2, drv1));
                 match maybe_fragment {
                     Some(fragment) => {
-                        nll_todo();
+                        // nll_todo();
                         ();
                     }
                     None => (),

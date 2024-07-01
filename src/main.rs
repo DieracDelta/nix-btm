@@ -67,7 +67,8 @@ impl SelectedTab {
 
     fn previous(self) -> Self {
         let current_index: usize = self as usize;
-        let previous_index = current_index.saturating_sub(1);
+        let previous_index =
+            (current_index + SelectedTab::COUNT).saturating_sub(1) % SelectedTab::COUNT;
         Self::from_repr(previous_index).unwrap_or(self)
     }
 

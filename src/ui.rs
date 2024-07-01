@@ -44,7 +44,7 @@ lazy_static! {
     pub static ref BORDER_STYLE_UNSELECTED: Style = Style::default().fg(YellowDim.into());
 }
 
-const MAN_PAGE: [&str; 10] = [
+const MAN_PAGE: [&str; 12] = [
     "q - QUIT",
     "M - TOGGLE MANUAL",
     "g - SCROLL TO TOP OF BUILDER LIST",
@@ -55,6 +55,8 @@ const MAN_PAGE: [&str; 10] = [
     "k - SCROLL DOWN BUILDER LIST ",
     "< - SCROLL LEFT BUILDER INFO",
     "> - SCROLL RIGHT BUILDER LIST",
+    "p - PREVIOUS TAB",
+    "n - NEXT TAB",
 ];
 
 pub fn format_bytes(size: usize) -> String {
