@@ -20,7 +20,7 @@ use tui_tree_widget::Tree;
 lazy_static! {
     pub static ref TITLE_STYLE_SELECTED: Style = {
         Style::default()
-            .fg(Gruvbox::Dark2.into())
+            .fg(Gruvbox::Dark0Hard.into())
             .bg(YellowBright.into())
             .add_modifier(Modifier::BOLD)
     };
