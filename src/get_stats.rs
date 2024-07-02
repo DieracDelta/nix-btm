@@ -183,12 +183,10 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
     map
 }
 
-// TODO switch to this
-// https://docs.rs/nary_tree/latest/nary_tree/tree/struct.Tree.html
 #[derive(Clone, Debug)]
 pub struct DrvNode {
     pub drv: Drv,
-    pub children: HashSet<DrvNode>,
+    pub children: HashSet<String>,
 }
 
 impl PartialEq for DrvNode {
@@ -512,7 +510,7 @@ impl Deref for DrvPath {
 }
 
 // will always return a tree with only one child at each node
-pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<DrvNode> {
+pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<(HashMap<String, DrvNode>, String)> {
     let output = Command::new("nix")
         .arg("why-depends")
         .arg(&drv1.drv)
@@ -520,7 +518,8 @@ pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<DrvNode> {
         .output()
         .expect("Failed to execute command");
 
-    let mut tree: Option<DrvNode> = None;
+    let mut tree: Option<String> = None;
+    let mut all_nodes = HashMap::new();
 
     if output.status.success() {
         let path = strip_ansi_escapes::strip_str(String::from_utf8_lossy(&output.stdout).trim())
@@ -536,26 +535,30 @@ pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<DrvNode> {
             let drv = parse_drv(line);
             match tree {
                 Some(tree_inner) => {
-                    tree = Some(DrvNode {
+                    let new_node = DrvNode {
                         drv,
                         children: {
                             let mut hs = HashSet::new();
                             hs.insert(tree_inner);
                             hs
                         },
-                    })
+                    };
+                    tree = Some(new_node.drv.drv.clone());
+                    all_nodes.insert(new_node.drv.drv.clone(), new_node);
                 }
                 None => {
-                    tree = Some(DrvNode {
+                    let new_node = DrvNode {
                         drv,
                         children: HashSet::new(),
-                    })
+                    };
+                    tree = Some(new_node.drv.drv.clone());
+                    all_nodes.insert(new_node.drv.drv.clone(), new_node);
                 }
             }
         }
     }
 
-    tree
+    tree.map(|t| (all_nodes, t))
 }
 
 fn parse_drv(line: &str) -> Drv {
@@ -566,8 +569,8 @@ fn parse_drv(line: &str) -> Drv {
 }
 
 // passed in a bunch of drvs, want to construct graph
-pub fn create_dep_tree(input_drvs: HashSet<&Drv>) -> HashSet<DrvNode> {
-    let mut roots: HashSet<DrvNode> = HashSet::new();
+pub fn create_dep_tree(input_drvs: HashSet<&Drv>) -> Vec<(HashMap<String, DrvNode>, String)> {
+    let mut roots: Vec<(HashMap<String, DrvNode>, String)> = Vec::new();
 
     for drv1 in &input_drvs {
         for drv2 in &input_drvs {
@@ -575,13 +578,13 @@ pub fn create_dep_tree(input_drvs: HashSet<&Drv>) -> HashSet<DrvNode> {
                 let maybe_fragment =
                     invoke_why_depends(drv1, drv2).or_else(|| invoke_why_depends(drv2, drv1));
 
-                if let Some(fragment) = maybe_fragment {
+                if let Some(frag) = maybe_fragment {
                     let mut found_subtree = false;
                     roots = roots
                         .into_iter()
                         .filter_map(|root| {
-                            let new_node = merge_drv_trees(&fragment, &root)
-                                .or_else(|| merge_drv_trees(&root, &fragment));
+                            let new_node = merge_drv_trees(&frag, &root)
+                                .or_else(|| merge_drv_trees(&root, &frag));
                             if new_node.is_some() {
                                 found_subtree = true;
                             }
@@ -589,7 +592,7 @@ pub fn create_dep_tree(input_drvs: HashSet<&Drv>) -> HashSet<DrvNode> {
                         })
                         .collect();
                     if !found_subtree {
-                        roots.insert(fragment);
+                        roots.push(frag);
                     }
                 }
             }
@@ -598,38 +601,64 @@ pub fn create_dep_tree(input_drvs: HashSet<&Drv>) -> HashSet<DrvNode> {
     roots
 }
 
-// if drv2 is a subtree of drv1, create a new subtree
-pub fn merge_drv_trees(drv1: &DrvNode, drv2: &DrvNode) -> Option<DrvNode> {
-    let drv2_root = &drv2.drv;
+// if drv2 is a subtree of drv1, create a new subtree that is the two subtrees merged together
+// otherwise return None
+pub fn merge_drv_trees(
+    (drv1_nodes, drv1_root): &(HashMap<String, DrvNode>, String),
+    (drv2_nodes, drv2_root): &(HashMap<String, DrvNode>, String),
+) -> Option<(HashMap<String, DrvNode>, String)> {
     let mut nodes_to_search = {
         let mut deque = std::collections::VecDeque::new();
-        deque.push_back(drv1);
+        deque.push_back(drv1_root);
         deque
     };
-    while let Some(node) = nodes_to_search.pop_front() {
+    // bfs this mf
+    while let Some(node_id) = nodes_to_search.pop_front() {
         // we have found the subtree position
-        if node.drv == drv2.drv {
-            let mut tree = node.clone();
-            let mut stack = vec![(node, drv2, &mut tree)];
+        if node_id == drv2_root {
+            let mut ret_nodes = drv1_nodes.clone();
 
-            // ref_node is the node in the tree
+            let mut stack = vec![(
+                drv1_nodes.get(node_id).unwrap(),
+                drv2_nodes.get(node_id).unwrap(),
+                node_id.clone(),
+            )];
+
+            // ref_node is the node in the returned tree
             while let Some((node_1, node_2, ref_node)) = stack.pop() {
                 let node_1_children = &node_1.children;
                 let node_2_children = &node_2.children;
                 // must explore these nodes
                 for node_1_child in node_1_children {
                     if let Some(node_2_child) = node_2_children.get(node_1_child) {
-                        let the_child = ref_node.children.get(node_1_child).unwrap();
-                        stack.push((node_1_child, node_2_child, the_child));
+                        let the_child = ret_nodes
+                            .get(&ref_node)
+                            .unwrap()
+                            .children
+                            .get(node_1_child)
+                            .unwrap()
+                            .clone();
+                        stack.push((
+                            drv1_nodes.get(node_1_child).unwrap(),
+                            drv2_nodes.get(node_2_child).unwrap(),
+                            the_child,
+                        ));
                     }
                 }
                 for node_2_child in node_2_children {
                     if !node_1_children.contains(node_2_child) {
-                        ref_node.children.insert(node_2_child.clone());
+                        ret_nodes
+                            .remove(&ref_node)
+                            .unwrap()
+                            .children
+                            .insert(node_2_child.clone());
                     }
                 }
             }
+            return Some((ret_nodes, drv1_root.clone()));
         } else {
+            // keep exploring
+            let node = drv1_nodes.get(node_id).unwrap();
             nodes_to_search.extend(node.children.iter());
         }
     }
