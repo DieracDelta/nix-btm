@@ -183,6 +183,8 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
     map
 }
 
+// TODO switch to this
+// https://docs.rs/nary_tree/latest/nary_tree/tree/struct.Tree.html
 #[derive(Clone, Debug)]
 pub struct DrvNode {
     pub drv: Drv,
@@ -596,7 +598,42 @@ pub fn create_dep_tree(input_drvs: HashSet<&Drv>) -> HashSet<DrvNode> {
     roots
 }
 
+// if drv2 is a subtree of drv1, create a new subtree
 pub fn merge_drv_trees(drv1: &DrvNode, drv2: &DrvNode) -> Option<DrvNode> {
+    let drv2_root = &drv2.drv;
+    let mut nodes_to_search = {
+        let mut deque = std::collections::VecDeque::new();
+        deque.push_back(drv1);
+        deque
+    };
+    while let Some(node) = nodes_to_search.pop_front() {
+        // we have found the subtree position
+        if node.drv == drv2.drv {
+            let mut tree = node.clone();
+            let mut stack = vec![(node, drv2, &mut tree)];
+
+            // ref_node is the node in the tree
+            while let Some((node_1, node_2, ref_node)) = stack.pop() {
+                let node_1_children = &node_1.children;
+                let node_2_children = &node_2.children;
+                // must explore these nodes
+                for node_1_child in node_1_children {
+                    if let Some(node_2_child) = node_2_children.get(node_1_child) {
+                        let the_child = ref_node.children.get(node_1_child).unwrap();
+                        stack.push((node_1_child, node_2_child, the_child));
+                    }
+                }
+                for node_2_child in node_2_children {
+                    if !node_1_children.contains(node_2_child) {
+                        ref_node.children.insert(node_2_child.clone());
+                    }
+                }
+            }
+        } else {
+            nodes_to_search.extend(node.children.iter());
+        }
+    }
+
     None
 }
 
