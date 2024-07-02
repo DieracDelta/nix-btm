@@ -1,30 +1,32 @@
 use crate::get_stats::{gen_ui_by_nix_builder, get_active_users_and_pids, ProcMetadata};
-use crate::gruvbox::Gruvbox::{Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim};
+use crate::gruvbox::Gruvbox::{
+    self, Dark0, Dark0Hard, OrangeBright, OrangeDim, YellowBright, YellowDim,
+};
 use crate::{App, Pane, SelectedTab};
 use lazy_static::lazy_static;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Stylize};
+use ratatui::style::{Color, Styled, Stylize};
 use ratatui::text::{Line, Text};
-use ratatui::widgets::{Cell, Tabs, Wrap};
-use ratatui::Frame;
+use ratatui::widgets::{Cell, Padding, Tabs, Wrap};
 use ratatui::{
     layout::{Alignment, Constraint, Layout},
     style::{Modifier, Style},
     widgets::{Block, Paragraph, Row, Table, TableState},
 };
+use ratatui::{symbols, Frame};
 use strum::IntoEnumIterator;
 use tui_tree_widget::Tree;
 
 lazy_static! {
     pub static ref TITLE_STYLE_SELECTED: Style = {
         Style::default()
-            .fg(Dark0.into())
+            .fg(Gruvbox::Dark2.into())
             .bg(YellowBright.into())
             .add_modifier(Modifier::BOLD)
     };
     pub static ref TITLE_STYLE_UNSELECTED: Style = {
         Style::default()
-            .fg(Dark0.into())
+            .fg(Gruvbox::Dark2.into())
             .bg(YellowDim.into())
             .add_modifier(Modifier::BOLD)
     };
@@ -100,7 +102,9 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, _app: &mut App) {
             Block::bordered()
                 .title("MANUAL")
                 .title_style(*TITLE_STYLE_SELECTED)
-                .border_style(*BORDER_STYLE_SELECTED),
+                .border_style(*BORDER_STYLE_SELECTED)
+                .fg(Gruvbox::Light1)
+                .bg(Gruvbox::Dark1),
         )
         .alignment(Alignment::Center)
         .wrap(Wrap { trim: true });
@@ -125,7 +129,9 @@ pub fn draw_normal_ui(f: &mut Frame, size: Rect, app: &mut App) {
                 .title("NIX BUILDERS LIST")
                 .title_bottom("")
                 .title_style(app.builder_view.gen_title_style(Pane::Left))
-                .border_style(app.builder_view.gen_border_style(Pane::Left)),
+                .border_style(app.builder_view.gen_border_style(Pane::Left))
+                .bg(Gruvbox::Dark1)
+                .fg(Gruvbox::Light1),
         )
         .highlight_style(
             Style::new()
@@ -218,26 +224,40 @@ pub fn draw_normal_ui(f: &mut Frame, size: Rect, app: &mut App) {
                 .title("BUILDER INFO")
                 .title_bottom("M TO TOGGLE MANUAL")
                 .title_style(app.builder_view.gen_title_style(Pane::Right))
-                .border_style(app.builder_view.gen_border_style(Pane::Right)),
+                .border_style(app.builder_view.gen_border_style(Pane::Right))
+                .bg(Gruvbox::Dark1)
+                .fg(Gruvbox::Light3),
         )
-        .highlight_style(Style::new());
+        .highlight_style(Style::new().fg(Gruvbox::Light3.into()));
     f.render_stateful_widget(table, chunks[1], &mut table_state);
 }
 
 pub fn render_title(f: &mut Frame, area: Rect, s: &str) {
-    f.render_widget(s.bold(), area);
+    f.render_widget(
+        Paragraph::new(s)
+            .bold()
+            .centered()
+            .block(Block::new().bg(Gruvbox::Dark0).fg(Gruvbox::Light1)),
+        area,
+    );
 }
 
 pub fn render_tab(f: &mut Frame, area: Rect, app: &mut App) {
-    let titles = SelectedTab::iter().map(SelectedTab::title);
-    let highlight_style = (Color::default(), Color::default());
+    // (text color, background color)
+    let highlight_style: (Color, Color) = (Gruvbox::Light3.into(), Gruvbox::Dark0.into());
+    let tab_style: (Color, Color) = (Gruvbox::Light3.into(), Gruvbox::Dark1.into());
+    let titles = SelectedTab::iter()
+        .map(SelectedTab::title)
+        .map(|x| x.style(Style::new().bg(Gruvbox::Dark3.into())));
+
     let selected_tab_index = app.tab_selected as usize;
     f.render_widget(
         Tabs::new(titles)
+            .style(tab_style)
             .highlight_style(highlight_style)
             .select(selected_tab_index)
             .padding("", "")
-            .divider(" "),
+            .divider(""),
         area,
     );
 }
@@ -245,22 +265,23 @@ pub fn render_tab(f: &mut Frame, area: Rect, app: &mut App) {
 pub fn ui(f: &mut Frame, app: &mut App) {
     use Constraint::*;
     let size = f.size();
-    let vertical = Layout::vertical([Length(1), Min(0)]);
+    let vertical = Layout::vertical([Length(2), Min(0)]);
     let [header_area, inner_area] = vertical.areas(size);
     let horizontal = Layout::horizontal([Min(0), Length(20)]);
     let [tabs_area, title_area] = horizontal.areas(header_area);
-    render_tab(f, tabs_area, app);
 
     match app.tab_selected {
         SelectedTab::BuilderView => {
-            render_title(f, title_area, "Builder View");
             if app.builder_view.man_toggle {
                 draw_man_page(f, inner_area, app);
             } else {
+                render_title(f, title_area, "Builder View");
+                render_tab(f, tabs_area, app);
                 draw_normal_ui(f, inner_area, app)
             }
         }
         SelectedTab::BirdsEyeView => {
+            render_tab(f, tabs_area, app);
             render_title(f, title_area, "Birds Eye View");
         }
     }
