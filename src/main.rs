@@ -17,8 +17,8 @@ use crossterm::terminal::{
 };
 use event_loop::event_loop;
 use get_stats::{
-    construct_pid_map, construct_tree, dump_pids, get_active_users_and_pids, get_drvs,
-    strip_tf_outta_tree,
+    construct_everything, construct_pid_map, construct_tree, dump_pids, get_active_users_and_pids,
+    get_drvs, strip_tf_outta_tree,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::style::Style;
@@ -153,7 +153,9 @@ pub fn main() {
     // dump_pids(&real_roots, &map);
     // println!("{t:#?}");
 
-    run().unwrap();
+    construct_everything();
+
+    // run().unwrap();
 }
 
 fn run() -> Result<()> {

@@ -1,5 +1,6 @@
 // note: bailing on btreemap because I want sorted by builder number, not string
 use procfs::process::Process as ProcFsProcess;
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::process::Command;
 use std::{
@@ -570,6 +571,27 @@ fn parse_drv(line: &str) -> Drv {
     }
 }
 
+fn dump_dep_tree((nodes, root_id): &(HashMap<String, DrvNode>, String)) {
+    let mut node_ids = VecDeque::new();
+    let level = 0;
+    node_ids.push_front((root_id.clone(), level));
+    while let Some((cur_node_id, cur_level)) = node_ids.pop_back() {
+        let cur_node = nodes.get(&cur_node_id).unwrap();
+        println!(
+            "{} {}",
+            "\t".repeat(cur_level),
+            cur_node.drv.human_readable_drv
+        );
+        let childs: Vec<_> = cur_node
+            .children
+            .clone()
+            .into_iter()
+            .map(|id| (id, cur_level + 1))
+            .collect();
+        node_ids.extend(childs);
+    }
+}
+
 // passed in a bunch of drvs, want to construct graph
 pub fn create_dep_tree(input_drvs: HashSet<&Drv>) -> Vec<(HashMap<String, DrvNode>, String)> {
     let mut roots: Vec<(HashMap<String, DrvNode>, String)> = Vec::new();
@@ -610,7 +632,7 @@ pub fn merge_drv_trees(
     (drv2_nodes, drv2_root): &(HashMap<String, DrvNode>, String),
 ) -> Option<(HashMap<String, DrvNode>, String)> {
     let mut nodes_to_search = {
-        let mut deque = std::collections::VecDeque::new();
+        let mut deque = VecDeque::new();
         deque.push_back(drv1_root);
         deque
     };
@@ -668,6 +690,31 @@ pub fn merge_drv_trees(
     None
 }
 
+pub fn construct_everything() {
+    let sets = get_active_users_and_pids();
+    let mut total_set = HashSet::new();
+    for (_, set) in sets {
+        let sett: HashSet<_> = set.into_iter().collect();
+        let unioned = total_set.union(&sett).cloned();
+        total_set = unioned.collect::<HashSet<_>>();
+    }
+    let mut map = construct_pid_map(total_set.clone());
+    let total_tree = construct_tree(map.keys().cloned().collect(), &mut map);
+    println!("total_tree {:?}", total_tree);
+    let total_tree = total_tree.into_iter().next().unwrap().1;
+    let real_roots = strip_tf_outta_tree(total_tree, &map);
+    println!("real roots {:?}", real_roots);
+    let drvs_roots = get_drvs(real_roots.clone());
+    println!("drvs roots {:?}", drvs_roots);
+    let dep_view: HashSet<&Drv> = drvs_roots.values().map(|v| &v.drv).collect();
+    println!("DEP VIEW: {:?}", dep_view);
+    let nodes = create_dep_tree(dep_view);
+    println!("DEP TREE: {:?}", nodes);
+    nodes.iter().for_each(dump_dep_tree);
+
+    // dump_pids(&real_roots, &map);
+}
+
 #[cfg(test)]
 mod tests {
     // TODO fix test so it can run on any computer. This requires pre-fetching the drvs
@@ -705,5 +752,17 @@ mod tests {
     }
 
     #[test]
-    pub fn test_create_dep_tree() {}
+    pub fn test_create_dep_tree() {
+        // fuck testing stick it into the cli and see what happens
+        // let parent = super::Drv {
+        //     drv: "/nix/store/0bfvsp2s2pkj8ihzkn4mdgpapgfab3gs-vimplugin-treesitter-grammar-hoon"
+        //     human_readable_drv: vimplugin-treesitter-grammar-hoon
+        //
+        // };
+        // let child = super::Drv {
+        //     drv: "/nix/store/d4lbynl52arvqw3amz8mdz2nqvzdw4xf-hoon-grammar-0.0.0+rev=a24c5a3"
+        // };
+        //
+        //
+    }
 }
