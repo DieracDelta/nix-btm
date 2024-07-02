@@ -518,7 +518,8 @@ pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<(HashMap<String, Drv
         .output()
         .expect("Failed to execute command");
 
-    let mut tree: Option<String> = None;
+    let mut cur_node_id: Option<String> = None;
+    let mut root = None;
     let mut all_nodes = HashMap::new();
 
     if output.status.success() {
@@ -533,32 +534,33 @@ pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<(HashMap<String, Drv
 
         for line in path.lines() {
             let drv = parse_drv(line);
-            match tree {
+            match cur_node_id {
                 Some(tree_inner) => {
                     let new_node = DrvNode {
                         drv,
-                        children: {
-                            let mut hs = HashSet::new();
-                            hs.insert(tree_inner);
-                            hs
-                        },
+                        children: HashSet::default(),
                     };
-                    tree = Some(new_node.drv.drv.clone());
+                    let mut cur_node: DrvNode = all_nodes.remove(&tree_inner).unwrap();
+                    cur_node.children.insert(new_node.drv.drv.clone());
+                    all_nodes.insert(tree_inner, cur_node);
+
+                    cur_node_id = Some(new_node.drv.drv.clone());
                     all_nodes.insert(new_node.drv.drv.clone(), new_node);
                 }
                 None => {
+                    root = Some(drv.drv.clone());
                     let new_node = DrvNode {
                         drv,
                         children: HashSet::new(),
                     };
-                    tree = Some(new_node.drv.drv.clone());
+                    cur_node_id = Some(new_node.drv.drv.clone());
                     all_nodes.insert(new_node.drv.drv.clone(), new_node);
                 }
             }
         }
     }
 
-    tree.map(|t| (all_nodes, t))
+    root.map(|t| (all_nodes, t))
 }
 
 fn parse_drv(line: &str) -> Drv {
@@ -685,8 +687,23 @@ mod tests {
         assert!(result.is_some());
         let result_ = result.unwrap();
         // TODO fix this test
-        // assert!(result_.len() == 2);
-        // assert!(result_[0] == parent);
+        assert_eq!(result_.1, parent.drv);
+        assert_eq!(result_.0.get(&parent.drv).unwrap().drv, parent);
+        assert_eq!(result_.0.get(&parent.drv).unwrap().children.len(), 1);
+        assert_eq!(
+            *result_
+                .0
+                .get(&parent.drv)
+                .unwrap()
+                .children
+                .iter()
+                .next()
+                .unwrap(),
+            child.drv
+        );
         // assert!(result_[1] == child);
     }
+
+    #[test]
+    pub fn test_create_dep_tree() {}
 }
