@@ -46,7 +46,7 @@ lazy_static! {
     pub static ref BORDER_STYLE_UNSELECTED: Style = Style::default().fg(YellowDim.into());
 }
 
-const MAN_PAGE: [&str; 12] = [
+const MAN_PAGE_BUILDER_VIEW: [&str; 12] = [
     "q - QUIT",
     "M - TOGGLE MANUAL",
     "g - SCROLL TO TOP OF BUILDER LIST",
@@ -57,6 +57,13 @@ const MAN_PAGE: [&str; 12] = [
     "k - SCROLL DOWN BUILDER LIST ",
     "< - SCROLL LEFT BUILDER INFO",
     "> - SCROLL RIGHT BUILDER LIST",
+    "p - PREVIOUS TAB",
+    "n - NEXT TAB",
+];
+
+const MAN_PAGE_BIRDS_EYE_VIEW: [&str; 4] = [
+    "q - QUIT",
+    "M - TOGGLE MANUAL",
     "p - PREVIOUS TAB",
     "n - NEXT TAB",
 ];
@@ -92,11 +99,17 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     .split(popup_layout[1])[1]
 }
 
-pub fn draw_man_page(f: &mut Frame, size: Rect, _app: &mut App) {
+pub fn draw_man_page(f: &mut Frame, size: Rect, app: &mut App) {
+    // TODO abstract out the map -> to_vec stuff
+    let text = match app.tab_selected {
+        SelectedTab::BuilderView => MAN_PAGE_BUILDER_VIEW
+            .map(|s| Line::from(s).alignment(Alignment::Left))
+            .to_vec(),
+        SelectedTab::BirdsEyeView => MAN_PAGE_BIRDS_EYE_VIEW
+            .map(|s| Line::from(s).alignment(Alignment::Left))
+            .to_vec(),
+    };
     let area = centered_rect(60, 20, size);
-    let text = MAN_PAGE
-        .map(|s| Line::from(s).alignment(Alignment::Left))
-        .to_vec();
     let man = Paragraph::new(text)
         .block(
             Block::bordered()
@@ -111,7 +124,7 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, _app: &mut App) {
     f.render_widget(man, area);
 }
 
-pub fn draw_normal_ui(f: &mut Frame, size: Rect, app: &mut App) {
+pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
     let user_map = get_active_users_and_pids();
     let items = gen_ui_by_nix_builder(&user_map);
     let chunks = Layout::horizontal([
@@ -272,17 +285,26 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 
     match app.tab_selected {
         SelectedTab::BuilderView => {
+            render_title(f, title_area, "Builder View");
+            render_tab(f, tabs_area, app);
             if app.builder_view.man_toggle {
                 draw_man_page(f, inner_area, app);
             } else {
-                render_title(f, title_area, "Builder View");
-                render_tab(f, tabs_area, app);
-                draw_normal_ui(f, inner_area, app)
+                draw_builder_ui(f, inner_area, app)
             }
         }
         SelectedTab::BirdsEyeView => {
             render_tab(f, tabs_area, app);
             render_title(f, title_area, "Birds Eye View");
+            if app.birds_eye_view.man_toggle {
+                draw_man_page(f, inner_area, app);
+            } else {
+                draw_birds_eye_ui(f, inner_area, app);
+            }
         }
     }
+}
+
+fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
+    // todo!()
 }

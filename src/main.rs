@@ -87,7 +87,9 @@ pub struct App {
 }
 
 #[derive(Default, Debug)]
-pub struct BirdsEyeViewState {}
+pub struct BirdsEyeViewState {
+    man_toggle: bool,
+}
 
 #[derive(Default, Debug)]
 pub struct BuilderViewState {
@@ -153,9 +155,9 @@ pub fn main() {
     // dump_pids(&real_roots, &map);
     // println!("{t:#?}");
 
-    construct_everything();
+    // construct_everything();
 
-    // run().unwrap();
+    run().unwrap();
 }
 
 fn run() -> Result<()> {

@@ -89,9 +89,14 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                                 app.builder_view.state.key_left();
                             }
                         }
-                        KeyCode::Char('M') => {
-                            app.builder_view.man_toggle = !app.builder_view.man_toggle;
-                        }
+                        KeyCode::Char('M') => match app.tab_selected {
+                            crate::SelectedTab::BuilderView => {
+                                app.builder_view.man_toggle = !app.builder_view.man_toggle;
+                            }
+                            crate::SelectedTab::BirdsEyeView => {
+                                app.birds_eye_view.man_toggle = !app.birds_eye_view.man_toggle;
+                            }
+                        },
                         KeyCode::Char('n') => {
                             app.tab_selected = app.tab_selected.next();
                         }
