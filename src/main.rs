@@ -9,6 +9,7 @@ pub mod event_loop;
 pub mod get_stats;
 pub mod gruvbox;
 pub mod ui;
+pub mod listen_to_output;
 
 use crossterm::event::DisableMouseCapture;
 use crossterm::execute;
