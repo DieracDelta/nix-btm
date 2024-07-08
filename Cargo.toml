@@ -1,21 +1,23 @@
-[package]
-name = "nix-btm"
+[workspace]
+members = ["crates/client","crates/daemon"]
+resolver = "2"
+
+[workspace.package]
 version = "0.2.0"
 edition = "2021"
 exclude = ["target_dirs", ".github", "target"]
-authors = [ "Justin Restivo (justin.p.restivo@gmail.com)"]
 license-file = "LICENSE"
 readme = "README.md"
 repository = "https://github.com/DieracDelta/nix-btm"
 keywords = ["nix", "monitor", "system-info", "tui"]
+authors = [ "Justin Restivo (justin.p.restivo@gmail.com)"]
 categories = ["development-tools::debugging"]
-description = "A nix process monitor"
 
-[dependencies]
+[workspace.dependencies]
 crossterm = "0.27.0"
 rand = {version = "0.8.5", features = ["small_rng"]}
-# TODO upgrade
 ratatui = "0.27"
+# if I want nice effects
 # tachyonfx = {git = "https://github.com/junkdog/tachyonfx"}
 sysinfo = {version = "0.30.12"} #, features = ["debug"]}
 tui-tree-widget = "0.21.0"
@@ -23,3 +25,7 @@ lazy_static = "1.5.0"
 procfs = "0.16.0"
 strip-ansi-escapes = "0.2.0"
 strum = "0.26.3"
+
+[profile.release]
+incremental = true
+panic = "abort"

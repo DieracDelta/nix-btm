@@ -30,6 +30,8 @@
             version = "0.1.0";
 
             src = ./.;
+            # TODO cli flags to decide if we're client mode or daemon mode. This way we only build the client
+            buildAndTestSubdir = "./crates/client";
 
             doCheck = false;
 
