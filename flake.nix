@@ -14,7 +14,8 @@
     utils.lib.eachDefaultSystem (system:
       let
         fenixStable = with fenix.packages.${system}; combine [
-          (stable.withComponents [ "cargo" "clippy" "rust-src" "rustc" "rustfmt" "llvm-tools-preview" ])
+          (stable.withComponents [ "cargo" "clippy" "rust-src" "rustc" "llvm-tools-preview" ])
+          (latest.withComponents [ "rustfmt" ])
         ];
         pkgs = import nixpkgs {
           inherit system;

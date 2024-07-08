@@ -1,13 +1,13 @@
 // note: bailing on btreemap because I want sorted by builder number, not string
-use procfs::process::Process as ProcFsProcess;
-use std::collections::VecDeque;
-use std::process::Command;
 use std::{
     cmp::Ordering,
-    collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
+    collections::{hash_map::Entry, BTreeSet, HashMap, HashSet, VecDeque},
     hash::Hash,
     ops::Deref,
+    process::Command,
 };
+
+use procfs::process::Process as ProcFsProcess;
 
 #[allow(clippy::unnecessary_literal_unwrap)]
 pub fn nll_todo<T>() -> T {
@@ -15,7 +15,6 @@ pub fn nll_todo<T>() -> T {
 }
 
 use lazy_static::lazy_static;
-
 use ratatui::text::Text;
 use sysinfo::{Pid, Process, System, Users};
 use tui_tree_widget::TreeItem;
@@ -43,7 +42,8 @@ pub fn get_nix_users(users: &Users) -> HashSet<String> {
 }
 
 pub fn get_sorted_nix_users() -> Vec<String> {
-    let mut nix_users: Vec<_> = Deref::deref(&NIX_USERS).iter().cloned().collect();
+    let mut nix_users: Vec<_> =
+        Deref::deref(&NIX_USERS).iter().cloned().collect();
     nix_users.sort_by(|x, y| {
         let offset = if x.starts_with('_') { 7 } else { 6 };
         let x_num: usize = x[offset..].parse().unwrap();
@@ -120,7 +120,9 @@ impl Ord for ProcMetadata {
 
 impl Eq for ProcMetadata {}
 
-pub fn construct_pid_map(set: HashSet<ProcMetadata>) -> HashMap<Pid, ProcMetadata> {
+pub fn construct_pid_map(
+    set: HashSet<ProcMetadata>,
+) -> HashMap<Pid, ProcMetadata> {
     let mut r_map = HashMap::new();
     for ele in set {
         r_map.insert(ele.id, ele);
@@ -163,7 +165,8 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
             NIX_USERS.contains(&pd.owner).then_some({
                 (
                     pd.owner.clone(),
-                    // TODO should probably query on-demand instead of carrying all this around
+                    // TODO should probably query on-demand instead of carrying
+                    // all this around
                     from_proc(proc)?,
                 )
             })
@@ -267,7 +270,10 @@ pub enum PidParent {
     IsAlive(Pid),
 }
 
-pub fn get_parent(pid: Pid, pid_map: &mut HashMap<Pid, ProcMetadata>) -> PidParent {
+pub fn get_parent(
+    pid: Pid,
+    pid_map: &mut HashMap<Pid, ProcMetadata>,
+) -> PidParent {
     // TODO a bit more finnicking.
     // Make pid_map mutable reference
     // perform a query if not in the pid map
@@ -324,7 +330,8 @@ pub fn construct_tree(
                     let root_pid = cur_pid;
                     let new_tree_root = TreeNode {
                         pid: cur_pid,
-                        // the root should always be one up from what we are iterating on
+                        // the root should always be one up from what we are
+                        // iterating on
                         children: proc_subtree,
                     };
                     if let Entry::Vacant(e) = roots.entry(root_pid) {
@@ -354,8 +361,8 @@ pub fn gen_ui_by_parent_proc(root: &TreeNode) -> Vec<TreeItem<'_, String>> {
     todo!()
 }
 
-// TODO there's definitely some optimization here to not query/process every time
-// probably need to introduce some global state that we tweak every time
+// TODO there's definitely some optimization here to not query/process every
+// time probably need to introduce some global state that we tweak every time
 // utilizing refcell
 pub fn gen_ui_by_nix_builder(
     user_map: &HashMap<String, BTreeSet<ProcMetadata>>,
@@ -402,7 +409,10 @@ pub fn convert_to_thicker_tree_node<'a>(
     root
 }
 
-pub fn dump_pids(tree_nodes: &HashMap<Pid, TreeNode>, map: &HashMap<Pid, ProcMetadata>) {
+pub fn dump_pids(
+    tree_nodes: &HashMap<Pid, TreeNode>,
+    map: &HashMap<Pid, ProcMetadata>,
+) {
     for tree_node in tree_nodes {
         let thicker_tree_node = convert_to_thicker_tree_node(tree_node.1, map);
         println!("{thicker_tree_node:#?}");
@@ -426,8 +436,10 @@ pub fn strip_tf_outta_tree(
     root_map
 }
 
-// function that converts string of form "/nix/var/log/nix/drvs/z4/ps207hnvyh0lsrlmgkqyyfj3bbf37l-helix-24.03.drv.bz2"
-// to string of form "/nix/store/z4ps207hnvyh0lsrlmgkqyyfj3bbf37l-helix-24.03.drv"
+// function that converts string of form
+// "/nix/var/log/nix/drvs/z4/ps207hnvyh0lsrlmgkqyyfj3bbf37l-helix-24.03.drv.bz2"
+// to string of form
+// "/nix/store/z4ps207hnvyh0lsrlmgkqyyfj3bbf37l-helix-24.03.drv"
 fn bz2_to_drv(input: &str) -> String {
     let mut result = "/nix/store/".to_string();
     for ele in input.split('/') {
@@ -475,7 +487,8 @@ pub fn create_drv_root(root: TreeNode) -> DrvRoot {
         let Ok(fd) = fd else { continue };
         match fd.target {
             procfs::process::FDTarget::Path(path) => {
-                if path.to_str().unwrap().starts_with("/nix/var/log/nix/drvs/") {
+                if path.to_str().unwrap().starts_with("/nix/var/log/nix/drvs/")
+                {
                     let drv_name = bz2_to_drv(path.to_str().unwrap());
                     let readable = drv_to_readable_drv(&drv_name, true);
                     return DrvRoot {
@@ -510,7 +523,10 @@ impl Deref for DrvPath {
 }
 
 // will always return a tree with only one child at each node
-pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<(HashMap<String, DrvNode>, String)> {
+pub fn invoke_why_depends(
+    drv1: &Drv,
+    drv2: &Drv,
+) -> Option<(HashMap<String, DrvNode>, String)> {
     let output = Command::new("nix")
         .arg("why-depends")
         .arg(&drv1.drv)
@@ -523,11 +539,13 @@ pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<(HashMap<String, Drv
     let mut all_nodes = HashMap::new();
 
     if output.status.success() {
-        let path = strip_ansi_escapes::strip_str(String::from_utf8_lossy(&output.stdout).trim())
-            .to_string()
-            .replace(['└', '─'], "")
-            .trim()
-            .to_string();
+        let path = strip_ansi_escapes::strip_str(
+            String::from_utf8_lossy(&output.stdout).trim(),
+        )
+        .to_string()
+        .replace(['└', '─'], "")
+        .trim()
+        .to_string();
         if path.contains("does not depend on") {
             return None;
         }
@@ -540,7 +558,8 @@ pub fn invoke_why_depends(drv1: &Drv, drv2: &Drv) -> Option<(HashMap<String, Drv
                         drv,
                         children: HashSet::default(),
                     };
-                    let mut cur_node: DrvNode = all_nodes.remove(&tree_inner).unwrap();
+                    let mut cur_node: DrvNode =
+                        all_nodes.remove(&tree_inner).unwrap();
                     cur_node.children.insert(new_node.drv.drv.clone());
                     all_nodes.insert(tree_inner, cur_node);
 
@@ -592,14 +611,16 @@ fn dump_dep_tree((nodes, root_id): &(HashMap<String, DrvNode>, String)) {
 }
 
 // passed in a bunch of drvs, want to construct graph
-pub fn create_dep_tree(input_drvs: HashSet<&Drv>) -> Vec<(HashMap<String, DrvNode>, String)> {
+pub fn create_dep_tree(
+    input_drvs: HashSet<&Drv>,
+) -> Vec<(HashMap<String, DrvNode>, String)> {
     let mut roots: Vec<(HashMap<String, DrvNode>, String)> = Vec::new();
 
     for drv1 in &input_drvs {
         for drv2 in &input_drvs {
             if *drv1 != *drv2 {
-                let maybe_fragment =
-                    invoke_why_depends(drv1, drv2).or_else(|| invoke_why_depends(drv2, drv1));
+                let maybe_fragment = invoke_why_depends(drv1, drv2)
+                    .or_else(|| invoke_why_depends(drv2, drv1));
 
                 if let Some(frag) = maybe_fragment {
                     let mut found_subtree = false;
@@ -624,8 +645,8 @@ pub fn create_dep_tree(input_drvs: HashSet<&Drv>) -> Vec<(HashMap<String, DrvNod
     roots
 }
 
-// if drv2 is a subtree of drv1, create a new subtree that is the two subtrees merged together
-// otherwise return None
+// if drv2 is a subtree of drv1, create a new subtree that is the two subtrees
+// merged together otherwise return None
 pub fn merge_drv_trees(
     (drv1_nodes, drv1_root): &(HashMap<String, DrvNode>, String),
     (drv2_nodes, drv2_root): &(HashMap<String, DrvNode>, String),
@@ -653,7 +674,9 @@ pub fn merge_drv_trees(
                 let node_2_children = &node_2.children;
                 // must explore these nodes
                 for node_1_child in node_1_children {
-                    if let Some(node_2_child) = node_2_children.get(node_1_child) {
+                    if let Some(node_2_child) =
+                        node_2_children.get(node_1_child)
+                    {
                         let the_child = ret_nodes
                             .get(&ref_node)
                             .unwrap()
@@ -716,18 +739,22 @@ pub fn construct_everything() {
 
 #[cfg(test)]
 mod tests {
-    // TODO fix test so it can run on any computer. This requires pre-fetching the drvs
+    // TODO fix test so it can run on any computer. This requires pre-fetching
+    // the drvs
     #[test]
     pub fn test_invoke_why_depends() {
         let parent = super::Drv {
-            drv: "/nix/store/qyw7qc22j2ngf9wip8sxagaxb0387gnq-cargo-1.78.0".to_string(),
+            drv: "/nix/store/qyw7qc22j2ngf9wip8sxagaxb0387gnq-cargo-1.78.0"
+                .to_string(),
             human_readable_drv: "cargo-1.78.0".to_string(),
         };
         let child = super::Drv {
-            drv: "/nix/store/8bdd933v69w05k5v8hfcq74bi1f9545k-openssl-3.0.13".to_string(),
+            drv: "/nix/store/8bdd933v69w05k5v8hfcq74bi1f9545k-openssl-3.0.13"
+                .to_string(),
             human_readable_drv: "openssl-3.0.13".to_string(),
         };
-        // invoke the bash command `nix why-depends parent child` and get output into string
+        // invoke the bash command `nix why-depends parent child` and get output
+        // into string
         let result = super::invoke_why_depends(&parent, &child);
         println!("{result:?}");
         assert!(result.is_some());
@@ -759,8 +786,8 @@ mod tests {
         //
         // };
         // let child = super::Drv {
-        //     drv: "/nix/store/d4lbynl52arvqw3amz8mdz2nqvzdw4xf-hoon-grammar-0.0.0+rev=a24c5a3"
-        // };
+        //     drv: "/nix/store/d4lbynl52arvqw3amz8mdz2nqvzdw4xf-hoon-grammar-0.
+        // 0.0+rev=a24c5a3" };
         //
         //
     }

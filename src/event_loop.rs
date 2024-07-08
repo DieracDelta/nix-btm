@@ -23,29 +23,38 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                                 .select(vec![SORTED_NIX_USERS[0].clone()]);
                         }
                         KeyCode::Char('G') => {
-                            app.builder_view
-                                .state
-                                .select(vec![SORTED_NIX_USERS[SORTED_NIX_USERS.len() - 1].clone()]);
+                            app.builder_view.state.select(vec![
+                                SORTED_NIX_USERS[SORTED_NIX_USERS.len() - 1]
+                                    .clone(),
+                            ]);
                         }
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                         KeyCode::Tab => {
-                            let num_open = app.builder_view.state.opened().len();
+                            let num_open =
+                                app.builder_view.state.opened().len();
                             if num_open == NIX_USERS.len() {
                                 app.builder_view.state.close_all();
                             } else {
                                 for user in Deref::deref(&NIX_USERS) {
-                                    app.builder_view.state.open(vec![user.to_string()]);
+                                    app.builder_view
+                                        .state
+                                        .open(vec![user.to_string()]);
                                 }
                             }
                         }
                         KeyCode::Char('j') | KeyCode::Down => {
-                            if let Some(selected) = app.builder_view.state.selected().first() {
-                                let idx =
-                                    SORTED_NIX_USERS.iter().position(|x| x == selected).unwrap();
-                                let new_idx = (idx + 1) % SORTED_NIX_USERS.len();
-                                app.builder_view
-                                    .state
-                                    .select(vec![SORTED_NIX_USERS[new_idx].clone()]);
+                            if let Some(selected) =
+                                app.builder_view.state.selected().first()
+                            {
+                                let idx = SORTED_NIX_USERS
+                                    .iter()
+                                    .position(|x| x == selected)
+                                    .unwrap();
+                                let new_idx =
+                                    (idx + 1) % SORTED_NIX_USERS.len();
+                                app.builder_view.state.select(vec![
+                                    SORTED_NIX_USERS[new_idx].clone(),
+                                ]);
                             } else {
                                 app.builder_view
                                     .state
@@ -53,13 +62,18 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                             }
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
-                            if let Some(selected) = app.builder_view.state.selected().first() {
-                                let idx =
-                                    SORTED_NIX_USERS.iter().position(|x| x == selected).unwrap();
-                                let new_idx = (idx - 1) % SORTED_NIX_USERS.len();
-                                app.builder_view
-                                    .state
-                                    .select(vec![SORTED_NIX_USERS[new_idx].clone()]);
+                            if let Some(selected) =
+                                app.builder_view.state.selected().first()
+                            {
+                                let idx = SORTED_NIX_USERS
+                                    .iter()
+                                    .position(|x| x == selected)
+                                    .unwrap();
+                                let new_idx =
+                                    (idx - 1) % SORTED_NIX_USERS.len();
+                                app.builder_view.state.select(vec![
+                                    SORTED_NIX_USERS[new_idx].clone(),
+                                ]);
                             } else {
                                 app.builder_view
                                     .state
@@ -74,8 +88,10 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                         }
                         KeyCode::Char('<') | KeyCode::Left => {
                             if app.builder_view.selected_pane == Pane::Right {
-                                app.builder_view.horizontal_scroll =
-                                    app.builder_view.horizontal_scroll.saturating_sub(1);
+                                app.builder_view.horizontal_scroll = app
+                                    .builder_view
+                                    .horizontal_scroll
+                                    .saturating_sub(1);
                             }
                         }
                         KeyCode::Char('>') | KeyCode::Right => {
@@ -91,10 +107,12 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                         }
                         KeyCode::Char('M') => match app.tab_selected {
                             crate::SelectedTab::BuilderView => {
-                                app.builder_view.man_toggle = !app.builder_view.man_toggle;
+                                app.builder_view.man_toggle =
+                                    !app.builder_view.man_toggle;
                             }
                             crate::SelectedTab::BirdsEyeView => {
-                                app.birds_eye_view.man_toggle = !app.birds_eye_view.man_toggle;
+                                app.birds_eye_view.man_toggle =
+                                    !app.birds_eye_view.man_toggle;
                             }
                         },
                         KeyCode::Char('n') => {

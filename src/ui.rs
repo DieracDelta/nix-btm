@@ -1,21 +1,23 @@
-use crate::get_stats::{gen_ui_by_nix_builder, get_active_users_and_pids, ProcMetadata};
-use crate::gruvbox::Gruvbox::{
-    self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
-};
-use crate::{App, Pane, SelectedTab};
 use lazy_static::lazy_static;
-use ratatui::layout::Rect;
-use ratatui::style::{Color, Styled, Stylize};
-use ratatui::text::{Line, Text};
-use ratatui::widgets::{Cell, Tabs, Wrap};
 use ratatui::{
-    layout::{Alignment, Constraint, Layout},
-    style::{Modifier, Style},
-    widgets::{Block, Paragraph, Row, Table, TableState},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Color, Modifier, Style, Styled, Stylize},
+    text::{Line, Text},
+    widgets::{Block, Cell, Paragraph, Row, Table, TableState, Tabs, Wrap},
+    Frame,
 };
-use ratatui::{Frame};
 use strum::IntoEnumIterator;
 use tui_tree_widget::Tree;
+
+use crate::{
+    get_stats::{
+        gen_ui_by_nix_builder, get_active_users_and_pids, ProcMetadata,
+    },
+    gruvbox::Gruvbox::{
+        self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
+    },
+    App, Pane, SelectedTab,
+};
 
 lazy_static! {
     pub static ref TITLE_STYLE_SELECTED: Style = {
@@ -42,8 +44,10 @@ lazy_static! {
             .bg(YellowDim.into())
             .add_modifier(Modifier::BOLD)
     };
-    pub static ref BORDER_STYLE_SELECTED: Style = Style::default().fg(YellowBright.into());
-    pub static ref BORDER_STYLE_UNSELECTED: Style = Style::default().fg(YellowDim.into());
+    pub static ref BORDER_STYLE_SELECTED: Style =
+        Style::default().fg(YellowBright.into());
+    pub static ref BORDER_STYLE_UNSELECTED: Style =
+        Style::default().fg(YellowDim.into());
 }
 
 const MAN_PAGE_BUILDER_VIEW: [&str; 12] = [
@@ -82,7 +86,8 @@ pub fn format_bytes(size: usize) -> String {
 }
 
 /// borrowed from ratatui popup example
-/// helper function to create a centered rect using up certain percentage of the available rect `r`
+/// helper function to create a centered rect using up certain percentage of the
+/// available rect `r`
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::vertical([
         Constraint::Percentage((100 - percent_y) / 2),
@@ -257,8 +262,10 @@ pub fn render_title(f: &mut Frame, area: Rect, s: &str) {
 
 pub fn render_tab(f: &mut Frame, area: Rect, app: &mut App) {
     // (text color, background color)
-    let highlight_style: (Color, Color) = (Gruvbox::Light3.into(), Gruvbox::Dark0.into());
-    let tab_style: (Color, Color) = (Gruvbox::Light3.into(), Gruvbox::Dark1.into());
+    let highlight_style: (Color, Color) =
+        (Gruvbox::Light3.into(), Gruvbox::Dark0.into());
+    let tab_style: (Color, Color) =
+        (Gruvbox::Light3.into(), Gruvbox::Dark1.into());
     let titles = SelectedTab::iter()
         .map(SelectedTab::title)
         .map(|x| x.style(Style::new().bg(Gruvbox::Dark3.into())));

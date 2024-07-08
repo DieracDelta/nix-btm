@@ -1,7 +1,6 @@
+use std::{error::Error, io, io::Stdout, panic};
+
 use ratatui::text::Line;
-use std::error::Error;
-use std::io::Stdout;
-use std::{io, panic};
 use strum::{Display, EnumCount, EnumIter, FromRepr};
 
 pub mod event_loop;
@@ -9,18 +8,22 @@ pub mod get_stats;
 pub mod gruvbox;
 pub mod ui;
 
-use crossterm::event::DisableMouseCapture;
-use crossterm::execute;
-use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+use crossterm::{
+    event::DisableMouseCapture,
+    execute,
+    terminal::{
+        disable_raw_mode, enable_raw_mode, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
 };
 use event_loop::event_loop;
-use ratatui::backend::CrosstermBackend;
-use ratatui::style::Style;
-use ratatui::widgets::ScrollbarState;
+use ratatui::{
+    backend::CrosstermBackend, style::Style, widgets::ScrollbarState,
+};
 use tui_tree_widget::TreeState;
 use ui::{
-    BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED, TITLE_STYLE_UNSELECTED,
+    BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED,
+    TITLE_STYLE_UNSELECTED,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -62,8 +65,9 @@ impl SelectedTab {
 
     fn previous(self) -> Self {
         let current_index: usize = self as usize;
-        let previous_index =
-            (current_index + SelectedTab::COUNT).saturating_sub(1) % SelectedTab::COUNT;
+        let previous_index = (current_index + SelectedTab::COUNT)
+            .saturating_sub(1)
+            % SelectedTab::COUNT;
         Self::from_repr(previous_index).unwrap_or(self)
     }
 
@@ -189,7 +193,8 @@ fn setup_terminal() -> Result<Terminal> {
     let panic_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic| {
         let _ = disable_raw_mode();
-        let _ = execute!(io::stderr(), LeaveAlternateScreen, DisableMouseCapture);
+        let _ =
+            execute!(io::stderr(), LeaveAlternateScreen, DisableMouseCapture);
 
         panic_hook(panic);
     }));
