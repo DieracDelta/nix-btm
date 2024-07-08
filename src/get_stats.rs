@@ -1,7 +1,6 @@
 // note: bailing on btreemap because I want sorted by builder number, not string
 use procfs::process::Process as ProcFsProcess;
 use std::collections::VecDeque;
-use std::path::PathBuf;
 use std::process::Command;
 use std::{
     cmp::Ordering,
@@ -346,7 +345,7 @@ pub fn construct_tree(
 }
 
 pub fn update_nix_builder_set(
-    mut nix_builder_sets: &mut HashMap<String, BTreeSet<ProcMetadata>>,
+    nix_builder_sets: &mut HashMap<String, BTreeSet<ProcMetadata>>,
     new_proc_list: BTreeSet<ProcMetadata>,
 ) {
 }

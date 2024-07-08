@@ -1,19 +1,19 @@
 use crate::get_stats::{gen_ui_by_nix_builder, get_active_users_and_pids, ProcMetadata};
 use crate::gruvbox::Gruvbox::{
-    self, Dark0, Dark0Hard, OrangeBright, OrangeDim, YellowBright, YellowDim,
+    self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
 };
 use crate::{App, Pane, SelectedTab};
 use lazy_static::lazy_static;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Styled, Stylize};
 use ratatui::text::{Line, Text};
-use ratatui::widgets::{Cell, Padding, Tabs, Wrap};
+use ratatui::widgets::{Cell, Tabs, Wrap};
 use ratatui::{
     layout::{Alignment, Constraint, Layout},
     style::{Modifier, Style},
     widgets::{Block, Paragraph, Row, Table, TableState},
 };
-use ratatui::{symbols, Frame};
+use ratatui::{Frame};
 use strum::IntoEnumIterator;
 use tui_tree_widget::Tree;
 
