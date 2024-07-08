@@ -478,6 +478,7 @@ fn drv_to_readable_drv(input: &str, has_postfix: bool) -> String {
 }
 
 // TODO error handling
+// TODO macos support
 pub fn create_drv_root(root: TreeNode) -> DrvRoot {
     let root_pid = root.pid;
     // this can totally fail
@@ -522,7 +523,7 @@ impl Deref for DrvPath {
     }
 }
 
-// will always return a tree with only one child at each node
+// might be better longer term to either make a query or statically link
 pub fn invoke_why_depends(
     drv1: &Drv,
     drv2: &Drv,

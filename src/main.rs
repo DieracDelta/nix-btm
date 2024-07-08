@@ -6,6 +6,7 @@ use strum::{Display, EnumCount, EnumIter, FromRepr};
 pub mod event_loop;
 pub mod get_stats;
 pub mod gruvbox;
+pub mod listen_to_output;
 pub mod ui;
 
 use crossterm::{
