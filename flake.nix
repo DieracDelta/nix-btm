@@ -17,6 +17,7 @@
         info = builtins.split "\([a-zA-Z0-9_]+\)" system;
         arch = (builtins.elemAt (builtins.elemAt info 1) 0);
         os = (builtins.elemAt (builtins.elemAt info 3) 0);
+        is_darwin = pkgs.lib.hasInfix "darwin" system;
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ (import rust-overlay) ];
@@ -63,7 +64,7 @@
         packages.nix-btm = nix-btm;
         devShell = pkgs.mkShell.override { } {
           RUSTFLAGS = "-C target-feature=+crt-static";
-          shellHook = ''
+          shellHook = pkgs.lib.strings.optionalString (!is_darwin) ''
             export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
           '';
           RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
@@ -72,11 +73,11 @@
               python3
               (rust-bin.stable.latest.minimal.override {
                 extensions = [ "cargo" "clippy" "rust-src" "rustc" "llvm-tools-preview" ];
-                targets = [ "${arch}-unknown-${os}-musl" ];
+                targets = pkgs.lib.lists.optionals (!is_darwin) [ "${arch}-unknown-${os}-musl" ];
               })
               (rust-bin.nightly.latest.minimal.override {
                 extensions = [ "rustfmt" ];
-                targets = [ "${arch}-unknown-${os}-musl" ];
+                targets = pkgs.lib.lists.optionals (!is_darwin) [ "${arch}-unknown-${os}-musl" ];
               })
 
               just
