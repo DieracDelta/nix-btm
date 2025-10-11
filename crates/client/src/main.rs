@@ -3,6 +3,9 @@ use std::{
     error::Error,
     io::{self, Stdout},
     panic,
+    sync::{Arc, Mutex, atomic::AtomicBool},
+    thread::sleep,
+    time::Duration,
 };
 
 use ratatui::text::Line;
@@ -32,7 +35,7 @@ use ui::{
     TITLE_STYLE_UNSELECTED,
 };
 
-use crate::get_stats::ProcMetadata;
+use crate::get_stats::{ProcMetadata, get_active_users_and_pids};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
@@ -91,7 +94,7 @@ pub struct App {
     builder_view: BuilderViewState,
     birds_eye_view: BirdsEyeViewState,
     tab_selected: SelectedTab,
-    info: Option<HashMap<String, BTreeSet<ProcMetadata>>>,
+    info: Arc<Mutex<HashMap<String, BTreeSet<ProcMetadata>>>>,
 }
 
 #[derive(Default, Debug)]
@@ -174,6 +177,21 @@ fn run() -> Result<()> {
 
     // create app and run it
     let app = App::default();
+
+    let state_cp = app.info.clone();
+
+    let is_shutdown = Arc::new(AtomicBool::new(false));
+    let local_is_shutdown = is_shutdown.clone();
+
+    let t_handle = std::thread::spawn(move || {
+        while !local_is_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+            let user_map_new = get_active_users_and_pids();
+            let mut tmp = state_cp.lock().unwrap();
+            *tmp = user_map_new;
+        }
+        sleep(Duration::from_secs(1));
+    });
+
     let res = event_loop(&mut terminal, app);
 
     // restore terminal
@@ -188,6 +206,9 @@ fn run() -> Result<()> {
     if let Err(err) = res {
         println!("{err:?}");
     }
+    is_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
+
+    t_handle.join().unwrap();
 
     Ok(())
 }

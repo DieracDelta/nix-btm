@@ -3,7 +3,7 @@ members = ["crates/client","crates/daemon"]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 exclude = ["target_dirs", ".github", "target"]
 license-file = "LICENSE"
