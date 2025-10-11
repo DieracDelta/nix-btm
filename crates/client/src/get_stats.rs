@@ -138,13 +138,21 @@ pub fn from_proc(proc: &Process) -> Option<ProcMetadata> {
     Some(ProcMetadata {
         owner: uname,
         id: pid,
-        env: proc.environ().into(),
+        env: proc
+            .environ()
+            .iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect(),
         // ignore this is useless
         parent: proc.parent(), /* .map(|p| p.to_string()), */
         p_mem: proc.memory(),
         v_mem: proc.virtual_memory(),
         run_time: proc.run_time(),
-        cmd: proc.cmd().into(),
+        cmd: proc
+            .cmd()
+            .iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect(),
     })
 }
 
