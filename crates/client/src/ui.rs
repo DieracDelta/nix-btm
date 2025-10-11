@@ -1,5 +1,3 @@
-use std::collections::{BTreeSet, HashMap};
-
 use lazy_static::lazy_static;
 use ratatui::{
     Frame,

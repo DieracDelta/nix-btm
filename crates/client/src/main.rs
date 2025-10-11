@@ -29,7 +29,7 @@ use event_loop::event_loop;
 use ratatui::{
     backend::CrosstermBackend, style::Style, widgets::ScrollbarState,
 };
-use tui_tree_widget::{TreeItem, TreeState};
+use tui_tree_widget::TreeState;
 use ui::{
     BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED,
     TITLE_STYLE_UNSELECTED,
