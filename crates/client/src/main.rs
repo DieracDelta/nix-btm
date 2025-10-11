@@ -1,4 +1,9 @@
-use std::{error::Error, io, io::Stdout, panic};
+use std::{
+    collections::{BTreeSet, HashMap},
+    error::Error,
+    io::{self, Stdout},
+    panic,
+};
 
 use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
@@ -21,11 +26,13 @@ use event_loop::event_loop;
 use ratatui::{
     backend::CrosstermBackend, style::Style, widgets::ScrollbarState,
 };
-use tui_tree_widget::TreeState;
+use tui_tree_widget::{TreeItem, TreeState};
 use ui::{
     BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED,
     TITLE_STYLE_UNSELECTED,
 };
+
+use crate::get_stats::ProcMetadata;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
@@ -84,6 +91,7 @@ pub struct App {
     builder_view: BuilderViewState,
     birds_eye_view: BirdsEyeViewState,
     tab_selected: SelectedTab,
+    info: Option<HashMap<String, BTreeSet<ProcMetadata>>>,
 }
 
 #[derive(Default, Debug)]
@@ -99,6 +107,7 @@ pub struct BuilderViewState {
     state: TreeState<String>,
     pub selected_pane: Pane,
     pub man_toggle: bool,
+    pub iters_since_requeue: u32,
 }
 
 impl BuilderViewState {

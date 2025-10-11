@@ -1,3 +1,5 @@
+use std::collections::{BTreeSet, HashMap};
+
 use lazy_static::lazy_static;
 use ratatui::{
     Frame,
@@ -11,6 +13,7 @@ use tui_tree_widget::Tree;
 
 use crate::{
     App, Pane, SelectedTab,
+    event_loop::REQUEUE_FREQ,
     get_stats::{
         ProcMetadata, gen_ui_by_nix_builder, get_active_users_and_pids,
     },
@@ -130,8 +133,16 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, app: &mut App) {
 }
 
 pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
-    let user_map = get_active_users_and_pids();
-    let items = gen_ui_by_nix_builder(&user_map);
+    if app.builder_view.iters_since_requeue > REQUEUE_FREQ || app.info == None {
+        app.builder_view.iters_since_requeue = 0;
+        let user_map_new = get_active_users_and_pids();
+        app.info = Some(user_map_new);
+    }
+
+    let user_map = app.info.as_ref().unwrap();
+
+    let items = gen_ui_by_nix_builder(user_map);
+
     let chunks = Layout::horizontal([
         // title
         Constraint::Percentage(20),
@@ -190,7 +201,10 @@ pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
                     &format_bytes(*p_mem as usize),
                     &format_bytes(*v_mem as usize),
                     &format!("{}s", run_time),
-                    &cmd.iter().take(8).cloned().collect::<Vec<_>>().join(" "),
+                    &cmd.iter().take(8).cloned().collect::<Vec<_>>().join(
+                        "
+     ",
+                    ),
                 ]
                 .into_iter()
                 .map(|content| Cell::from(Text::from(content.to_string())))

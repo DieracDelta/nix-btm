@@ -8,6 +8,8 @@ use crate::{
     ui::ui,
 };
 
+pub static REQUEUE_FREQ: u32 = 100;
+
 pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
     loop {
         terminal.draw(|f| ui(f, &mut app))?;
@@ -119,5 +121,6 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                 _ => {}
             }
         }
+        app.builder_view.iters_since_requeue += 1;
     }
 }
