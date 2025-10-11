@@ -14,3 +14,7 @@ run:
 [doc('lint')]
 lint: fmt
     cargo clippy --workspace --target x86_64-unknown-linux-musl --release
+
+[doc('lint-fix')]
+lint-fix: fmt
+    cargo clippy --fix --workspace --target x86_64-unknown-linux-musl --release --allow-dirty

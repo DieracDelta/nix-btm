@@ -13,9 +13,9 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
         terminal.draw(|f| ui(f, &mut app))?;
 
         // TODO fix scrolling to only scroll by root node
-        if event::poll(Duration::from_millis(32))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
+        if event::poll(Duration::from_millis(32))?
+            && let Event::Key(key) = event::read()?
+                && key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('g') => {
                             app.builder_view
@@ -124,7 +124,5 @@ pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {
                         _ => {}
                     }
                 }
-            }
-        }
     }
 }

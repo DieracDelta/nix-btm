@@ -321,14 +321,14 @@ pub fn construct_tree(
 ) -> HashMap<Pid, TreeNode> {
     let mut roots = HashMap::<Pid, TreeNode>::new();
     'top: for pid in procs {
-        let mut cur_pid = pid.clone();
+        let mut cur_pid = pid;
         let mut proc_subtree: HashSet<TreeNode> = HashSet::new();
         loop {
             match get_parent(cur_pid, pid_map) {
                 PidParent::IsAlive(p_pid) => {
                     let mut new_proc_subtree = HashSet::new();
                     new_proc_subtree.insert(TreeNode {
-                        pid: cur_pid.clone(),
+                        pid: cur_pid,
                         children: proc_subtree,
                     });
                     cur_pid = p_pid;

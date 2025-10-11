@@ -12,12 +12,12 @@
   };
 
   outputs =
-    inputs@{
-      self,
-      nixpkgs,
-      utils,
-      rust-overlay,
-      fenix,
+    inputs@{ self
+    , nixpkgs
+    , utils
+    , rust-overlay
+    , fenix
+    ,
     }:
     utils.lib.eachDefaultSystem (
       system:
