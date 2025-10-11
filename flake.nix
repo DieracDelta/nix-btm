@@ -11,8 +11,16 @@
     };
   };
 
-  outputs = inputs@{ self, nixpkgs, utils, rust-overlay, fenix }:
-    utils.lib.eachDefaultSystem (system:
+  outputs =
+    inputs@{
+      self,
+      nixpkgs,
+      utils,
+      rust-overlay,
+      fenix,
+    }:
+    utils.lib.eachDefaultSystem (
+      system:
       let
         info = builtins.split "\([a-zA-Z0-9_]+\)" system;
         arch = (builtins.elemAt (builtins.elemAt info 1) 0);
@@ -44,7 +52,6 @@
               # };
             };
 
-
             buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
               pkgs.darwin.apple_sdk.frameworks.CoreServices
               pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
@@ -67,27 +74,30 @@
             export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
           '';
           RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
-          buildInputs =
-            with pkgs; [
-              python3
-              (rust-bin.stable.latest.minimal.override {
-                extensions = [ "cargo" "clippy" "rust-src" "rustc" "llvm-tools-preview" ];
-                targets = [ "${arch}-unknown-${os}-musl" ];
-              })
-              (rust-bin.nightly.latest.minimal.override {
-                extensions = [ "rustfmt" ];
-                targets = [ "${arch}-unknown-${os}-musl" ];
-              })
+          buildInputs = with pkgs; [
+            python3
+            (rust-bin.stable.latest.minimal.override {
+              extensions = [
+                "cargo"
+                "clippy"
+                "rust-src"
+                "rustc"
+                "llvm-tools-preview"
+              ];
+              targets = [ "${arch}-unknown-${os}-musl" ];
+            })
+            (rust-bin.nightly.latest.minimal.override {
+              extensions = [ "rustfmt" ];
+              targets = [ "${arch}-unknown-${os}-musl" ];
+            })
 
-              just
-              libiconv
-              cargo-generate
-              treefmt
-              fenix.packages.${system}.rust-analyzer
-            ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-              pkgs.darwin.apple_sdk.frameworks.CoreServices
-              pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
-            ];
+            just
+            libiconv
+            cargo-generate
+            treefmt
+            fenix.packages.${system}.rust-analyzer
+          ];
         };
-      });
+      }
+    );
 }
