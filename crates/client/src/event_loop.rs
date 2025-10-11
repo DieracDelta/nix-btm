@@ -3,9 +3,9 @@ use std::{io, ops::Deref, time::Duration};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
 use crate::{
+    App, Pane, Terminal,
     get_stats::{NIX_USERS, SORTED_NIX_USERS},
     ui::ui,
-    App, Pane, Terminal,
 };
 
 pub fn event_loop(terminal: &mut Terminal, mut app: App) -> io::Result<()> {

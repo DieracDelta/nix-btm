@@ -1,22 +1,22 @@
 use lazy_static::lazy_static;
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Styled, Stylize},
     text::{Line, Text},
     widgets::{Block, Cell, Paragraph, Row, Table, TableState, Tabs, Wrap},
-    Frame,
 };
 use strum::IntoEnumIterator;
 use tui_tree_widget::Tree;
 
 use crate::{
+    App, Pane, SelectedTab,
     get_stats::{
-        gen_ui_by_nix_builder, get_active_users_and_pids, ProcMetadata,
+        ProcMetadata, gen_ui_by_nix_builder, get_active_users_and_pids,
     },
     gruvbox::Gruvbox::{
         self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
     },
-    App, Pane, SelectedTab,
 };
 
 lazy_static! {

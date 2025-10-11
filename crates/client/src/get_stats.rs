@@ -1,7 +1,7 @@
 // note: bailing on btreemap because I want sorted by builder number, not string
 use std::{
     cmp::Ordering,
-    collections::{hash_map::Entry, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque, hash_map::Entry},
     hash::Hash,
     ops::Deref,
     process::Command,
