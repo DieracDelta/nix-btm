@@ -2,6 +2,16 @@
 
 `nix run github:DieracDelta/nix-btm/master`
 
+# How to get Birdseye view?
+
+You'll need to set this in your `nix.conf`:
+
+```
+log-format = internal-json # TODO is this line necessary??
+json-log-path = /tmp/nixbtm.sock
+```
+
+
 # What is this?
 
 `nix-btm` is intended to be the spiritual successor of `nix-top`, which has been recently deleted.
@@ -28,5 +38,4 @@ Nix output monitor is really great! `nix-btm` targets the usecases where NOM can
 - [ ] inference of what's being built
 - [ ] tree view by pid parent
 - [ ] detailed view of build env for task
-
 

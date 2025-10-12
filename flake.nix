@@ -12,12 +12,12 @@
   };
 
   outputs =
-    inputs@{ self
-    , nixpkgs
-    , utils
-    , rust-overlay
-    , fenix
-    ,
+    inputs@{
+      self,
+      nixpkgs,
+      utils,
+      rust-overlay,
+      fenix,
     }:
     utils.lib.eachDefaultSystem (
       system:
@@ -69,6 +69,7 @@
         defaultPackage = nix-btm;
         packages.nix-btm = nix-btm;
         devShell = pkgs.mkShell.override { } {
+          hardeningDisable = [ "fortify" ];
           RUSTFLAGS = "-C target-feature=+crt-static";
           shellHook = ''
             export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";

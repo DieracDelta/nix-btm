@@ -4,16 +4,19 @@ use std::{
     io::{self, Stdout},
     panic,
     sync::{Arc, Mutex, atomic::AtomicBool},
-    thread::sleep,
+    thread::{self, sleep},
     time::Duration,
 };
 
+use clap::Parser;
+use mimalloc::MiMalloc;
 use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
 
 pub mod event_loop;
 pub mod get_stats;
 pub mod gruvbox;
+pub mod handle_internal_json;
 pub mod listen_to_output;
 pub mod ui;
 
@@ -29,13 +32,22 @@ use event_loop::event_loop;
 use ratatui::{
     backend::CrosstermBackend, style::Style, widgets::ScrollbarState,
 };
+//use tikv_jemallocator::Jemalloc;
 use tui_tree_widget::TreeState;
 use ui::{
     BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED,
     TITLE_STYLE_UNSELECTED,
 };
 
-use crate::get_stats::{ProcMetadata, get_active_users_and_pids};
+use crate::{
+    get_stats::{ProcMetadata, get_active_users_and_pids},
+    handle_internal_json::handle_daemon_info,
+};
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
+//static GLOBAL: Jemalloc = Jemalloc;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
@@ -172,7 +184,31 @@ pub fn main() {
     run().unwrap();
 }
 
+#[derive(Parser, Debug)]
+#[command(
+    author,
+    version,
+    about = "The fully qualified path of the socket to read from. See the \
+             README for more details. Without this flag, the eagle view will \
+             not work."
+)]
+struct Args {
+    /// Path to the Unix domain socket to connect to
+    #[arg(short, long)]
+    socket: Option<String>,
+}
+
 fn run() -> Result<()> {
+    let args = Args::parse();
+    let maybe_jh = args.socket.map(|socket| {
+        thread::spawn(|| {
+            handle_daemon_info(socket.into(), 0o660);
+        })
+        .join()
+    });
+    sleep(Duration::from_secs(100));
+    return Ok(());
+
     let mut terminal = setup_terminal()?;
 
     // create app and run it
@@ -183,7 +219,7 @@ fn run() -> Result<()> {
     let is_shutdown = Arc::new(AtomicBool::new(false));
     let local_is_shutdown = is_shutdown.clone();
 
-    let t_handle = std::thread::spawn(move || {
+    let t_handle = thread::spawn(move || {
         while !local_is_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
             let user_map_new = get_active_users_and_pids();
             let mut tmp = state_cp.lock().unwrap();
