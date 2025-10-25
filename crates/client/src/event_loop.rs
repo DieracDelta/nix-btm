@@ -7,7 +7,7 @@ use std::{
 
 use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind};
 use futures::{
-    FutureExt, StreamExt,
+    StreamExt,
     stream::{BoxStream, SelectAll},
 };
 use tokio::sync::watch;

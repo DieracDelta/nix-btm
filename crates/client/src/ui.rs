@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Modifier, Style, Styled, Stylize},
+    style::{Color, Modifier, Style, Stylize},
     text::{Line, Text},
     widgets::{Block, Cell, Paragraph, Row, Table, TableState, Tabs, Wrap},
 };
@@ -253,7 +253,7 @@ pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
                 .bg(Gruvbox::Dark1)
                 .fg(Gruvbox::Light3),
         )
-        .highlight_style(Style::new().fg(Gruvbox::Light3.into()));
+        .row_highlight_style(Style::new().fg(Gruvbox::Light3.into()));
     f.render_stateful_widget(table, chunks[1], &mut table_state);
 }
 
@@ -291,7 +291,7 @@ pub fn render_tab(f: &mut Frame, area: Rect, app: &mut App) {
 
 pub fn ui(f: &mut Frame, app: &mut App) {
     use Constraint::*;
-    let size = f.size();
+    let size = f.area();
     let vertical = Layout::vertical([Length(2), Min(0)]);
     let [header_area, inner_area] = vertical.areas(size);
     let horizontal = Layout::horizontal([Min(0), Length(20)]);
@@ -369,6 +369,6 @@ fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
                 .bg(Gruvbox::Dark1)
                 .fg(Gruvbox::Light3),
         )
-        .highlight_style(Style::new().fg(Gruvbox::Light3.into()));
+        .row_highlight_style(Style::new().fg(Gruvbox::Light3.into()));
     f.render_stateful_widget(table, chunks[0], &mut table_state);
 }

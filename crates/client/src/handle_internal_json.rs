@@ -76,7 +76,7 @@ pub async fn handle_daemon_info(
     info_builds: watch::Sender<HashMap<u64, BuildJob>>,
 ) {
     // Call the socket function **once**
-    let (listener, guard) = setup_unix_socket(&socket_path, mode)
+    let (listener, _guard) = setup_unix_socket(&socket_path, mode)
         .expect("setup_unix_socket failed");
 
     let mut ticker = interval(Duration::from_secs(1));
@@ -89,7 +89,6 @@ pub async fn handle_daemon_info(
                     Ok((stream, _addr))
                         if !is_shutdown.load(Ordering::Relaxed) =>
                         {
-                            let info_builds_ = info_builds.clone();
                             let is_shutdown_ = is_shutdown.clone();
                             let cur_state_ = cur_state.clone();
                             tokio::spawn(async move {
@@ -197,10 +196,11 @@ async fn handle_line(
                 LogMessage::Start {
                     fields,
                     id,
-                    level,
-                    parent,
-                    text,
+                    //level,
+                    //parent,
+                    //text,
                     r#type,
+                    ..
                 } => match r#type {
                     ActivityType::Unknown => (),
                     ActivityType::CopyPath => (),
@@ -263,7 +263,7 @@ async fn handle_line(
                     ActivityType::BuildWaiting => (),
                     ActivityType::FetchTree => (),
                 },
-                LogMessage::Stop { id } => {}
+                LogMessage::Stop { .. } => {}
                 LogMessage::Result { fields, id, r#type } => match r#type {
                     json_parsing_nix::ResultType::FileLinked => (),
                     json_parsing_nix::ResultType::BuildLogLine => (),
@@ -312,8 +312,8 @@ async fn handle_line(
                     json_parsing_nix::ResultType::PostBuildLogLine => (),
                     json_parsing_nix::ResultType::FetchStatus => (),
                 },
-                LogMessage::Msg { level, msg } => {}
-                LogMessage::SetPhase { phase } => {}
+                LogMessage::Msg { .. } => {}
+                LogMessage::SetPhase { .. } => {}
             }
         }
         Err(e) => {

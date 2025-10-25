@@ -98,7 +98,7 @@ pub enum LogMessage<'a> {
     },
 }
 use bstr::ByteSlice;
-pub fn serialize<S>(cow: &Cow<BStr>, s: S) -> Result<S::Ok, S::Error>
+pub fn serialize<S>(cow: &BStr, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -123,7 +123,7 @@ mod serde_cow_bstr {
 
     use super::*;
 
-    pub fn serialize<S>(cow: &Cow<BStr>, s: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(cow: &BStr, s: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -154,22 +154,6 @@ pub enum Field<'a> {
     String(
         #[serde(with = "serde_cow_bstr", borrow)] std::borrow::Cow<'a, BStr>,
     ),
-}
-
-fn serialize_bytes_as_string<S>(
-    b: &[u8],
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    match std::str::from_utf8(b) {
-        Ok(s) => serializer.serialize_str(s),
-        Err(_) => {
-            eprintln!("encountered invalid utf-8 in JSON");
-            serializer.serialize_bytes(b)
-        }
-    }
 }
 
 #[derive(

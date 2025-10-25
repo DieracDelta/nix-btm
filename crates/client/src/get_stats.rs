@@ -108,7 +108,7 @@ impl PartialEq for ProcMetadata {
 
 impl PartialOrd for ProcMetadata {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.id.cmp(&other.id))
+        Some(self.cmp(other))
     }
 }
 
@@ -360,12 +360,12 @@ pub fn construct_tree(
 }
 
 pub fn update_nix_builder_set(
-    nix_builder_sets: &mut HashMap<String, BTreeSet<ProcMetadata>>,
-    new_proc_list: BTreeSet<ProcMetadata>,
+    _nix_builder_sets: &mut HashMap<String, BTreeSet<ProcMetadata>>,
+    _new_proc_list: BTreeSet<ProcMetadata>,
 ) {
 }
 
-pub fn gen_ui_by_parent_proc(root: &TreeNode) -> Vec<TreeItem<'_, String>> {
+pub fn gen_ui_by_parent_proc(_root: &TreeNode) -> Vec<TreeItem<'_, String>> {
     todo!()
 }
 
