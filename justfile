@@ -11,6 +11,10 @@ clean:
 build:
     cargo build --workspace --target x86_64-unknown-linux-musl --release
 
+[doc('test')]
+test:
+    cargo test --workspace --target x86_64-unknown-linux-musl --release
+
 [doc('run')]
 run:
     rm -f /tmp/nixbtm.sock

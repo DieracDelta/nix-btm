@@ -21,6 +21,8 @@ use tokio::{
     time::{MissedTickBehavior, interval},
 };
 
+use crate::derivation_tree::{DrvRelations, DrvTree};
+
 //#[derive(Debug)]
 //pub struct LogLine {
 //    pub actionUpdate: ActionUpdate,
@@ -77,9 +79,12 @@ pub type JobId = u64;
 pub struct JobsStateInner {
     pub jid_to_job: HashMap<JobId, BuildJob>,
     pub drv_to_jobs: HashMap<Drv, HashSet<JobId>>,
+    // this: immediately called on each "start" action seen
+    pub dep_tree: DrvRelations,
+    // see a new job? figure out if and how it's related, then activate it
 }
 
-#[derive(Clone, Debug, PartialEq, Hash, Eq)]
+#[derive(Clone, Debug, PartialEq, Hash, Eq, Default)]
 pub struct Drv {
     pub name: String,
     pub hash: String,
