@@ -19,6 +19,7 @@ pub mod get_stats;
 pub mod gruvbox;
 pub mod handle_internal_json;
 pub mod listen_to_output;
+pub mod tracing;
 pub mod ui;
 
 use crossterm::{
@@ -46,6 +47,7 @@ use crate::{
     handle_internal_json::{
         BuildJob, JobsState, JobsStateInner, handle_daemon_info,
     },
+    tracing::init_tracing,
 };
 
 #[global_allocator]
@@ -195,6 +197,7 @@ pub async fn main() {
     // println!("{t:#?}");
 
     // construct_everything();
+    init_tracing();
 
     run().await.unwrap();
 }
@@ -222,54 +225,44 @@ async fn run() -> Result<()> {
         watch::channel(Default::default());
     let args = Args::parse();
     let maybe_jh = args.socket.map(|socket| {
-        tokio::spawn(async move {
-            handle_daemon_info(
-                socket.into(),
-                0o660,
-                local_is_shutdown2,
-                tx_jobs,
-            )
-            .await;
-        })
+        tokio::task::Builder::new()
+            .name("listening for new connections")
+            .spawn(async move {
+                handle_daemon_info(
+                    socket.into(),
+                    0o660,
+                    local_is_shutdown2,
+                    tx_jobs,
+                )
+                .await;
+            })
+            .unwrap()
     });
-
-    let mut terminal = setup_terminal()?;
 
     // create app and run it
-    let app = App::default();
+    let app = Box::new(App::default());
 
     let (tx, recv_proc_updates) = watch::channel(Default::default());
-    let t_handle = tokio::spawn(async move {
-        while !local_is_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
-            let user_map_new = get_active_users_and_pids();
-            // TODO should do some sort of error checking
-            let _ = tx.send(user_map_new);
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    });
-
-    let main_app_handle = tokio::spawn(async move {
-        let res = event_loop(
-            &mut terminal,
-            app,
-            is_shutdown,
-            recv_proc_updates,
-            recv_job_updates,
-        )
-        .await;
-        // restore terminal
-        disable_raw_mode().unwrap();
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )
+    let t_handle = tokio::task::Builder::new()
+        .name("proc info handler")
+        .spawn(async move {
+            while !local_is_shutdown.load(std::sync::atomic::Ordering::Relaxed)
+            {
+                let user_map_new = get_active_users_and_pids();
+                // TODO should do some sort of error checking
+                let _ = tx.send(user_map_new);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        })
         .unwrap();
-        terminal.show_cursor().unwrap();
-        if let Err(err) = res {
-            println!("{err:?}");
-        }
-    });
+
+    let main_app_handle = tokio::task::Builder::new()
+        .name("tui drawer")
+        .spawn(async move {
+            event_loop(app, is_shutdown, recv_proc_updates, recv_job_updates)
+                .await;
+        })
+        .unwrap();
 
     let mut handles = vec![t_handle, main_app_handle];
 

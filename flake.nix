@@ -12,12 +12,12 @@
   };
 
   outputs =
-    inputs@{ self
-    , nixpkgs
-    , utils
-    , rust-overlay
-    , fenix
-    ,
+    inputs@{
+      self,
+      nixpkgs,
+      utils,
+      rust-overlay,
+      fenix,
     }:
     utils.lib.eachDefaultSystem (
       system:
@@ -36,7 +36,7 @@
           with pkgs;
           rustPlatform.buildRustPackage {
             pname = "nix-btm";
-            version = "0.1.0";
+            version = "0.3.0";
 
             src = ./.;
             # TODO cli flags to decide if we're client mode or daemon mode. This way we only build the client
@@ -68,6 +68,42 @@
       {
         defaultPackage = nix-btm;
         packages.nix-btm = nix-btm;
+        devShells.console = pkgs.mkShell.override { } {
+          hardeningDisable = [ "fortify" ];
+          RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable";
+          shellHook = ''
+            export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
+          '';
+          TOKIO_CONSOLE_BIND = "127.0.0.1:6669";
+          TOKIO_CONSOLE_RETENTION = "60s";
+          TOKIO_CONSOLE_BUFFER_CAPACITY = "2048";
+          RUST_LOG = "info,tokio=trace,runtime=trace";
+          RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
+          buildInputs = with pkgs; [
+            python3
+            (rust-bin.stable.latest.minimal.override {
+              extensions = [
+                "cargo"
+                "clippy"
+                "rust-src"
+                "rustc"
+                "llvm-tools-preview"
+              ];
+              targets = [ "${arch}-unknown-${os}-musl" ];
+            })
+            (rust-bin.nightly.latest.minimal.override {
+              extensions = [ "rustfmt" ];
+              targets = [ "${arch}-unknown-${os}-musl" ];
+            })
+
+            just
+            libiconv
+            cargo-generate
+            treefmt
+            fenix.packages.${system}.rust-analyzer
+            tokio-console
+          ];
+        };
         devShell = pkgs.mkShell.override { } {
           hardeningDisable = [ "fortify" ];
           RUSTFLAGS = "-C target-feature=+crt-static";

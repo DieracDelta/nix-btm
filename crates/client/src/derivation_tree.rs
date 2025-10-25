@@ -23,14 +23,9 @@ pub struct DrvTree {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct DrvRelations(Vec<DrvTree>);
-
-impl Deref for DrvRelations {
-    type Target = Vec<DrvTree>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+pub struct DrvRelations {
+    roots: Vec<DrvTree>,
+    drvs: HashSet<Drv>,
 }
 
 impl Drv {

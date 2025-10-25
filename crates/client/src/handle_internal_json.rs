@@ -13,7 +13,8 @@ use std::{
 };
 
 use bstr::ByteSlice as _;
-use json_parsing_nix::{ActivityType, Field, LogMessage};
+use json_parsing_nix::{ActivityType, Field, LogMessage, VerbosityLevel};
+use regex::Regex;
 use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
@@ -21,6 +22,7 @@ use tokio::{
     sync::{RwLock, watch},
     time::{MissedTickBehavior, interval},
 };
+use tracing::error;
 
 use crate::derivation_tree::{DrvRelations, DrvTree};
 
@@ -80,9 +82,10 @@ pub type JobId = u64;
 pub struct JobsStateInner {
     pub jid_to_job: HashMap<JobId, BuildJob>,
     pub drv_to_jobs: HashMap<Drv, HashSet<JobId>>,
-    // this: immediately called on each "start" action seen
     pub dep_tree: DrvRelations,
-    // see a new job? figure out if and how it's related, then activate it
+    // more
+    //pub drv_set: HashSet, /* see a new job? figure out if and how it's
+    //* related, then activate it */
 }
 
 #[derive(
@@ -184,19 +187,21 @@ pub async fn handle_daemon_info(
     let mut ticker = interval(Duration::from_secs(1));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let cur_state: JobsState = Default::default();
-    let mut next_rid = 0;
+    let mut next_rid: RequesterId = 0;
     loop {
         tokio::select! {
             res = listener.accept() => {
+                // it seems that a socket is opened per requester
                 match res {
                     Ok((stream, _addr))
                         if !is_shutdown.load(Ordering::Relaxed) =>
                         {
                             let rid = next_rid;
+                            error!("ACCEPTED SOCKET {next_rid}");
                             next_rid += 1;
                             let is_shutdown_ = is_shutdown.clone();
                             let cur_state_ = cur_state.clone();
-                            tokio::spawn(async move {
+                            let _handle = tokio::task::Builder::new().name("client-socket-handler-{rid}").spawn(async move {
                                 if let Err(e)
                                     = read_stream(
                                         stream,
@@ -456,7 +461,13 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                     json_parsing_nix::ResultType::PostBuildLogLine => (),
                     json_parsing_nix::ResultType::FetchStatus => (),
                 },
-                LogMessage::Msg { .. } => {}
+                LogMessage::Msg { level, msg } => {
+                    if level == VerbosityLevel::Info {
+                        parse_msg_info(msg, rid);
+                    } else {
+                        error!("verbositylvl {level:?} received msg {msg}");
+                    }
+                }
                 LogMessage::SetPhase { .. } => {}
             }
         }
@@ -466,6 +477,36 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
     }
 }
 
+fn parse_msg_info(msg: std::borrow::Cow<'_, str>, rid: RequesterId) {
+    let re = Regex::new(r"these\s+(\d+)\s+derivations?\s+will\s+be\s+built:")
+        .unwrap();
+    let re2 = Regex::new(r"^\s*/nix/store/([a-z0-9]{32})-(.+)\.drv$").unwrap();
+    let re3 = Regex::new(r" this derivation will be built:").unwrap();
+    let re4 = Regex::new(r"^\s*/nix/store/([a-z0-9]{32})-(.+)$").unwrap();
+
+    if let Some(caps) = re.captures(&msg) {
+        let count: u32 = caps[1].parse().unwrap();
+        error!("rid: {rid}, recved {count} derivations");
+        //println!("{} derivations", count);
+    } else if let Some(caps) = re3.captures(&msg) {
+        let count = 1;
+    } else if let Some(caps) = re2.captures(&msg) {
+        let hash = &caps[1];
+        let name = &caps[2];
+        // okay yeah this is repetitive/unnecessary
+        let drv = format!("/nix/store/{hash}-{name}.drv");
+        error!("rid: {rid}, building {drv}");
+    } else if let Some(caps) = re4.captures(&msg) {
+        let hash = &caps[1];
+        let name = &caps[2];
+        let drv = format!("/nix/store/{hash}-{name}");
+        error!("rid: {rid}, building {drv}");
+    } else {
+        error!("rid: {rid}, could not parse {msg}");
+    }
+}
+
+// TODO maybe it ends with .drv
 fn parse_drv(drv: String) -> Drv {
     let s = drv.strip_prefix("/nix/store/").unwrap_or(&drv);
 
@@ -497,6 +538,29 @@ async fn read_stream(
         }
         if let Ok(Some(line)) = lines.next_line().await {
             handle_line(line, state.clone(), rid).await;
+        } else {
+            error!("stopped being able to read socket on {rid}");
+            return Ok(());
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::*;
+
+    #[test]
+    fn test_parse_msg_info_drv_line() {
+        let msg = Cow::Borrowed(
+            "  /nix/store/31xvpflz5asihsmyl088cgxyxwflzrz3-coreutils-9.7.drv",
+        );
+        parse_msg_info(msg, 0);
+    }
+
+    #[test]
+    fn test_parse_msg_info_build_count() {
+        let msg = Cow::Borrowed("these 93 derivations will be built:");
+        parse_msg_info(msg, 0);
     }
 }

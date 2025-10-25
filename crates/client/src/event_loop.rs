@@ -10,6 +10,9 @@ use futures::{
     StreamExt,
     stream::{BoxStream, SelectAll},
 };
+use ratatui::crossterm::{
+    event::DisableMouseCapture, execute, terminal::disable_raw_mode,
+};
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
 
@@ -17,6 +20,7 @@ use crate::{
     App, Pane, Terminal,
     get_stats::{NIX_USERS, ProcMetadata, SORTED_NIX_USERS},
     handle_internal_json::{BuildJob, JobsState, JobsStateInner},
+    setup_terminal,
     ui::ui,
 };
 
@@ -139,12 +143,12 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
 }
 
 pub async fn event_loop(
-    terminal: &mut Terminal,
-    mut app: App,
+    mut app: Box<App>,
     is_shutdown: Arc<AtomicBool>,
     recv_proc_updates: watch::Receiver<HashMap<String, BTreeSet<ProcMetadata>>>,
     recv_job_updates: watch::Receiver<JobsStateInner>,
-) -> io::Result<()> {
+) {
+    let mut terminal = Box::new(setup_terminal().unwrap());
     let event_stream: BoxStream<'static, Events> = EventStream::new()
         .filter_map(|res| async move { res.ok() })
         .map(Events::InputEvent)
@@ -168,7 +172,7 @@ pub async fn event_loop(
         ]);
 
     loop {
-        terminal.draw(|f| ui(f, &mut app))?;
+        Terminal::draw(&mut terminal, |f| ui(f, &mut app)).unwrap();
 
         match merged.next().await {
             Some(Events::TickBJ(new_info_builds)) => {
@@ -191,5 +195,14 @@ pub async fn event_loop(
             }
         }
     }
-    Ok(())
+
+    // restore terminal
+    disable_raw_mode().unwrap();
+    execute!(
+        terminal.backend_mut(),
+        ratatui::crossterm::terminal::LeaveAlternateScreen,
+        DisableMouseCapture
+    )
+    .unwrap();
+    terminal.show_cursor().unwrap();
 }
