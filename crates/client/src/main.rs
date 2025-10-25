@@ -4,7 +4,6 @@ use std::{
     io::{self, Stdout},
     panic,
     sync::{Arc, atomic::AtomicBool},
-    thread::{self, sleep},
     time::Duration,
 };
 
@@ -22,7 +21,7 @@ pub mod listen_to_output;
 pub mod ui;
 
 use crossterm::{
-    event::{DisableMouseCapture, EventStream},
+    event::DisableMouseCapture,
     execute,
     terminal::{
         EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
@@ -33,7 +32,7 @@ use event_loop::event_loop;
 use ratatui::{
     backend::CrosstermBackend, style::Style, widgets::ScrollbarState,
 };
-use tokio::sync::{Mutex, watch};
+use tokio::sync::watch;
 //use tikv_jemallocator::Jemalloc;
 use tui_tree_widget::TreeState;
 use ui::{
@@ -225,7 +224,7 @@ async fn run() -> Result<()> {
     let mut terminal = setup_terminal()?;
 
     // create app and run it
-    let mut app = App::default();
+    let app = App::default();
 
     let (tx, recv_proc_updates) = watch::channel(Default::default());
     let t_handle = tokio::spawn(async move {

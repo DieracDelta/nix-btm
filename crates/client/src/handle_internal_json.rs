@@ -1,15 +1,22 @@
 use std::{
-    collections::{HashMap, hash_map::Entry}, fmt::Display, fs, io, os::unix::fs::{FileTypeExt, PermissionsExt}, path::{Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, Ordering}}, thread::JoinHandle, time::{Duration, Instant}
+    collections::{HashMap, hash_map::Entry},
+    fmt::Display,
+    fs, io,
+    os::unix::fs::{FileTypeExt, PermissionsExt},
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
 use bstr::ByteSlice as _;
-use either::Either;
 use json_parsing_nix::{ActivityType, Field, LogMessage};
-use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
-    sync::{Mutex, RwLock, watch},
+    sync::{RwLock, watch},
     time::{MissedTickBehavior, interval},
 };
 
@@ -66,7 +73,7 @@ pub async fn handle_daemon_info(
     socket_path: PathBuf,
     mode: u32,
     is_shutdown: Arc<AtomicBool>,
-    mut info_builds: watch::Sender<HashMap<u64, BuildJob>>,
+    info_builds: watch::Sender<HashMap<u64, BuildJob>>,
 ) {
     // Call the socket function **once**
     let (listener, guard) = setup_unix_socket(&socket_path, mode)
@@ -86,7 +93,12 @@ pub async fn handle_daemon_info(
                             let is_shutdown_ = is_shutdown.clone();
                             let cur_state_ = cur_state.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = read_stream(stream, cur_state_, is_shutdown_).await {
+                                if let Err(e)
+                                    = read_stream(
+                                        stream,
+                                        cur_state_,
+                                        is_shutdown_
+                                        ).await {
                                     eprintln!("client error: {e}");
                                 }
                             }
@@ -173,145 +185,141 @@ pub fn format_duration(dur: Duration) -> String {
     parts.join(" ")
 }
 
-async fn handle_line(line: String, locked_state: Arc<RwLock<HashMap<u64, BuildJob>>>){
-        match LogMessage::from_json_str(&line) {
-            Ok(msg) => {
-                //println!("{:?}", msg);
-                let msg_ = msg.clone();
-                match msg {
-                    LogMessage::Start {
-                        fields,
-                        id,
-                        level,
-                        parent,
-                        text,
-                        r#type,
-                    } => match r#type {
-                        ActivityType::Unknown => (),
-                        ActivityType::CopyPath => (),
-                        ActivityType::FileTransfer => (),
-                        ActivityType::Realise => (),
-                        ActivityType::CopyPaths => (),
-                        ActivityType::Builds => {}
-                        ActivityType::Build => {
-                            // nix store paths are supposed to be valid utf8
-                            if let Some(drv) = fields
-                                .as_ref()
-                                .and_then(|v| v.first())
-                                .and_then(|f| match f {
-                                    Field::String(cow) => Some(
-                                        cow.as_ref()
-                                            .to_str_lossy()
-                                            .into_owned(),
-                                    ),
-                                    _ => None,
-                                })
-                            {
-                                let (drv_hash, drv_name) = parse_drv(drv);
-                                let new_job = BuildJob {
-                                    id,
-                                    drv_name,
-                                    drv_hash,
-                                    status: JobStatus::Starting,
-                                    start_time: Instant::now(),
-                                };
-                                // TODO may want to batch eventually
-                                // or lock more coarsely
-                                // or maintain a set of diffs and then "merge"
-                                // that every few
-                                // seconds
-                                let mut state = locked_state.write().await;
-                                match state.entry(id) {
-                                    Entry::Occupied(mut occupied_entry) => {
-                                        eprintln!(
-                                            "warning: job for {id:?} already \
-                                             existed; replacing it"
-                                        );
-                                        occupied_entry.insert(new_job);
-                                    }
-                                    Entry::Vacant(vacant_entry) => {
-                                        vacant_entry.insert(new_job);
-                                    }
+async fn handle_line(
+    line: String,
+    locked_state: Arc<RwLock<HashMap<u64, BuildJob>>>,
+) {
+    match LogMessage::from_json_str(&line) {
+        Ok(msg) => {
+            //println!("{:?}", msg);
+            let msg_ = msg.clone();
+            match msg {
+                LogMessage::Start {
+                    fields,
+                    id,
+                    level,
+                    parent,
+                    text,
+                    r#type,
+                } => match r#type {
+                    ActivityType::Unknown => (),
+                    ActivityType::CopyPath => (),
+                    ActivityType::FileTransfer => (),
+                    ActivityType::Realise => (),
+                    ActivityType::CopyPaths => (),
+                    ActivityType::Builds => {}
+                    ActivityType::Build => {
+                        // nix store paths are supposed to be valid utf8
+                        if let Some(drv) = fields
+                            .as_ref()
+                            .and_then(|v| v.first())
+                            .and_then(|f| match f {
+                                Field::String(cow) => Some(
+                                    cow.as_ref().to_str_lossy().into_owned(),
+                                ),
+                                _ => None,
+                            })
+                        {
+                            let (drv_hash, drv_name) = parse_drv(drv);
+                            let new_job = BuildJob {
+                                id,
+                                drv_name,
+                                drv_hash,
+                                status: JobStatus::Starting,
+                                start_time: Instant::now(),
+                            };
+                            // TODO may want to batch eventually
+                            // or lock more coarsely
+                            // or maintain a set of diffs and then "merge"
+                            // that every few
+                            // seconds
+                            let mut state = locked_state.write().await;
+                            match state.entry(id) {
+                                Entry::Occupied(mut occupied_entry) => {
+                                    eprintln!(
+                                        "warning: job for {id:?} already \
+                                         existed; replacing it"
+                                    );
+                                    occupied_entry.insert(new_job);
                                 }
-                            } else {
-                                eprintln!(
-                                    "Error on either getting the fields, or \
-                                     that the fields are not valid utf8. Msg \
-                                     in question: {}",
-                                    msg_
-                                );
-                            }
-                        }
-                        ActivityType::OptimiseStore => {}
-                        ActivityType::VerifyPaths => (),
-                        ActivityType::Substitute => (),
-                        ActivityType::QueryPathInfo => {}
-                        ActivityType::PostBuildHook => {}
-                        ActivityType::BuildWaiting => (),
-                        ActivityType::FetchTree => (),
-                    },
-                    LogMessage::Stop { id } => {}
-                    LogMessage::Result { fields, id, r#type } => match r#type {
-                        json_parsing_nix::ResultType::FileLinked => (),
-                        json_parsing_nix::ResultType::BuildLogLine => (),
-                        json_parsing_nix::ResultType::UntrustedPath => (),
-                        json_parsing_nix::ResultType::CorruptedPath => (),
-                        json_parsing_nix::ResultType::SetPhase => {
-                            // TODO separate out into get_one_arg function
-                            if let Some(phase_name) = Some(fields)
-                                .as_ref()
-                                .and_then(|v| v.first())
-                                .and_then(|f| match f {
-                                    Field::String(cow) => Some(
-                                        cow.as_ref()
-                                            .to_str_lossy()
-                                            .into_owned(),
-                                    ),
-                                    _ => None,
-                                })
-                            {
-                                // TODO separate out into a replace_entry
-                                // function
-                                let mut state = locked_state.write().await;
-                                match state.entry(id) {
-                                    Entry::Occupied(mut occupied_entry) => {
-                                        //eprintln!(
-                                        //    "warning: job for {id:?} already \
-                                        //     existed; replacing it"
-                                        //);
-                                        let job = occupied_entry.get_mut();
-                                        job.status = JobStatus::BuildPhaseType(
-                                            phase_name,
-                                        );
-                                    }
-                                    Entry::Vacant(_vacant_entry) => {
-                                        eprintln!("job doesn't exist?");
-                                    }
+                                Entry::Vacant(vacant_entry) => {
+                                    vacant_entry.insert(new_job);
                                 }
-                            } else {
-                                eprintln!(
-                                    "Error on either getting the fields, or \
-                                     that the fields are not valid utf8. Msg \
-                                     in question: {}",
-                                    msg_
-                                );
                             }
+                        } else {
+                            eprintln!(
+                                "Error on either getting the fields, or that \
+                                 the fields are not valid utf8. Msg in \
+                                 question: {}",
+                                msg_
+                            );
                         }
-                        json_parsing_nix::ResultType::Progress => (),
-                        json_parsing_nix::ResultType::SetExpected => (),
-                        json_parsing_nix::ResultType::PostBuildLogLine => (),
-                        json_parsing_nix::ResultType::FetchStatus => (),
-                    },
-                    LogMessage::Msg { level, msg } => {}
-                    LogMessage::SetPhase { phase } => {}
-                }
-            }
-            Err(e) => {
-                eprintln!("JSON error: {e}\n\tline was: {line}")
+                    }
+                    ActivityType::OptimiseStore => {}
+                    ActivityType::VerifyPaths => (),
+                    ActivityType::Substitute => (),
+                    ActivityType::QueryPathInfo => {}
+                    ActivityType::PostBuildHook => {}
+                    ActivityType::BuildWaiting => (),
+                    ActivityType::FetchTree => (),
+                },
+                LogMessage::Stop { id } => {}
+                LogMessage::Result { fields, id, r#type } => match r#type {
+                    json_parsing_nix::ResultType::FileLinked => (),
+                    json_parsing_nix::ResultType::BuildLogLine => (),
+                    json_parsing_nix::ResultType::UntrustedPath => (),
+                    json_parsing_nix::ResultType::CorruptedPath => (),
+                    json_parsing_nix::ResultType::SetPhase => {
+                        // TODO separate out into get_one_arg function
+                        if let Some(phase_name) = Some(fields)
+                            .as_ref()
+                            .and_then(|v| v.first())
+                            .and_then(|f| match f {
+                                Field::String(cow) => Some(
+                                    cow.as_ref().to_str_lossy().into_owned(),
+                                ),
+                                _ => None,
+                            })
+                        {
+                            // TODO separate out into a replace_entry
+                            // function
+                            let mut state = locked_state.write().await;
+                            match state.entry(id) {
+                                Entry::Occupied(mut occupied_entry) => {
+                                    //eprintln!(
+                                    //    "warning: job for {id:?} already \
+                                    //     existed; replacing it"
+                                    //);
+                                    let job = occupied_entry.get_mut();
+                                    job.status =
+                                        JobStatus::BuildPhaseType(phase_name);
+                                }
+                                Entry::Vacant(_vacant_entry) => {
+                                    eprintln!("job doesn't exist?");
+                                }
+                            }
+                        } else {
+                            eprintln!(
+                                "Error on either getting the fields, or that \
+                                 the fields are not valid utf8. Msg in \
+                                 question: {}",
+                                msg_
+                            );
+                        }
+                    }
+                    json_parsing_nix::ResultType::Progress => (),
+                    json_parsing_nix::ResultType::SetExpected => (),
+                    json_parsing_nix::ResultType::PostBuildLogLine => (),
+                    json_parsing_nix::ResultType::FetchStatus => (),
+                },
+                LogMessage::Msg { level, msg } => {}
+                LogMessage::SetPhase { phase } => {}
             }
         }
-
-
+        Err(e) => {
+            eprintln!("JSON error: {e}\n\tline was: {line}")
+        }
+    }
 }
 
 fn parse_drv(drv: String) -> (String, String) {
@@ -327,17 +335,17 @@ async fn read_stream(
     stream: UnixStream,
     state: Arc<RwLock<HashMap<u64, BuildJob>>>,
     //info_builds: watch::Sender<HashMap<u64, BuildJob>>,
-    is_shutdown: Arc<AtomicBool>
+    is_shutdown: Arc<AtomicBool>,
 ) -> io::Result<()> {
     let reader = BufReader::new(stream);
     let mut lines = reader.lines();
 
     loop {
         if is_shutdown.load(Ordering::Relaxed) {
-            return Ok(())
+            return Ok(());
         }
         if let Ok(Some(line)) = lines.next_line().await {
-                    handle_line(line, state.clone()).await;
+            handle_line(line, state.clone()).await;
         }
     }
 }

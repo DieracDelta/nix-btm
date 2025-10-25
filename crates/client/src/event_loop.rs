@@ -3,19 +3,15 @@ use std::{
     io,
     ops::Deref,
     sync::{Arc, atomic::AtomicBool},
-    time::Duration,
 };
 
-use crossterm::event::{self, Event, EventStream, KeyCode, KeyEventKind};
+use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind};
 use futures::{
     FutureExt, StreamExt,
-    stream::{BoxStream, SelectAll, select_all},
+    stream::{BoxStream, SelectAll},
 };
-use tokio::{
-    sync::watch,
-    time::{Interval, interval, sleep},
-};
-use tokio_stream::wrappers::{IntervalStream, WatchStream};
+use tokio::sync::watch;
+use tokio_stream::wrappers::WatchStream;
 
 use crate::{
     App, Pane, Terminal,
