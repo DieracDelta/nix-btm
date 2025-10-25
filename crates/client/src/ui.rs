@@ -15,7 +15,7 @@ use crate::{
     gruvbox::Gruvbox::{
         self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
     },
-    handle_internal_json::format_duration,
+    handle_internal_json::{format_duration, format_secs},
 };
 
 lazy_static! {
@@ -71,6 +71,13 @@ const MAN_PAGE_BIRDS_EYE_VIEW: [&str; 4] = [
     "n - NEXT TAB",
 ];
 
+const MAN_PAGE_BUILD_JOB_VIEW: [&str; 4] = [
+    "q - QUIT",
+    "M - TOGGLE MANUAL",
+    "p - PREVIOUS TAB",
+    "n - NEXT TAB",
+];
+
 pub fn format_bytes(size: usize) -> String {
     const MB: usize = 1024 * 1024;
     const GB: usize = 1024 * 1024 * 1024; // 1024 * 1024 * 1024
@@ -112,6 +119,9 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, app: &mut App) {
         SelectedTab::BirdsEyeView => MAN_PAGE_BIRDS_EYE_VIEW
             .map(|s| Line::from(s).alignment(Alignment::Left))
             .to_vec(),
+        SelectedTab::BuildJobView => MAN_PAGE_BUILD_JOB_VIEW
+            .map(|s| Line::from(s).alignment(Alignment::Left))
+            .to_vec(),
     };
     let area = centered_rect(60, 20, size);
     let man = Paragraph::new(text)
@@ -127,6 +137,8 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, app: &mut App) {
         .wrap(Wrap { trim: true });
     f.render_widget(man, area);
 }
+
+pub fn draw_birds_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {}
 
 pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
     let user_map = &app.cur_info;
@@ -193,7 +205,7 @@ pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
                     &(*parent).unwrap().to_string(),
                     &format_bytes(*p_mem as usize),
                     &format_bytes(*v_mem as usize),
-                    &format!("{}s", run_time),
+                    &format_secs(*run_time),
                     &cmd.iter().take(8).cloned().collect::<Vec<_>>().join(
                         "
      ",
@@ -316,10 +328,19 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 draw_birds_eye_ui(f, inner_area, app);
             }
         }
+        SelectedTab::BuildJobView => {
+            render_tab(f, tabs_area, app);
+            render_title(f, title_area, "Build Job View");
+            if app.build_job_view.man_toggle {
+                draw_man_page(f, inner_area, app);
+            } else {
+                draw_build_job_view_ui(f, inner_area, app);
+            }
+        }
     }
 }
 
-fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
+fn draw_build_job_view_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
     let chunks = Layout::horizontal([
         // everything
         Constraint::Percentage(100),
@@ -330,27 +351,28 @@ fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
         ["job id", "drv name", "status", "⏰", "drv hash"]
             .into_iter()
             .map(Cell::from),
-    )
-    .style(*TITLE_STYLE_SELECTED_SECONDARY);
+    );
+    //.style(*TITLE_STYLE_UNSELECTED);
 
     let widths = [
         Constraint::Percentage(20),
         Constraint::Percentage(30),
         Constraint::Percentage(20),
-        Constraint::Percentage(20),
         Constraint::Percentage(10),
+        Constraint::Percentage(20),
     ];
     let rows: Vec<_> = app
         .cur_info_builds
+        .jid_to_job
         .clone()
         .into_iter()
         .map(|(id, job)| {
             [
                 id.to_string(),
-                job.drv_name,
+                job.drv.name.clone(),
                 job.status.to_string(),
-                format_duration(job.start_time.elapsed()),
-                job.drv_hash,
+                format_duration(job.runtime()),
+                job.drv.hash,
             ]
             .into_iter()
             .map(|content| Cell::from(Text::from(content)))

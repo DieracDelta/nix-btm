@@ -16,12 +16,12 @@ use tokio_stream::wrappers::WatchStream;
 use crate::{
     App, Pane, Terminal,
     get_stats::{NIX_USERS, ProcMetadata, SORTED_NIX_USERS},
-    handle_internal_json::BuildJob,
+    handle_internal_json::{BuildJob, JobsState, JobsStateInner},
     ui::ui,
 };
 
 pub enum Events {
-    TickBJ(HashMap<u64, BuildJob>),
+    TickBJ(JobsStateInner),
     TickProcMD(HashMap<String, BTreeSet<ProcMetadata>>),
     InputEvent(Event),
 }
@@ -121,6 +121,10 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
                     app.birds_eye_view.man_toggle =
                         !app.birds_eye_view.man_toggle;
                 }
+                crate::SelectedTab::BuildJobView => {
+                    app.build_job_view.man_toggle =
+                        !app.build_job_view.man_toggle;
+                }
             },
             KeyCode::Char('n') => {
                 app.tab_selected = app.tab_selected.next();
@@ -139,7 +143,7 @@ pub async fn event_loop(
     mut app: App,
     is_shutdown: Arc<AtomicBool>,
     recv_proc_updates: watch::Receiver<HashMap<String, BTreeSet<ProcMetadata>>>,
-    recv_job_updates: watch::Receiver<HashMap<u64, BuildJob>>,
+    recv_job_updates: watch::Receiver<JobsStateInner>,
 ) -> io::Result<()> {
     let event_stream: BoxStream<'static, Events> = EventStream::new()
         .filter_map(|res| async move { res.ok() })

@@ -42,7 +42,9 @@ use ui::{
 
 use crate::{
     get_stats::{ProcMetadata, get_active_users_and_pids},
-    handle_internal_json::{BuildJob, handle_daemon_info},
+    handle_internal_json::{
+        BuildJob, JobsState, JobsStateInner, handle_daemon_info,
+    },
 };
 
 #[global_allocator]
@@ -80,6 +82,8 @@ pub enum SelectedTab {
     BuilderView,
     #[strum(to_string = "Birds Eye View")]
     BirdsEyeView,
+    #[strum(to_string = "Build Job View")]
+    BuildJobView,
 }
 
 impl SelectedTab {
@@ -106,15 +110,21 @@ impl SelectedTab {
 pub struct App {
     builder_view: BuilderViewState,
     birds_eye_view: BirdsEyeViewState,
+    build_job_view: BuildJobViewState,
     tab_selected: SelectedTab,
     // I hate this. Stream updates instead. Better when we separate out to the
     // daemon
-    cur_info_builds: HashMap<u64, BuildJob>,
+    cur_info_builds: JobsStateInner,
     cur_info: HashMap<String, BTreeSet<ProcMetadata>>,
 }
 
 #[derive(Default, Debug)]
 pub struct BirdsEyeViewState {
+    man_toggle: bool,
+}
+
+#[derive(Default, Debug)]
+pub struct BuildJobViewState {
     man_toggle: bool,
 }
 
@@ -193,7 +203,7 @@ pub async fn main() {
     author,
     version,
     about = "The fully qualified path of the socket to read from. See the \
-             README for more details. Without this flag, the eagle view will \
+             README for more details. Without this flag, the bird view will \
              not work."
 )]
 struct Args {
@@ -207,7 +217,8 @@ async fn run() -> Result<()> {
     let local_is_shutdown = is_shutdown.clone();
     let local_is_shutdown2 = is_shutdown.clone();
 
-    let (tx_jobs, recv_job_updates) = watch::channel(Default::default());
+    let (tx_jobs, recv_job_updates): (_, watch::Receiver<JobsStateInner>) =
+        watch::channel(Default::default());
     let args = Args::parse();
     let maybe_jh = args.socket.map(|socket| {
         tokio::spawn(async move {
