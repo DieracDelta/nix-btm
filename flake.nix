@@ -106,7 +106,7 @@
         };
         devShell = pkgs.mkShell.override { } {
           hardeningDisable = [ "fortify" ];
-          RUSTFLAGS = "-C target-feature=+crt-static";
+          RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable";
           shellHook = ''
             export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
           '';

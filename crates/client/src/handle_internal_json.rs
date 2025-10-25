@@ -13,10 +13,11 @@ use std::{
 };
 
 use bstr::ByteSlice as _;
+use either::Either;
 use futures::FutureExt;
 use json_parsing_nix::{ActivityType, Field, LogMessage, VerbosityLevel};
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, de::Error};
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
@@ -25,7 +26,7 @@ use tokio::{
 };
 use tracing::error;
 
-use crate::derivation_tree::{DrvRelations, DrvTree};
+use crate::derivation_tree::{DrvNode, DrvRelations};
 
 //#[derive(Debug)]
 //pub struct LogLine {
@@ -89,19 +90,40 @@ pub struct JobsStateInner {
     //* related, then activate it */
 }
 
-#[derive(
-    Clone, Debug, PartialEq, Hash, Eq, Default, Deserialize, Ord, PartialOrd,
-)]
+#[derive(Clone, Debug, PartialEq, Hash, Eq, Default, Ord, PartialOrd)]
 pub struct Drv {
     pub name: String,
     pub hash: String,
 }
 
-impl From<String> for Drv {
-    fn from(s: String) -> Self {
-        parse_drv(s)
+impl<'de> Deserialize<'de> for Drv {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match parse_store_path(s.trim()) {
+            Either::Left(drv) => Ok(drv),
+            Either::Right(_) => {
+                Err(Error::custom("Was just a store path, not a drv"))
+            }
+        }
     }
 }
+
+#[derive(
+    Clone, Debug, PartialEq, Hash, Eq, Default, Deserialize, Ord, PartialOrd,
+)]
+pub struct StoreOutput {
+    pub name: String,
+    pub hash: String,
+}
+
+//impl From<String> for Drv {
+//    fn from(s: String) -> Self {
+//        parse_store_path(s)
+//    }
+//}
 
 #[derive(Clone, Debug, Default)]
 pub struct JobsState(Arc<RwLock<JobsStateInner>>);
@@ -391,8 +413,9 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                     ActivityType::Build => {
                         // nix store paths are supposed to be valid utf8
                         if let Some(drv) = parse_to_str(fields.as_ref(), 0) {
-                            let drv = parse_drv(drv);
-                            let new_job = BuildJob::new(id, rid, drv);
+                            let drv = parse_store_path(&drv);
+                            //let new_job = BuildJob::new(id, rid, drv);
+                            let new_job = todo!();
                             state.replace_build_job(new_job).await;
                         } else {
                             // TODO proper logging using the usual crate
@@ -412,10 +435,11 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                         if let (Some(drv), Some(cache)) =
                             (parse_to_str(fr, 0), parse_to_str(fr, 1))
                         {
-                            let drv = parse_drv(drv);
+                            let drv = parse_store_path(&drv);
                             let new_job = BuildJob {
                                 status: JobStatus::Querying(cache),
-                                ..BuildJob::new(id, rid, drv)
+                                //..BuildJob::new(id, rid, drv)
+                                ..todo!()
                             };
                             state.replace_build_job(new_job).await;
                         }
@@ -509,19 +533,19 @@ fn parse_msg_info(msg: std::borrow::Cow<'_, str>, rid: RequesterId) {
     }
 }
 
-// TODO maybe it ends with .drv
-fn parse_drv(drv: String) -> Drv {
-    let s = drv.strip_prefix("/nix/store/").unwrap_or(&drv);
+pub fn parse_store_path(path: &str) -> Either<Drv, StoreOutput> {
+    let s = path.strip_prefix("/nix/store/").unwrap_or(&path);
 
-    match s.split_once('-') {
-        Some((hash, name)) => Drv {
-            hash: hash.to_string(),
-            name: name.to_string(),
-        },
-        None => Drv {
-            hash: s.to_string(),
-            name: String::new(),
-        },
+    let (hash, mut name) = match s.split_once('-') {
+        Some((h, n)) => (h.to_string(), n.to_string()),
+        None => (s.to_string(), String::new()),
+    };
+
+    if name.ends_with(".drv") {
+        name.truncate(name.len() - 4);
+        Either::Left(Drv { hash, name })
+    } else {
+        Either::Right(StoreOutput { hash, name })
     }
 }
 

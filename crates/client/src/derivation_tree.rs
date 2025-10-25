@@ -1,12 +1,14 @@
 use std::{
-    collections::{BTreeMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
     ops::Deref,
 };
 
+use either::Either::{Left, Right};
 use serde::Deserialize;
 use tokio::process::Command;
+use tracing::error;
 
-use crate::handle_internal_json::Drv;
+use crate::handle_internal_json::{Drv, StoreOutput, parse_store_path};
 // detect a derivation -> insert into tree
 // insertion step:
 //   - if no other derivations: root
@@ -16,72 +18,167 @@ use crate::handle_internal_json::Drv;
 //     - check if it's a dependency of another derivation
 //
 
+// TODO rename to DrvTreeNode
 #[derive(Clone, Debug, Default)]
-pub struct DrvTree {
+pub struct DrvNode {
     pub root: Drv,
-    pub children: Vec<DrvTree>,
+    pub deps: BTreeSet<Drv>,
+    //pub outputs: HashSet<StoreOutput>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ConcreteTree {
+    pub node: Drv,
+    pub children: BTreeSet<ConcreteTree>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct DrvRelations {
-    roots: Vec<DrvTree>,
-    drvs: HashSet<Drv>,
-}
-
-impl Drv {
-    pub async fn query_nix_about_drv(drv: Drv) -> Option<Derivation> {
-        let path = format!("/nix/store/{}-{}.drv", drv.hash, drv.name);
-
-        let output = Command::new("nix")
-            .arg("derivation")
-            .arg("show")
-            .arg(&path)
-            .output()
-            .await
-            .ok()?;
-
-        if !output.status.success() {
-            return None;
-        }
-
-        let parsed: BTreeMap<Drv, Derivation> =
-            serde_json::from_slice(&output.stdout).ok()?;
-
-        parsed.into_values().next()
-    }
+    // roots with info to form a tree
+    nodes: BTreeMap<Drv, DrvNode>,
+    // the "start" that we begin walking from
+    // each time we insert a node, we check (recursively) for dependencies
+    tree_roots: BTreeSet<Drv>,
+    // large hashset of the drvs we've actually already considered
+    started_drvs: BTreeSet<Drv>,
+    // only the drvs that have been started are inserted here
+    started_tree: BTreeSet<ConcreteTree>,
 }
 
 impl DrvRelations {
-    pub fn insert(&mut self, drv: Drv) {
-        unimplemented!()
+    // only updates the nodes
+    pub async fn insert(&mut self, drv: Drv) {
+        if let Some(map) = drv.query_nix_about_drv().await {
+            for (drv, derivation) in map.into_iter() {
+                let node = DrvNode {
+                    root: drv.clone(),
+                    deps: derivation
+                        .input_drvs
+                        .into_keys()
+                        .collect::<BTreeSet<_>>(),
+                };
+                self.nodes.insert(drv, node);
+            }
+        }
     }
 
     // input drv: -> [[root1, d1, d2, ...], [root2, d1, d2, ...]]
     pub fn find_drv(&self, drv: Drv) -> Option<Vec<Vec<Drv>>> {
         unimplemented!()
     }
-}
 
-impl DrvTree {
-    fn contains(&self, d: &Drv) -> bool {
-        let mut q: VecDeque<&DrvTree> = VecDeque::new();
-        // really should not need a seen sets since supposedly this is a dag
-        // but we have it anyway just in case to prevent infinite loop
-        let mut seen: HashSet<&Drv> = HashSet::new();
-        q.push_back(self);
+    fn handle_store_output(&self, so: StoreOutput) {
+        unimplemented!()
+    }
 
-        while let Some(node) = q.pop_front() {
-            if &node.root == d {
+    // TODO benchmark perf vs why-depends, cuz this might be lowkey slower
+    fn is_child_of(&self, parent_drv: &Drv, child_drv: &Drv) -> bool {
+        // unwrap fine b/c impossible for the node to be in the roots but not in
+        // nodes
+        let parent_node = self.nodes.get(parent_drv).unwrap();
+        let mut stack = parent_node.deps.iter().collect::<Vec<_>>();
+        let mut visited: HashSet<&Drv> = HashSet::new();
+
+        while let Some(node) = stack.pop() {
+            if node == child_drv {
                 return true;
             }
-            if !seen.insert(&node.root) {
-                continue;
-            }
-            for child in &node.children {
-                q.push_back(child);
+            visited.insert(node);
+            if let Some(children) = self.nodes.get(node).map(|x| &x.deps) {
+                let f_children: Vec<&Drv> =
+                    children.iter().filter(|x| visited.contains(x)).collect();
+                stack.extend(f_children);
             }
         }
         false
+    }
+
+    // right now does not care for efficiency. That comes later
+    // only updates roots
+    fn insert_node(&mut self, node: DrvNode) {
+        let mut is_root = true;
+
+        if self.tree_roots.contains(&node.root) {
+            return;
+        }
+
+        // iterate through tree_roots, recursively searching for a dependency
+        for a_root in &self.tree_roots {
+            // check if in tree (recursive)
+            if self.is_child_of(a_root, &node.root) {
+                is_root = false;
+            }
+        }
+
+        if is_root {
+            // second: remove any children of node
+            let mut new_nodes: BTreeSet<_> = self
+                .tree_roots
+                .clone()
+                .into_iter()
+                .filter(|r| self.is_child_of(&node.root, r))
+                .collect();
+
+            // insert it as a root
+            new_nodes.insert(node.root);
+            self.tree_roots = new_nodes;
+        }
+    }
+}
+
+impl StoreOutput {
+    // gets the drv this output path is associated with
+    pub async fn get_drv(&self) -> Option<Drv> {
+        let output = Command::new("nix-store")
+            .arg("-qd")
+            .arg(format!("/nix/store/{}-{}", self.hash, self.name))
+            .output()
+            .await
+            .ok()?;
+
+        if !output.status.success() {
+            None
+        } else {
+            let tmp = String::from_utf8_lossy(&output.stdout);
+            let stdout = tmp.trim();
+            match parse_store_path(stdout) {
+                Left(drv) => Some(drv),
+                Right(_) => None,
+            }
+        }
+    }
+}
+
+impl Drv {
+    // call with the recursive flag. Do the necessary insertions.
+    pub async fn query_nix_about_drv(
+        &self,
+    ) -> Option<BTreeMap<Drv, Derivation>> {
+        let path = format!("/nix/store/{}-{}.drv", self.hash, self.name);
+        let output = Command::new("nix")
+            .arg("derivation")
+            .arg("show")
+            .arg("--recursive")
+            .arg(&path)
+            .output()
+            .await
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let parsed: BTreeMap<Drv, Derivation> =
+            serde_json::from_slice(&output.stdout).ok()?;
+        Some(parsed)
+    }
+}
+
+fn drv_tree_of_derivation(name: String, value: Derivation) -> Option<DrvNode> {
+    if let Left(drv) = parse_store_path(&name) {
+        let deps = value.input_drvs.into_keys().collect::<BTreeSet<_>>();
+        Some(DrvNode { root: drv, deps })
+    } else {
+        error!("{name} wasn't a drv");
+        None
     }
 }
 
@@ -92,8 +189,8 @@ pub struct Derivation {
     #[serde(default)]
     pub system: String,
     #[serde(rename = "inputDrvs", default)]
-    pub input_drvs: BTreeMap<String, InputDrv>,
-    #[serde(default)]
+    pub input_drvs: BTreeMap<Drv, InputDrv>,
+    #[serde(default)] // probably don't care about this just yet
     pub outputs: BTreeMap<String, Output>,
 }
 
