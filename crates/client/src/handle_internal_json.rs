@@ -13,6 +13,7 @@ use std::{
 };
 
 use bstr::ByteSlice as _;
+use futures::FutureExt;
 use json_parsing_nix::{ActivityType, Field, LogMessage, VerbosityLevel};
 use regex::Regex;
 use serde::Deserialize;
@@ -201,28 +202,30 @@ pub async fn handle_daemon_info(
                             next_rid += 1;
                             let is_shutdown_ = is_shutdown.clone();
                             let cur_state_ = cur_state.clone();
-                            let _handle = tokio::task::Builder::new().name("client-socket-handler-{rid}").spawn(async move {
+                            let fut = async move {
                                 if let Err(e)
                                     = read_stream(
-                                        stream,
+                                        Box::new(stream),
                                         cur_state_,
                                         is_shutdown_,
                                         rid
                                         ).await {
-                                    eprintln!("client error: {e}");
+                                    error!("client connection error: {e}");
                                 }
-                            });
+                            }.boxed();
+
+                            let _handle = tokio::task::Builder::new().name(&format!("client-socket-handler-{rid}")).spawn(fut);
                         }
                     Ok((_stream, _addr)) => {
                     }
 
-                    Err(e) => eprintln!("accept error: {e}"),
+                    Err(e) => error!("accept error: {e}"),
                 }
             }
             _ = ticker.tick() => {
                     let tmp_state = cur_state.read().await;
                     if info_builds.send(tmp_state.clone()).is_err() {
-                        eprintln!("no active receivers for info_builds");
+                        error!("no active receivers for info_builds");
                     }
                 }
         }
@@ -368,7 +371,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
     match LogMessage::from_json_str(&line) {
         Ok(msg) => {
             //println!("{:?}", msg);
-            let msg_ = msg.clone();
+            //let msg_ = msg.clone();
             match msg {
                 LogMessage::Start {
                     fields,
@@ -393,12 +396,12 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                             state.replace_build_job(new_job).await;
                         } else {
                             // TODO proper logging using the usual crate
-                            eprintln!(
-                                "Error on either getting the fields, or that \
-                                 the fields are not valid utf8. Msg in \
-                                 question: {}",
-                                msg_
-                            );
+                            //eprintln!(
+                            //    "Error on either getting the fields, or that \
+                            //     the fields are not valid utf8. Msg in \
+                            //     question: {}",
+                            //    &msg_
+                            //);
                         }
                     }
                     ActivityType::OptimiseStore => {}
@@ -448,12 +451,12 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                 })
                                 .await;
                         } else {
-                            eprintln!(
-                                "Error on either getting the fields, or that \
-                                 the fields are not valid utf8. Msg in \
-                                 question: {}",
-                                msg_
-                            );
+                            //eprintln!(
+                            //    "Error on either getting the fields, or that \
+                            //     the fields are not valid utf8. Msg in \
+                            //     question: {}",
+                            //    msg_
+                            //);
                         }
                     }
                     json_parsing_nix::ResultType::Progress => (),
@@ -523,7 +526,7 @@ fn parse_drv(drv: String) -> Drv {
 }
 
 async fn read_stream(
-    stream: UnixStream,
+    stream: Box<UnixStream>,
     state: JobsState,
     //info_builds: watch::Sender<HashMap<u64, BuildJob>>,
     is_shutdown: Arc<AtomicBool>,
