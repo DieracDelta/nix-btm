@@ -5,22 +5,31 @@ use std::{
     thread::JoinHandle,
 };
 
+use either::Either;
+use json_parsing_nix::LogMessage;
 use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
 };
 
-#[derive(Debug, Deserialize)]
-pub struct LogLine {
-    pub action: String,
-    #[serde(default)]
-    pub fields: Vec<String>,
-    pub id: u64,
-    #[serde(rename = "type")]
-    pub kind: u32,
-}
-
+//#[derive(Debug)]
+//pub struct LogLine {
+//    pub actionUpdate: ActionUpdate,
+//    pub fields: ActivityUpdateFields,
+//    pub id: u64,
+//    pub type_: ActivityTypeTag,
+//    pub text: Option<String>,
+//}
+//
+//#[derive(Debug, Deserialize)]
+//enum ActionUpdate {
+//    Result,
+//    Start,
+//    Stop,
+//    Msg,
+//}
+//
 pub struct SocketGuard(PathBuf);
 impl Drop for SocketGuard {
     fn drop(&mut self) {
@@ -89,11 +98,113 @@ async fn read_stream(stream: UnixStream) -> io::Result<()> {
     let mut lines = reader.lines();
 
     while let Some(line) = lines.next_line().await? {
-        match serde_json::from_str::<LogLine>(&line) {
-            Ok(msg) => println!("{:?}", msg),
-            Err(e) => eprintln!("JSON error: {e}\n{line}"),
+        let line_with_prefix = format!("@nix {}", line);
+        match LogMessage::from_json_str(&line_with_prefix) {
+            Ok(msg) => {
+                match msg {
+                    LogMessage::Start {
+                        fields,
+                        id,
+                        level,
+                        parent,
+                        text,
+                        r#type,
+                    } => todo!(),
+                    LogMessage::Stop { id } => todo!(),
+                    LogMessage::Result { fields, id, r#type } => todo!(),
+                    LogMessage::Msg { level, msg } => todo!(),
+                    LogMessage::SetPhase { phase } => todo!(),
+                }
+                println!("{:?}", msg)
+            }
+            Err(e) => {
+                eprintln!("JSON error: {e}\n\tline was: {line}")
+            }
         }
     }
 
     Ok(())
 }
+
+//type ActivityId = u64;
+
+//#[derive(Debug, Deserialize)]
+//#[repr(i32)]
+//enum ActivityTypeTag {
+//    Unknown = 0,
+//    CopyPath = 100,
+//    FileTransfer = 101,
+//    Realise = 102,
+//    CopyPaths = 103,
+//    Builds = 104,
+//    Build = 105,
+//    OptimiseStore = 106,
+//    VerifyPaths = 107,
+//    Substitute = 108,
+//    QueryPathInfo = 109,
+//    PostBuildHook = 110,
+//    BuildWaiting = 111,
+//    FetchTree = 112,
+//}
+//
+//#[repr(i32)]
+//#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+//pub enum NixVerbosity {
+//    LvlError = 0,
+//    LvlWarn,
+//    LvlNotice,
+//    LvlInfo,
+//    LvlTalkative,
+//    LvlChatty,
+//    LvlDebug,
+//    LvlVomit,
+//}
+//
+//pub struct Activity {
+//    tag: ActivityTypeTag,
+//    activity_fields: ActivityUpdateFields,
+//}
+
+//#[derive(Debug)]
+//pub enum ActivityUpdateFields {
+//    CopyPath {
+//        source_store_path: String,
+//        src_uri: String,
+//        dst_uri: String,
+//    }, /* {storePathS, srcCfg.getHumanReadableURI(),
+//        * dstCfg.getHumanReadableURI()}); */
+//    FileTransfer {
+//        uri: String,
+//    },
+//    Realise, //
+//    CopyPaths,
+//    Builds {
+//        phase_type: String,
+//    },
+//    BuildStart {
+//        drv_path: String,
+//        // TODO not sure what these are for...
+//        _empty_str: String,
+//        _one_1: i32,
+//        _one_2: i32,
+//    },
+//    BuildUpdate {
+//        a: u64,
+//        b: u64,
+//        c: u64,
+//        d: u64,
+//    },
+//    OptimiseStore,
+//    VerifyPaths,
+//    Substitute,
+//    QueryPathInfo,
+//    PostBuildHook {
+//        store_path: String,
+//    },
+//    BuildWaiting {
+//        store_path: String,
+//        resolved_path: String,
+//    },
+//
+//    FetchTree,
+//}
