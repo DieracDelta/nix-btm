@@ -9,7 +9,7 @@ use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
-    sync::{Mutex, watch},
+    sync::{Mutex, RwLock, watch},
     time::{MissedTickBehavior, interval},
 };
 
@@ -66,37 +66,45 @@ pub async fn handle_daemon_info(
     socket_path: PathBuf,
     mode: u32,
     is_shutdown: Arc<AtomicBool>,
-    info_builds: watch::Sender<HashMap<u64, BuildJob>>,
+    mut info_builds: watch::Sender<HashMap<u64, BuildJob>>,
 ) {
     // Call the socket function **once**
     let (listener, guard) = setup_unix_socket(&socket_path, mode)
         .expect("setup_unix_socket failed");
 
-    let mut cur_state = Default::default();
     let mut ticker = interval(Duration::from_secs(1));
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
-     loop {
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let cur_state = Arc::new(RwLock::new(Default::default()));
+    loop {
         tokio::select! {
             res = listener.accept() => {
                 match res {
                     Ok((stream, _addr))
                         if !is_shutdown.load(Ordering::Relaxed) =>
-                    {
-                        if let Err(e) = read_stream(stream, &mut cur_state).await {
-                            eprintln!("client error: {e}");
+                        {
+                            let info_builds_ = info_builds.clone();
+                            let is_shutdown_ = is_shutdown.clone();
+                            let cur_state_ = cur_state.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = read_stream(stream, cur_state_, is_shutdown_).await {
+                                    eprintln!("client error: {e}");
+                                }
+                            }
+
+                            );
                         }
-                    }
                     Ok((_stream, _addr)) => {
                     }
+
                     Err(e) => eprintln!("accept error: {e}"),
                 }
             }
-
             _ = ticker.tick() => {
-                if info_builds.send(cur_state.clone()).is_err() {
-                    eprintln!("no active receivers for info_builds");
+                    let tmp_state = cur_state.read().await;
+                    if info_builds.send(tmp_state.clone()).is_err() {
+                        eprintln!("no active receivers for info_builds");
+                    }
                 }
-            }
         }
 
         if is_shutdown.load(Ordering::Relaxed) {
@@ -121,7 +129,8 @@ pub async fn handle_daemon_info(
 #[derive(Clone, Debug)]
 pub struct BuildJob {
     pub id: u64,
-    pub drv: String,
+    pub drv_name: String,
+    pub drv_hash: String,
     pub status: JobStatus,
     pub start_time: Instant,
 }
@@ -135,7 +144,7 @@ pub enum JobStatus {
 impl Display for JobStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JobStatus::BuildPhaseType(s) => write!(f, "Build phase: {}", s),
+            JobStatus::BuildPhaseType(s) => write!(f, "Progress: {}", s),
             JobStatus::Starting => write!(f, "Starting"),
         }
     }
@@ -164,14 +173,7 @@ pub fn format_duration(dur: Duration) -> String {
     parts.join(" ")
 }
 
-async fn read_stream(
-    stream: UnixStream,
-    state: &mut HashMap<u64, BuildJob>,
-) -> io::Result<()> {
-    let reader = BufReader::new(stream);
-    let mut lines = reader.lines();
-
-    while let Some(line) = lines.next_line().await? {
+async fn handle_line(line: String, locked_state: Arc<RwLock<HashMap<u64, BuildJob>>>){
         match LogMessage::from_json_str(&line) {
             Ok(msg) => {
                 //println!("{:?}", msg);
@@ -205,9 +207,11 @@ async fn read_stream(
                                     _ => None,
                                 })
                             {
+                                let (drv_hash, drv_name) = parse_drv(drv);
                                 let new_job = BuildJob {
                                     id,
-                                    drv,
+                                    drv_name,
+                                    drv_hash,
                                     status: JobStatus::Starting,
                                     start_time: Instant::now(),
                                 };
@@ -216,6 +220,7 @@ async fn read_stream(
                                 // or maintain a set of diffs and then "merge"
                                 // that every few
                                 // seconds
+                                let mut state = locked_state.write().await;
                                 match state.entry(id) {
                                     Entry::Occupied(mut occupied_entry) => {
                                         eprintln!(
@@ -267,6 +272,7 @@ async fn read_stream(
                             {
                                 // TODO separate out into a replace_entry
                                 // function
+                                let mut state = locked_state.write().await;
                                 match state.entry(id) {
                                     Entry::Occupied(mut occupied_entry) => {
                                         //eprintln!(
@@ -304,7 +310,34 @@ async fn read_stream(
                 eprintln!("JSON error: {e}\n\tline was: {line}")
             }
         }
-    }
 
-    Ok(())
+
+}
+
+fn parse_drv(drv: String) -> (String, String) {
+    let s = drv.strip_prefix("/nix/store/").unwrap_or(&drv);
+
+    match s.split_once('-') {
+        Some((hash, name)) => (hash.to_string(), name.to_string()),
+        None => (s.to_string(), String::new()),
+    }
+}
+
+async fn read_stream(
+    stream: UnixStream,
+    state: Arc<RwLock<HashMap<u64, BuildJob>>>,
+    //info_builds: watch::Sender<HashMap<u64, BuildJob>>,
+    is_shutdown: Arc<AtomicBool>
+) -> io::Result<()> {
+    let reader = BufReader::new(stream);
+    let mut lines = reader.lines();
+
+    loop {
+        if is_shutdown.load(Ordering::Relaxed) {
+            return Ok(())
+        }
+        if let Ok(Some(line)) = lines.next_line().await {
+                    handle_line(line, state.clone()).await;
+        }
+    }
 }

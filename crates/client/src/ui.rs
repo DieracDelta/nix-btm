@@ -326,16 +326,19 @@ fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
     ])
     .split(inner_area);
     let mut table_state = TableState::default();
-    let header = ["job id", "drv", "status", "⏰"]
-        .into_iter()
-        .map(Cell::from)
-        .collect::<Row>();
+    let header = Row::new(
+        ["job id", "drv name", "status", "⏰", "drv hash"]
+            .into_iter()
+            .map(Cell::from),
+    )
+    .style(*TITLE_STYLE_SELECTED_SECONDARY);
 
     let widths = [
-        Constraint::Percentage(8),
-        Constraint::Percentage(8),
-        Constraint::Percentage(8),
-        Constraint::Percentage(8),
+        Constraint::Percentage(20),
+        Constraint::Percentage(30),
+        Constraint::Percentage(20),
+        Constraint::Percentage(20),
+        Constraint::Percentage(10),
     ];
     let rows: Vec<_> = app
         .cur_info_builds
@@ -344,9 +347,10 @@ fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
         .map(|(id, job)| {
             [
                 id.to_string(),
-                job.drv,
+                job.drv_name,
                 job.status.to_string(),
                 format_duration(job.start_time.elapsed()),
+                job.drv_hash,
             ]
             .into_iter()
             .map(|content| Cell::from(Text::from(content)))
@@ -356,15 +360,15 @@ fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
 
     let table = Table::new(rows, widths)
         .header(header)
-        //.block(
-        //Block::bordered()
-        //.title(" INFO")
-        //.title_bottom("M TO TOGGLE MANUAL")
-        //.title_style(app.builder_view.gen_title_style(Pane::Right))
-        //.border_style(app.builder_view.gen_border_style(Pane::Right))
-        //.bg(Gruvbox::Dark1)
-        //.fg(Gruvbox::Light3),
-        //)
+        .block(
+            Block::bordered()
+                .title("JOB INFO")
+                .title_bottom("M TO TOGGLE MANUAL")
+                .title_style(app.builder_view.gen_title_style(Pane::Right))
+                .border_style(app.builder_view.gen_border_style(Pane::Right))
+                .bg(Gruvbox::Dark1)
+                .fg(Gruvbox::Light3),
+        )
         .highlight_style(Style::new().fg(Gruvbox::Light3.into()));
     f.render_stateful_widget(table, chunks[0], &mut table_state);
 }
