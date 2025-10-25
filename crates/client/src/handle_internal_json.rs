@@ -28,24 +28,6 @@ use tracing::error;
 
 use crate::derivation_tree::{DrvNode, DrvRelations};
 
-//#[derive(Debug)]
-//pub struct LogLine {
-//    pub actionUpdate: ActionUpdate,
-//    pub fields: ActivityUpdateFields,
-//    pub id: u64,
-//    pub type_: ActivityTypeTag,
-//    pub text: Option<String>,
-//}
-//
-//#[derive(Debug, Deserialize)]
-//enum ActionUpdate {
-//    Result,
-//    Start,
-//    Stop,
-//    Msg,
-//}
-//
-
 pub struct SocketGuard(PathBuf);
 impl Drop for SocketGuard {
     fn drop(&mut self) {
@@ -257,19 +239,6 @@ pub async fn handle_daemon_info(
         }
     }
 }
-
-//#[derive(Clone, Debug)]
-//pub enum BuildPhaseType {
-//    UnpackPhase,
-//    PatchPhase,
-//    ConfigurePhase,
-//    BuildPhase,
-//    CheckPhase,
-//    InstallPhase,
-//    FixupPhase,
-//    InstallCheckPhase,
-//    DistPhase,
-//}
 
 #[derive(Clone, Debug)]
 pub struct BuildJob {

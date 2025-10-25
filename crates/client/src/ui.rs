@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Cell, Paragraph, Row, Table, TableState, Tabs, Wrap},
 };
 use strum::IntoEnumIterator;
-use tui_tree_widget::Tree;
+use tui_tree_widget::{Tree, TreeItem};
 
 use crate::{
     App, Pane, SelectedTab,
@@ -15,8 +15,10 @@ use crate::{
     gruvbox::Gruvbox::{
         self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
     },
-    handle_internal_json::{format_duration, format_secs},
+    handle_internal_json::{JobsStateInner, format_duration, format_secs},
 };
+
+static NON_UNIQUE_ID_ERR_MSG: &str = "all item identifiers must be unique";
 
 lazy_static! {
     pub static ref TITLE_STYLE_SELECTED: Style = {
@@ -138,8 +140,55 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, app: &mut App) {
     f.render_widget(man, area);
 }
 
+// todo!() fill this out
+pub fn gen_drv_tree_leaves_from_state(
+    state: &JobsStateInner,
+) -> Vec<TreeItem<'_, String>> {
+    vec![]
+}
+
 pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
-    //todo!()
+    let state = &app.cur_info_builds;
+
+    let items: Vec<TreeItem<'_, String>> =
+        gen_drv_tree_leaves_from_state(state);
+
+    let chunks = Layout::horizontal([
+        // just the drv tree for now
+        // add a second pane later
+        Constraint::Percentage(100),
+    ])
+    .split(size);
+    // TODO don't draw if there are no derivations in progress?
+
+    let drv_tree_widget = Tree::new(&items)
+        .expect("all item id")
+        .block(
+            Block::bordered()
+                .title("Drv Building List")
+                //.title_bottom("")
+                .title_style(app.builder_view.gen_title_style(Pane::Left))
+                .border_style(app.builder_view.gen_border_style(Pane::Left))
+                .bg(Gruvbox::Dark1)
+                .fg(Gruvbox::Light1),
+        )
+        .highlight_style(
+            Style::new()
+                .fg(Dark0.into())
+                .bg(if app.builder_view.selected_pane == Pane::Left {
+                    OrangeBright.into()
+                } else {
+                    OrangeDim.into()
+                })
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("> ");
+
+    f.render_stateful_widget(
+        drv_tree_widget,
+        chunks[0],
+        &mut app.builder_view.state,
+    );
 }
 
 pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
