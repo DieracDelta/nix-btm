@@ -1,12 +1,16 @@
 use std::{
+    collections::{HashMap, hash_map::Entry},
     fs, io,
     os::unix::fs::{FileTypeExt, PermissionsExt},
     path::{Path, PathBuf},
+    sync::{Arc, atomic::AtomicBool},
     thread::JoinHandle,
+    time::Instant,
 };
 
+use bstr::ByteSlice as _;
 use either::Either;
-use json_parsing_nix::LogMessage;
+use json_parsing_nix::{ActivityType, Field, LogMessage};
 use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
@@ -62,7 +66,11 @@ pub fn setup_unix_socket(
     Ok((listener, SocketGuard(path.to_path_buf())))
 }
 
-pub fn handle_daemon_info(socket_path: PathBuf, mode: u32) {
+pub fn handle_daemon_info(
+    socket_path: PathBuf,
+    mode: u32,
+    is_shutdown: Arc<AtomicBool>,
+) {
     let _ = std::thread::Builder::new()
         .name("io-thread".into())
         .spawn(move || {
@@ -76,15 +84,21 @@ pub fn handle_daemon_info(socket_path: PathBuf, mode: u32) {
                 let (listener, guard) = setup_unix_socket(&socket_path, mode)
                     .expect("setup_unix_socket failed");
 
+                let mut global_drv_map = HashMap::new();
+
                 loop {
                     match listener.accept().await {
-                        Ok((stream, _addr)) => {
-                            tokio::spawn(async move {
-                                if let Err(e) = read_stream(stream).await {
-                                    eprintln!("client error: {e}");
-                                }
-                            });
+                        Ok((stream, _addr))
+                            if !is_shutdown
+                                .load(std::sync::atomic::Ordering::Relaxed) =>
+                        {
+                            if let Err(e) =
+                                read_stream(stream, &mut global_drv_map).await
+                            {
+                                eprintln!("client error: {e}");
+                            }
                         }
+                        Ok((stream, _addr)) => {}
                         Err(e) => eprintln!("accept error: {e}"),
                     }
                 }
@@ -93,14 +107,45 @@ pub fn handle_daemon_info(socket_path: PathBuf, mode: u32) {
         .unwrap();
 }
 
-async fn read_stream(stream: UnixStream) -> io::Result<()> {
+//#[derive(Clone, Debug)]
+//pub enum BuildPhaseType {
+//    UnpackPhase,
+//    PatchPhase,
+//    ConfigurePhase,
+//    BuildPhase,
+//    CheckPhase,
+//    InstallPhase,
+//    FixupPhase,
+//    InstallCheckPhase,
+//    DistPhase,
+//}
+
+#[derive(Clone, Debug)]
+pub struct BuildJob {
+    id: u64,
+    drv: String,
+    status: JobStatus,
+    start_time: Instant,
+}
+
+#[derive(Clone, Debug)]
+pub enum JobStatus {
+    BuildPhaseType(String),
+    Starting,
+}
+
+async fn read_stream(
+    stream: UnixStream,
+    state: &mut HashMap<u64, BuildJob>,
+) -> io::Result<()> {
     let reader = BufReader::new(stream);
     let mut lines = reader.lines();
 
     while let Some(line) = lines.next_line().await? {
-        let line_with_prefix = format!("@nix {}", line);
-        match LogMessage::from_json_str(&line_with_prefix) {
+        match LogMessage::from_json_str(&line) {
             Ok(msg) => {
+                //println!("{:?}", msg);
+                let msg_ = msg.clone();
                 match msg {
                     LogMessage::Start {
                         fields,
@@ -109,13 +154,116 @@ async fn read_stream(stream: UnixStream) -> io::Result<()> {
                         parent,
                         text,
                         r#type,
-                    } => todo!(),
-                    LogMessage::Stop { id } => todo!(),
-                    LogMessage::Result { fields, id, r#type } => todo!(),
-                    LogMessage::Msg { level, msg } => todo!(),
-                    LogMessage::SetPhase { phase } => todo!(),
+                    } => match r#type {
+                        ActivityType::Unknown => (),
+                        ActivityType::CopyPath => (),
+                        ActivityType::FileTransfer => (),
+                        ActivityType::Realise => (),
+                        ActivityType::CopyPaths => (),
+                        ActivityType::Builds => {}
+                        ActivityType::Build => {
+                            // nix store paths are supposed to be valid utf8
+                            if let Some(drv) = fields
+                                .as_ref()
+                                .and_then(|v| v.first())
+                                .and_then(|f| match f {
+                                    Field::String(cow) => Some(
+                                        cow.as_ref()
+                                            .to_str_lossy()
+                                            .into_owned(),
+                                    ),
+                                    _ => None,
+                                })
+                            {
+                                let new_job = BuildJob {
+                                    id,
+                                    drv,
+                                    status: JobStatus::Starting,
+                                    start_time: Instant::now(),
+                                };
+                                match state.entry(id) {
+                                    Entry::Occupied(mut occupied_entry) => {
+                                        eprintln!(
+                                            "warning: job for {id:?} already \
+                                             existed; replacing it"
+                                        );
+                                        occupied_entry.insert(new_job);
+                                    }
+                                    Entry::Vacant(vacant_entry) => {
+                                        vacant_entry.insert(new_job);
+                                    }
+                                }
+                            } else {
+                                eprintln!(
+                                    "Error on either getting the fields, or \
+                                     that the fields are not valid utf8. Msg \
+                                     in question: {}",
+                                    msg_
+                                );
+                            }
+                        }
+                        ActivityType::OptimiseStore => {}
+                        ActivityType::VerifyPaths => (),
+                        ActivityType::Substitute => (),
+                        ActivityType::QueryPathInfo => {}
+                        ActivityType::PostBuildHook => {}
+                        ActivityType::BuildWaiting => (),
+                        ActivityType::FetchTree => (),
+                    },
+                    LogMessage::Stop { id } => {}
+                    LogMessage::Result { fields, id, r#type } => match r#type {
+                        json_parsing_nix::ResultType::FileLinked => (),
+                        json_parsing_nix::ResultType::BuildLogLine => (),
+                        json_parsing_nix::ResultType::UntrustedPath => (),
+                        json_parsing_nix::ResultType::CorruptedPath => (),
+                        json_parsing_nix::ResultType::SetPhase => {
+                            // TODO separate out into get_one_arg function
+                            if let Some(phase_name) = Some(fields)
+                                .as_ref()
+                                .and_then(|v| v.first())
+                                .and_then(|f| match f {
+                                    Field::String(cow) => Some(
+                                        cow.as_ref()
+                                            .to_str_lossy()
+                                            .into_owned(),
+                                    ),
+                                    _ => None,
+                                })
+                            {
+                                // TODO separate out into a replace_entry
+                                // function
+                                match state.entry(id) {
+                                    Entry::Occupied(mut occupied_entry) => {
+                                        eprintln!(
+                                            "warning: job for {id:?} already \
+                                             existed; replacing it"
+                                        );
+                                        let job = occupied_entry.get_mut();
+                                        job.status = JobStatus::BuildPhaseType(
+                                            phase_name,
+                                        );
+                                    }
+                                    Entry::Vacant(_vacant_entry) => {
+                                        eprintln!("job doesn't exist?");
+                                    }
+                                }
+                            } else {
+                                eprintln!(
+                                    "Error on either getting the fields, or \
+                                     that the fields are not valid utf8. Msg \
+                                     in question: {}",
+                                    msg_
+                                );
+                            }
+                        }
+                        json_parsing_nix::ResultType::Progress => (),
+                        json_parsing_nix::ResultType::SetExpected => (),
+                        json_parsing_nix::ResultType::PostBuildLogLine => (),
+                        json_parsing_nix::ResultType::FetchStatus => (),
+                    },
+                    LogMessage::Msg { level, msg } => {}
+                    LogMessage::SetPhase { phase } => {}
                 }
-                println!("{:?}", msg)
             }
             Err(e) => {
                 eprintln!("JSON error: {e}\n\tline was: {line}")
@@ -125,86 +273,3 @@ async fn read_stream(stream: UnixStream) -> io::Result<()> {
 
     Ok(())
 }
-
-//type ActivityId = u64;
-
-//#[derive(Debug, Deserialize)]
-//#[repr(i32)]
-//enum ActivityTypeTag {
-//    Unknown = 0,
-//    CopyPath = 100,
-//    FileTransfer = 101,
-//    Realise = 102,
-//    CopyPaths = 103,
-//    Builds = 104,
-//    Build = 105,
-//    OptimiseStore = 106,
-//    VerifyPaths = 107,
-//    Substitute = 108,
-//    QueryPathInfo = 109,
-//    PostBuildHook = 110,
-//    BuildWaiting = 111,
-//    FetchTree = 112,
-//}
-//
-//#[repr(i32)]
-//#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-//pub enum NixVerbosity {
-//    LvlError = 0,
-//    LvlWarn,
-//    LvlNotice,
-//    LvlInfo,
-//    LvlTalkative,
-//    LvlChatty,
-//    LvlDebug,
-//    LvlVomit,
-//}
-//
-//pub struct Activity {
-//    tag: ActivityTypeTag,
-//    activity_fields: ActivityUpdateFields,
-//}
-
-//#[derive(Debug)]
-//pub enum ActivityUpdateFields {
-//    CopyPath {
-//        source_store_path: String,
-//        src_uri: String,
-//        dst_uri: String,
-//    }, /* {storePathS, srcCfg.getHumanReadableURI(),
-//        * dstCfg.getHumanReadableURI()}); */
-//    FileTransfer {
-//        uri: String,
-//    },
-//    Realise, //
-//    CopyPaths,
-//    Builds {
-//        phase_type: String,
-//    },
-//    BuildStart {
-//        drv_path: String,
-//        // TODO not sure what these are for...
-//        _empty_str: String,
-//        _one_1: i32,
-//        _one_2: i32,
-//    },
-//    BuildUpdate {
-//        a: u64,
-//        b: u64,
-//        c: u64,
-//        d: u64,
-//    },
-//    OptimiseStore,
-//    VerifyPaths,
-//    Substitute,
-//    QueryPathInfo,
-//    PostBuildHook {
-//        store_path: String,
-//    },
-//    BuildWaiting {
-//        store_path: String,
-//        resolved_path: String,
-//    },
-//
-//    FetchTree,
-//}

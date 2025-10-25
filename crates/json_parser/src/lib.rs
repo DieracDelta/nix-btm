@@ -11,9 +11,6 @@ use bstr::{BStr, BString};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 //use tracing::warn;
 
-/// Every "internal-json" log line emitted by Nix has this prefix.
-pub const AT_NIX_PREFIX: &str = "@nix ";
-
 /// The different verbosity levels Nix distinguishes.
 #[derive(
     Clone,
@@ -255,8 +252,6 @@ pub enum ResultType {
 
 impl<'a> LogMessage<'a> {
     pub fn from_json_str(s: &'a str) -> Result<Self, Error> {
-        let s = s.strip_prefix(AT_NIX_PREFIX).ok_or(Error::MissingPrefix)?;
-
         Ok(serde_json::from_str(s)?)
     }
 }
@@ -265,7 +260,7 @@ impl std::fmt::Display for LogMessage<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{AT_NIX_PREFIX}{}",
+            "{}",
             serde_json::to_string(self)
                 .expect("Failed to serialize LogMessage")
         )
@@ -274,9 +269,6 @@ impl std::fmt::Display for LogMessage<'_> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Missing @nix prefix")]
-    MissingPrefix,
-
     #[error("Failed to deserialize: {0}")]
     FailedDeserialize(#[from] serde_json::Error),
 }

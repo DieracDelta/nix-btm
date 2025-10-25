@@ -316,5 +316,48 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 }
 
 fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
+    let mut table_state = TableState::default();
+    let header = ["job id", "drv", "status", "⏰"]
+        .into_iter()
+        .map(Cell::from)
+        .collect::<Row>();
+
+    let widths = [
+        Constraint::Percentage(if app.builder_view.horizontal_scroll == 0 {
+            6
+        } else {
+            0
+        }),
+        Constraint::Percentage(0),
+        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 1 {
+            6
+        } else {
+            0
+        }),
+        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 2 {
+            6
+        } else {
+            0
+        }),
+        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 3 {
+            6
+        } else {
+            0
+        }),
+        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 4 {
+            6
+        } else {
+            0
+        }),
+        Constraint::Percentage(match app.builder_view.horizontal_scroll {
+            0 => 69,
+            1 => 75,
+            2 => 81,
+            3 => 87,
+            4 => 93,
+            _ => 100,
+        }),
+    ];
+    //let rows = app.state.info_builds
     // todo!()
 }

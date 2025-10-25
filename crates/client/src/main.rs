@@ -41,7 +41,7 @@ use ui::{
 
 use crate::{
     get_stats::{ProcMetadata, get_active_users_and_pids},
-    handle_internal_json::handle_daemon_info,
+    handle_internal_json::{BuildJob, handle_daemon_info},
 };
 
 #[global_allocator]
@@ -107,6 +107,7 @@ pub struct App {
     birds_eye_view: BirdsEyeViewState,
     tab_selected: SelectedTab,
     info: Arc<Mutex<HashMap<String, BTreeSet<ProcMetadata>>>>,
+    info_builds: Arc<Mutex<HashMap<u64, BuildJob>>>,
 }
 
 #[derive(Default, Debug)]
@@ -199,15 +200,22 @@ struct Args {
 }
 
 fn run() -> Result<()> {
+    let is_shutdown = Arc::new(AtomicBool::new(false));
+    let local_is_shutdown = is_shutdown.clone();
+    let local_is_shutdown2 = is_shutdown.clone();
+    //let info_builds = Default::default();
+
     let args = Args::parse();
     let maybe_jh = args.socket.map(|socket| {
         thread::spawn(|| {
-            handle_daemon_info(socket.into(), 0o660);
+            handle_daemon_info(
+                socket.into(),
+                0o660,
+                local_is_shutdown2,
+                //info_builds,
+            );
         })
-        .join()
     });
-    sleep(Duration::from_secs(100));
-    return Ok(());
 
     let mut terminal = setup_terminal()?;
 
@@ -215,9 +223,6 @@ fn run() -> Result<()> {
     let app = App::default();
 
     let state_cp = app.info.clone();
-
-    let is_shutdown = Arc::new(AtomicBool::new(false));
-    let local_is_shutdown = is_shutdown.clone();
 
     let t_handle = thread::spawn(move || {
         while !local_is_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
@@ -245,6 +250,9 @@ fn run() -> Result<()> {
     is_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
 
     t_handle.join().unwrap();
+    if let Some(jh) = maybe_jh {
+        jh.join().unwrap();
+    }
 
     Ok(())
 }
