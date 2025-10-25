@@ -3,9 +3,9 @@ use std::{
     fs, io,
     os::unix::fs::{FileTypeExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::{Arc, atomic::AtomicBool},
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
     thread::JoinHandle,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use bstr::ByteSlice as _;
@@ -15,6 +15,8 @@ use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
+    sync::{Mutex, watch},
+    time::{MissedTickBehavior, interval},
 };
 
 //#[derive(Debug)]
@@ -66,45 +68,49 @@ pub fn setup_unix_socket(
     Ok((listener, SocketGuard(path.to_path_buf())))
 }
 
-pub fn handle_daemon_info(
+pub async fn handle_daemon_info(
     socket_path: PathBuf,
     mode: u32,
     is_shutdown: Arc<AtomicBool>,
+    info_builds: watch::Sender<HashMap<u64, BuildJob>>,
 ) {
-    let _ = std::thread::Builder::new()
-        .name("io-thread".into())
-        .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("failed to build Tokio runtime");
+    // Call the socket function **once**
+    let (listener, guard) = setup_unix_socket(&socket_path, mode)
+        .expect("setup_unix_socket failed");
 
-            rt.block_on(async move {
-                // Call the socket function **once**
-                let (listener, guard) = setup_unix_socket(&socket_path, mode)
-                    .expect("setup_unix_socket failed");
-
-                let mut global_drv_map = HashMap::new();
-
-                loop {
-                    match listener.accept().await {
-                        Ok((stream, _addr))
-                            if !is_shutdown
-                                .load(std::sync::atomic::Ordering::Relaxed) =>
-                        {
-                            if let Err(e) =
-                                read_stream(stream, &mut global_drv_map).await
-                            {
-                                eprintln!("client error: {e}");
-                            }
+    let mut cur_state = Default::default();
+    let mut ticker = interval(Duration::from_secs(1));
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+     loop {
+        tokio::select! {
+            res = listener.accept() => {
+                match res {
+                    Ok((stream, _addr))
+                        if !is_shutdown.load(Ordering::Relaxed) =>
+                    {
+                        if let Err(e) = read_stream(stream, &mut cur_state).await {
+                            eprintln!("client error: {e}");
                         }
-                        Ok((stream, _addr)) => {}
-                        Err(e) => eprintln!("accept error: {e}"),
                     }
+                    Ok((_stream, _addr)) => {
+                        // shutdown triggered, ignore
+                    }
+                    Err(e) => eprintln!("accept error: {e}"),
                 }
-            });
-        })
-        .unwrap();
+            }
+
+            _ = ticker.tick() => {
+                if info_builds.send(cur_state.clone()).is_err() {
+                    // all receivers dropped, can ignore or break
+                    eprintln!("no active receivers for info_builds");
+                }
+            }
+        }
+
+        if is_shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+    }
 }
 
 //#[derive(Clone, Debug)]
@@ -181,6 +187,11 @@ async fn read_stream(
                                     status: JobStatus::Starting,
                                     start_time: Instant::now(),
                                 };
+                                // TODO may want to batch eventually
+                                // or lock more coarsely
+                                // or maintain a set of diffs and then "merge"
+                                // that every few
+                                // seconds
                                 match state.entry(id) {
                                     Entry::Occupied(mut occupied_entry) => {
                                         eprintln!(

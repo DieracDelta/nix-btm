@@ -128,9 +128,12 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, app: &mut App) {
 }
 
 pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
-    let user_map = app.info.lock().unwrap();
+    let user_map = &app.cur_info;
 
-    let items = gen_ui_by_nix_builder(&user_map);
+    let items = gen_ui_by_nix_builder(user_map);
+    if items.is_empty() {
+        return;
+    }
 
     let chunks = Layout::horizontal([
         // title
@@ -359,5 +362,5 @@ fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
         }),
     ];
     //let rows = app.state.info_builds
-    // todo!()
+    todo!()
 }

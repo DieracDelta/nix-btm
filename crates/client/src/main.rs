@@ -3,12 +3,13 @@ use std::{
     error::Error,
     io::{self, Stdout},
     panic,
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{Arc, atomic::AtomicBool},
     thread::{self, sleep},
     time::Duration,
 };
 
 use clap::Parser;
+use futures::future::join_all;
 use mimalloc::MiMalloc;
 use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
@@ -21,7 +22,7 @@ pub mod listen_to_output;
 pub mod ui;
 
 use crossterm::{
-    event::DisableMouseCapture,
+    event::{DisableMouseCapture, EventStream},
     execute,
     terminal::{
         EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
@@ -32,6 +33,7 @@ use event_loop::event_loop;
 use ratatui::{
     backend::CrosstermBackend, style::Style, widgets::ScrollbarState,
 };
+use tokio::sync::{Mutex, watch};
 //use tikv_jemallocator::Jemalloc;
 use tui_tree_widget::TreeState;
 use ui::{
@@ -108,6 +110,10 @@ pub struct App {
     tab_selected: SelectedTab,
     info: Arc<Mutex<HashMap<String, BTreeSet<ProcMetadata>>>>,
     info_builds: Arc<Mutex<HashMap<u64, BuildJob>>>,
+    // I hate this. Stream updates instead. Better when we separate out to the
+    // daemon
+    cur_info_builds: HashMap<u64, BuildJob>,
+    cur_info: HashMap<String, BTreeSet<ProcMetadata>>,
 }
 
 #[derive(Default, Debug)]
@@ -123,7 +129,6 @@ pub struct BuilderViewState {
     state: TreeState<String>,
     pub selected_pane: Pane,
     pub man_toggle: bool,
-    pub iters_since_requeue: u32,
 }
 
 impl BuilderViewState {
@@ -156,7 +161,8 @@ impl BuilderViewState {
     }
 }
 
-pub fn main() {
+#[tokio::main]
+pub async fn main() {
     if !sysinfo::IS_SUPPORTED_SYSTEM {
         panic!("This OS is supported!");
     }
@@ -182,7 +188,7 @@ pub fn main() {
 
     // construct_everything();
 
-    run().unwrap();
+    run().await.unwrap();
 }
 
 #[derive(Parser, Debug)]
@@ -199,20 +205,20 @@ struct Args {
     socket: Option<String>,
 }
 
-fn run() -> Result<()> {
+async fn run() -> Result<()> {
     let is_shutdown = Arc::new(AtomicBool::new(false));
     let local_is_shutdown = is_shutdown.clone();
     let local_is_shutdown2 = is_shutdown.clone();
-    //let info_builds = Default::default();
 
+    let (tx_jobs, recv_job_updates) = watch::channel(Default::default());
     let args = Args::parse();
     let maybe_jh = args.socket.map(|socket| {
-        thread::spawn(|| {
+        tokio::spawn(async move {
             handle_daemon_info(
                 socket.into(),
                 0o660,
                 local_is_shutdown2,
-                //info_builds,
+                tx_jobs,
             );
         })
     });
@@ -220,39 +226,48 @@ fn run() -> Result<()> {
     let mut terminal = setup_terminal()?;
 
     // create app and run it
-    let app = App::default();
+    let mut app = App::default();
 
-    let state_cp = app.info.clone();
-
-    let t_handle = thread::spawn(move || {
+    let (tx, recv_proc_updates) = watch::channel(Default::default());
+    let t_handle = tokio::spawn(async move {
         while !local_is_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
             let user_map_new = get_active_users_and_pids();
-            let mut tmp = state_cp.lock().unwrap();
-            *tmp = user_map_new;
+            // TODO should do some sort of error checking
+            let _ = tx.send(user_map_new);
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        sleep(Duration::from_secs(1));
     });
 
-    let res = event_loop(&mut terminal, app);
+    let main_app_handle = tokio::spawn(async move {
+        let res = event_loop(
+            &mut terminal,
+            app,
+            is_shutdown,
+            recv_proc_updates,
+            recv_job_updates,
+        )
+        .await;
+        // restore terminal
+        disable_raw_mode().unwrap();
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )
+        .unwrap();
+        terminal.show_cursor().unwrap();
+        if let Err(err) = res {
+            println!("{err:?}");
+        }
+    });
 
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    let mut handles = vec![t_handle, main_app_handle];
 
-    if let Err(err) = res {
-        println!("{err:?}");
-    }
-    is_shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
-
-    t_handle.join().unwrap();
     if let Some(jh) = maybe_jh {
-        jh.join().unwrap();
+        handles.push(jh);
     }
+
+    join_all(handles).await;
 
     Ok(())
 }
