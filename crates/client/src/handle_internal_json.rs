@@ -1,11 +1,5 @@
 use std::{
-    collections::{HashMap, hash_map::Entry},
-    fs, io,
-    os::unix::fs::{FileTypeExt, PermissionsExt},
-    path::{Path, PathBuf},
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
-    thread::JoinHandle,
-    time::{Duration, Instant},
+    collections::{HashMap, hash_map::Entry}, fmt::Display, fs, io, os::unix::fs::{FileTypeExt, PermissionsExt}, path::{Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, Ordering}}, thread::JoinHandle, time::{Duration, Instant}
 };
 
 use bstr::ByteSlice as _;
@@ -93,7 +87,6 @@ pub async fn handle_daemon_info(
                         }
                     }
                     Ok((_stream, _addr)) => {
-                        // shutdown triggered, ignore
                     }
                     Err(e) => eprintln!("accept error: {e}"),
                 }
@@ -101,7 +94,6 @@ pub async fn handle_daemon_info(
 
             _ = ticker.tick() => {
                 if info_builds.send(cur_state.clone()).is_err() {
-                    // all receivers dropped, can ignore or break
                     eprintln!("no active receivers for info_builds");
                 }
             }
@@ -128,16 +120,48 @@ pub async fn handle_daemon_info(
 
 #[derive(Clone, Debug)]
 pub struct BuildJob {
-    id: u64,
-    drv: String,
-    status: JobStatus,
-    start_time: Instant,
+    pub id: u64,
+    pub drv: String,
+    pub status: JobStatus,
+    pub start_time: Instant,
 }
 
 #[derive(Clone, Debug)]
 pub enum JobStatus {
     BuildPhaseType(String),
     Starting,
+}
+
+impl Display for JobStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JobStatus::BuildPhaseType(s) => write!(f, "Build phase: {}", s),
+            JobStatus::Starting => write!(f, "Starting"),
+        }
+    }
+}
+
+pub fn format_duration(dur: Duration) -> String {
+    let secs = dur.as_secs();
+
+    let days = secs / 86_400;
+    let hours = (secs % 86_400) / 3_600;
+    let minutes = (secs % 3_600) / 60;
+    let seconds = secs % 60;
+
+    let mut parts = Vec::new();
+    if days > 0 {
+        parts.push(format!("{days}d"));
+    }
+    if hours > 0 {
+        parts.push(format!("{hours}h"));
+    }
+    if minutes > 0 {
+        parts.push(format!("{minutes}m"));
+    }
+    parts.push(format!("{seconds}s"));
+
+    parts.join(" ")
 }
 
 async fn read_stream(
@@ -245,10 +269,10 @@ async fn read_stream(
                                 // function
                                 match state.entry(id) {
                                     Entry::Occupied(mut occupied_entry) => {
-                                        eprintln!(
-                                            "warning: job for {id:?} already \
-                                             existed; replacing it"
-                                        );
+                                        //eprintln!(
+                                        //    "warning: job for {id:?} already \
+                                        //     existed; replacing it"
+                                        //);
                                         let job = occupied_entry.get_mut();
                                         job.status = JobStatus::BuildPhaseType(
                                             phase_name,

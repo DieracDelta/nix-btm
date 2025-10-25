@@ -13,6 +13,7 @@ build:
 
 [doc('run')]
 run:
+    rm -f /tmp/nixbtm.sock
     cargo run --bin nix-btm --target x86_64-unknown-linux-musl --release -- -s /tmp/nixbtm.sock
 
 [doc('lint')]

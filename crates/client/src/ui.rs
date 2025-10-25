@@ -15,6 +15,7 @@ use crate::{
     gruvbox::Gruvbox::{
         self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
     },
+    handle_internal_json::format_duration,
 };
 
 lazy_static! {
@@ -319,6 +320,11 @@ pub fn ui(f: &mut Frame, app: &mut App) {
 }
 
 fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
+    let chunks = Layout::horizontal([
+        // everything
+        Constraint::Percentage(100),
+    ])
+    .split(inner_area);
     let mut table_state = TableState::default();
     let header = ["job id", "drv", "status", "⏰"]
         .into_iter()
@@ -326,41 +332,39 @@ fn draw_birds_eye_ui(f: &mut Frame, inner_area: Rect, app: &mut App) {
         .collect::<Row>();
 
     let widths = [
-        Constraint::Percentage(if app.builder_view.horizontal_scroll == 0 {
-            6
-        } else {
-            0
-        }),
-        Constraint::Percentage(0),
-        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 1 {
-            6
-        } else {
-            0
-        }),
-        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 2 {
-            6
-        } else {
-            0
-        }),
-        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 3 {
-            6
-        } else {
-            0
-        }),
-        Constraint::Percentage(if app.builder_view.horizontal_scroll <= 4 {
-            6
-        } else {
-            0
-        }),
-        Constraint::Percentage(match app.builder_view.horizontal_scroll {
-            0 => 69,
-            1 => 75,
-            2 => 81,
-            3 => 87,
-            4 => 93,
-            _ => 100,
-        }),
+        Constraint::Percentage(8),
+        Constraint::Percentage(8),
+        Constraint::Percentage(8),
+        Constraint::Percentage(8),
     ];
-    //let rows = app.state.info_builds
-    todo!()
+    let rows: Vec<_> = app
+        .cur_info_builds
+        .clone()
+        .into_iter()
+        .map(|(id, job)| {
+            [
+                id.to_string(),
+                job.drv,
+                job.status.to_string(),
+                format_duration(job.start_time.elapsed()),
+            ]
+            .into_iter()
+            .map(|content| Cell::from(Text::from(content)))
+            .collect::<Row>()
+        })
+        .collect();
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        //.block(
+        //Block::bordered()
+        //.title(" INFO")
+        //.title_bottom("M TO TOGGLE MANUAL")
+        //.title_style(app.builder_view.gen_title_style(Pane::Right))
+        //.border_style(app.builder_view.gen_border_style(Pane::Right))
+        //.bg(Gruvbox::Dark1)
+        //.fg(Gruvbox::Light3),
+        //)
+        .highlight_style(Style::new().fg(Gruvbox::Light3.into()));
+    f.render_stateful_widget(table, chunks[0], &mut table_state);
 }

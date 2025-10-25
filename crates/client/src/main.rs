@@ -108,8 +108,6 @@ pub struct App {
     builder_view: BuilderViewState,
     birds_eye_view: BirdsEyeViewState,
     tab_selected: SelectedTab,
-    info: Arc<Mutex<HashMap<String, BTreeSet<ProcMetadata>>>>,
-    info_builds: Arc<Mutex<HashMap<u64, BuildJob>>>,
     // I hate this. Stream updates instead. Better when we separate out to the
     // daemon
     cur_info_builds: HashMap<u64, BuildJob>,
@@ -219,7 +217,8 @@ async fn run() -> Result<()> {
                 0o660,
                 local_is_shutdown2,
                 tx_jobs,
-            );
+            )
+            .await;
         })
     });
 
