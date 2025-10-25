@@ -117,9 +117,9 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
                 crate::SelectedTab::BuilderView => {
                     app.builder_view.man_toggle = !app.builder_view.man_toggle;
                 }
-                crate::SelectedTab::BirdsEyeView => {
-                    app.birds_eye_view.man_toggle =
-                        !app.birds_eye_view.man_toggle;
+                crate::SelectedTab::EagleEyeView => {
+                    app.eagle_eye_view.man_toggle =
+                        !app.eagle_eye_view.man_toggle;
                 }
                 crate::SelectedTab::BuildJobView => {
                     app.build_job_view.man_toggle =

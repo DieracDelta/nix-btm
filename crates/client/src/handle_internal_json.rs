@@ -14,6 +14,7 @@ use std::{
 
 use bstr::ByteSlice as _;
 use json_parsing_nix::{ActivityType, Field, LogMessage};
+use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
@@ -84,10 +85,18 @@ pub struct JobsStateInner {
     // see a new job? figure out if and how it's related, then activate it
 }
 
-#[derive(Clone, Debug, PartialEq, Hash, Eq, Default)]
+#[derive(
+    Clone, Debug, PartialEq, Hash, Eq, Default, Deserialize, Ord, PartialOrd,
+)]
 pub struct Drv {
     pub name: String,
     pub hash: String,
+}
+
+impl From<String> for Drv {
+    fn from(s: String) -> Self {
+        parse_drv(s)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -122,7 +131,7 @@ impl JobsState {
     // but, this is fine for now
     pub async fn replace_build_job(
         &self,
-        new_job @ BuildJob { id, .. }: BuildJob,
+        new_job @ BuildJob { jid: id, .. }: BuildJob,
     ) {
         let drv = new_job.drv.clone();
 
@@ -175,6 +184,7 @@ pub async fn handle_daemon_info(
     let mut ticker = interval(Duration::from_secs(1));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let cur_state: JobsState = Default::default();
+    let mut next_rid = 0;
     loop {
         tokio::select! {
             res = listener.accept() => {
@@ -182,6 +192,8 @@ pub async fn handle_daemon_info(
                     Ok((stream, _addr))
                         if !is_shutdown.load(Ordering::Relaxed) =>
                         {
+                            let rid = next_rid;
+                            next_rid += 1;
                             let is_shutdown_ = is_shutdown.clone();
                             let cur_state_ = cur_state.clone();
                             tokio::spawn(async move {
@@ -189,7 +201,8 @@ pub async fn handle_daemon_info(
                                     = read_stream(
                                         stream,
                                         cur_state_,
-                                        is_shutdown_
+                                        is_shutdown_,
+                                        rid
                                         ).await {
                                     eprintln!("client error: {e}");
                                 }
@@ -230,17 +243,21 @@ pub async fn handle_daemon_info(
 
 #[derive(Clone, Debug)]
 pub struct BuildJob {
-    pub id: u64,
+    pub jid: JobId,
+    pub rid: RequesterId,
     pub drv: Drv,
     pub status: JobStatus,
     pub start_time: Instant,
     pub stop_time: Option<Instant>,
 }
 
+pub type RequesterId = u64;
+
 impl BuildJob {
-    pub fn new(id: u64, drv: Drv) -> Self {
+    pub fn new(jid: u64, rid: u64, drv: Drv) -> Self {
         BuildJob {
-            id,
+            rid,
+            jid,
             drv,
             status: JobStatus::Starting,
             start_time: Instant::now(),
@@ -342,7 +359,7 @@ pub fn format_duration(dur: Duration) -> String {
     format_secs(secs)
 }
 
-async fn handle_line(line: String, state: JobsState) {
+async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
     match LogMessage::from_json_str(&line) {
         Ok(msg) => {
             //println!("{:?}", msg);
@@ -367,7 +384,7 @@ async fn handle_line(line: String, state: JobsState) {
                         // nix store paths are supposed to be valid utf8
                         if let Some(drv) = parse_to_str(fields.as_ref(), 0) {
                             let drv = parse_drv(drv);
-                            let new_job = BuildJob::new(id, drv);
+                            let new_job = BuildJob::new(id, rid, drv);
                             state.replace_build_job(new_job).await;
                         } else {
                             // TODO proper logging using the usual crate
@@ -390,7 +407,7 @@ async fn handle_line(line: String, state: JobsState) {
                             let drv = parse_drv(drv);
                             let new_job = BuildJob {
                                 status: JobStatus::Querying(cache),
-                                ..BuildJob::new(id, drv)
+                                ..BuildJob::new(id, rid, drv)
                             };
                             state.replace_build_job(new_job).await;
                         }
@@ -469,6 +486,7 @@ async fn read_stream(
     state: JobsState,
     //info_builds: watch::Sender<HashMap<u64, BuildJob>>,
     is_shutdown: Arc<AtomicBool>,
+    rid: RequesterId,
 ) -> io::Result<()> {
     let reader = BufReader::new(stream);
     let mut lines = reader.lines();
@@ -478,7 +496,7 @@ async fn read_stream(
             return Ok(());
         }
         if let Ok(Some(line)) = lines.next_line().await {
-            handle_line(line, state.clone()).await;
+            handle_line(line, state.clone(), rid).await;
         }
     }
 }

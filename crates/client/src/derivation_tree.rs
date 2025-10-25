@@ -1,6 +1,10 @@
-use std::{collections::BTreeMap, ops::Deref};
+use std::{
+    collections::{BTreeMap, HashSet, VecDeque},
+    ops::Deref,
+};
 
 use serde::Deserialize;
+use tokio::process::Command;
 
 use crate::handle_internal_json::Drv;
 // detect a derivation -> insert into tree
@@ -29,6 +33,29 @@ impl Deref for DrvRelations {
     }
 }
 
+impl Drv {
+    pub async fn query_nix_about_drv(drv: Drv) -> Option<Derivation> {
+        let path = format!("/nix/store/{}-{}.drv", drv.hash, drv.name);
+
+        let output = Command::new("nix")
+            .arg("derivation")
+            .arg("show")
+            .arg(&path)
+            .output()
+            .await
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let parsed: BTreeMap<Drv, Derivation> =
+            serde_json::from_slice(&output.stdout).ok()?;
+
+        parsed.into_values().next()
+    }
+}
+
 impl DrvRelations {
     pub fn insert(&mut self, drv: Drv) {
         unimplemented!()
@@ -40,16 +67,39 @@ impl DrvRelations {
     }
 }
 
+impl DrvTree {
+    fn contains(&self, d: &Drv) -> bool {
+        let mut q: VecDeque<&DrvTree> = VecDeque::new();
+        // really should not need a seen sets since supposedly this is a dag
+        // but we have it anyway just in case to prevent infinite loop
+        let mut seen: HashSet<&Drv> = HashSet::new();
+        q.push_back(self);
+
+        while let Some(node) = q.pop_front() {
+            if &node.root == d {
+                return true;
+            }
+            if !seen.insert(&node.root) {
+                continue;
+            }
+            for child in &node.children {
+                q.push_back(child);
+            }
+        }
+        false
+    }
+}
+
 #[derive(Debug, Deserialize)]
-struct Derivation {
+pub struct Derivation {
     #[serde(default)]
-    name: String,
+    pub name: String,
     #[serde(default)]
-    system: String,
+    pub system: String,
     #[serde(rename = "inputDrvs", default)]
-    input_drvs: BTreeMap<String, InputDrv>,
+    pub input_drvs: BTreeMap<String, InputDrv>,
     #[serde(default)]
-    outputs: BTreeMap<String, Output>,
+    pub outputs: BTreeMap<String, Output>,
 }
 
 #[derive(Debug, Deserialize)]

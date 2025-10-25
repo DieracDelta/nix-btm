@@ -2,7 +2,7 @@
 
 `nix run github:DieracDelta/nix-btm/master`
 
-# How to get Birdseye view?
+# How to get Eagle Eye view/Jobs View to work?
 
 You'll need to set this in your `nix.conf`:
 

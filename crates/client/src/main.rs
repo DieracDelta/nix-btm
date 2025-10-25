@@ -81,8 +81,8 @@ pub enum SelectedTab {
     #[default]
     #[strum(to_string = "Nix Builder View")]
     BuilderView,
-    #[strum(to_string = "Birds Eye View")]
-    BirdsEyeView,
+    #[strum(to_string = "Eagle Eye View")]
+    EagleEyeView,
     #[strum(to_string = "Build Job View")]
     BuildJobView,
 }
@@ -110,7 +110,7 @@ impl SelectedTab {
 #[derive(Default, Debug)]
 pub struct App {
     builder_view: BuilderViewState,
-    birds_eye_view: BirdsEyeViewState,
+    eagle_eye_view: EagleEyeViewState,
     build_job_view: BuildJobViewState,
     tab_selected: SelectedTab,
     // I hate this. Stream updates instead. Better when we separate out to the
@@ -120,7 +120,7 @@ pub struct App {
 }
 
 #[derive(Default, Debug)]
-pub struct BirdsEyeViewState {
+pub struct EagleEyeViewState {
     man_toggle: bool,
 }
 
@@ -204,8 +204,8 @@ pub async fn main() {
     author,
     version,
     about = "The fully qualified path of the socket to read from. See the \
-             README for more details. Without this flag, the bird view will \
-             not work."
+             README for more details. Without this flag, the Eagle Eye view \
+             will not work."
 )]
 struct Args {
     /// Path to the Unix domain socket to connect to

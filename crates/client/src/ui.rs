@@ -64,7 +64,7 @@ const MAN_PAGE_BUILDER_VIEW: [&str; 12] = [
     "n - NEXT TAB",
 ];
 
-const MAN_PAGE_BIRDS_EYE_VIEW: [&str; 4] = [
+const MAN_PAGE_EAGLE_EYE_VIEW: [&str; 4] = [
     "q - QUIT",
     "M - TOGGLE MANUAL",
     "p - PREVIOUS TAB",
@@ -116,7 +116,7 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, app: &mut App) {
         SelectedTab::BuilderView => MAN_PAGE_BUILDER_VIEW
             .map(|s| Line::from(s).alignment(Alignment::Left))
             .to_vec(),
-        SelectedTab::BirdsEyeView => MAN_PAGE_BIRDS_EYE_VIEW
+        SelectedTab::EagleEyeView => MAN_PAGE_EAGLE_EYE_VIEW
             .map(|s| Line::from(s).alignment(Alignment::Left))
             .to_vec(),
         SelectedTab::BuildJobView => MAN_PAGE_BUILD_JOB_VIEW
@@ -138,7 +138,9 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, app: &mut App) {
     f.render_widget(man, area);
 }
 
-pub fn draw_birds_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {}
+pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
+    //todo!()
+}
 
 pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
     let user_map = &app.cur_info;
@@ -319,13 +321,13 @@ pub fn ui(f: &mut Frame, app: &mut App) {
                 draw_builder_ui(f, inner_area, app)
             }
         }
-        SelectedTab::BirdsEyeView => {
+        SelectedTab::EagleEyeView => {
             render_tab(f, tabs_area, app);
-            render_title(f, title_area, "Birds Eye View");
-            if app.birds_eye_view.man_toggle {
+            render_title(f, title_area, "Eagle Eye View");
+            if app.eagle_eye_view.man_toggle {
                 draw_man_page(f, inner_area, app);
             } else {
-                draw_birds_eye_ui(f, inner_area, app);
+                draw_eagle_eye_ui(f, inner_area, app);
             }
         }
         SelectedTab::BuildJobView => {
