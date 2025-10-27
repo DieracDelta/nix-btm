@@ -38,62 +38,88 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
     {
         match key.code {
             KeyCode::Char('g') => {
-                app.builder_view
-                    .state
-                    .select(vec![SORTED_NIX_USERS[0].clone()]);
+                if !SORTED_NIX_USERS.is_empty() {
+                    app.builder_view
+                        .state
+                        .select(vec![SORTED_NIX_USERS[0].clone()]);
+                }
             }
             KeyCode::Char('G') => {
-                app.builder_view.state.select(vec![
-                    SORTED_NIX_USERS[SORTED_NIX_USERS.len() - 1].clone(),
-                ]);
+                if !SORTED_NIX_USERS.is_empty() {
+                    app.builder_view.state.select(vec![
+                        SORTED_NIX_USERS[SORTED_NIX_USERS.len() - 1].clone(),
+                    ]);
+                }
             }
             KeyCode::Char('q') | KeyCode::Esc => return true,
-            KeyCode::Tab => {
-                let num_open = app.builder_view.state.opened().len();
-                if num_open == NIX_USERS.len() {
-                    app.builder_view.state.close_all();
-                } else {
-                    for user in Deref::deref(&NIX_USERS) {
-                        app.builder_view.state.open(vec![user.to_string()]);
+            KeyCode::Tab => match app.tab_selected {
+                crate::SelectedTab::BuilderView => {
+                    let num_open = app.builder_view.state.opened().len();
+                    if num_open == NIX_USERS.len() {
+                        app.builder_view.state.close_all();
+                    } else {
+                        for user in Deref::deref(&NIX_USERS) {
+                            app.builder_view.state.open(vec![user.to_string()]);
+                        }
                     }
                 }
-            }
-            KeyCode::Char('j') | KeyCode::Down => {
-                if let Some(selected) =
-                    app.builder_view.state.selected().first()
-                {
-                    let idx = SORTED_NIX_USERS
-                        .iter()
-                        .position(|x| x == selected)
-                        .unwrap();
-                    let new_idx = (idx + 1) % SORTED_NIX_USERS.len();
-                    app.builder_view
-                        .state
-                        .select(vec![SORTED_NIX_USERS[new_idx].clone()]);
-                } else {
-                    app.builder_view
-                        .state
-                        .select(vec![SORTED_NIX_USERS[0].clone()]);
+                crate::SelectedTab::EagleEyeView => {
+                    app.eagle_eye_view.state.toggle_selected();
                 }
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                if let Some(selected) =
-                    app.builder_view.state.selected().first()
-                {
-                    let idx = SORTED_NIX_USERS
-                        .iter()
-                        .position(|x| x == selected)
-                        .unwrap();
-                    let new_idx = (idx - 1) % SORTED_NIX_USERS.len();
-                    app.builder_view
-                        .state
-                        .select(vec![SORTED_NIX_USERS[new_idx].clone()]);
-                } else {
-                    app.builder_view
-                        .state
-                        .select(vec![SORTED_NIX_USERS[0].clone()]);
+                crate::SelectedTab::BuildJobView => {}
+            },
+            KeyCode::Char('j') | KeyCode::Down => match app.tab_selected {
+                crate::SelectedTab::BuilderView => {
+                    if !SORTED_NIX_USERS.is_empty() {
+                        if let Some(selected) =
+                            app.builder_view.state.selected().first()
+                        {
+                            let idx = SORTED_NIX_USERS
+                                .iter()
+                                .position(|x| x == selected)
+                                .unwrap();
+                            let new_idx = (idx + 1) % SORTED_NIX_USERS.len();
+                            app.builder_view.state.select(vec![
+                                SORTED_NIX_USERS[new_idx].clone(),
+                            ]);
+                        } else {
+                            app.builder_view
+                                .state
+                                .select(vec![SORTED_NIX_USERS[0].clone()]);
+                        }
+                    }
                 }
-            }
+                crate::SelectedTab::EagleEyeView => {
+                    app.eagle_eye_view.state.key_down();
+                }
+                crate::SelectedTab::BuildJobView => todo!(),
+            },
+            KeyCode::Char('k') | KeyCode::Up => match app.tab_selected {
+                crate::SelectedTab::BuilderView => {
+                    if !SORTED_NIX_USERS.is_empty() {
+                        if let Some(selected) =
+                            app.builder_view.state.selected().first()
+                        {
+                            let idx = SORTED_NIX_USERS
+                                .iter()
+                                .position(|x| x == selected)
+                                .unwrap();
+                            let new_idx = (idx - 1) % SORTED_NIX_USERS.len();
+                            app.builder_view.state.select(vec![
+                                SORTED_NIX_USERS[new_idx].clone(),
+                            ]);
+                        } else {
+                            app.builder_view
+                                .state
+                                .select(vec![SORTED_NIX_USERS[0].clone()]);
+                        }
+                    }
+                }
+                crate::SelectedTab::EagleEyeView => {
+                    app.eagle_eye_view.state.key_up();
+                }
+                crate::SelectedTab::BuildJobView => {}
+            },
             KeyCode::Char('h') => {
                 app.builder_view.go_left();
             }

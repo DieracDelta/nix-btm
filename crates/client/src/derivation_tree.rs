@@ -35,14 +35,10 @@ pub struct ConcreteTree {
 #[derive(Clone, Debug, Default)]
 pub struct DrvRelations {
     // roots with info to form a tree
-    nodes: BTreeMap<Drv, DrvNode>,
+    pub nodes: BTreeMap<Drv, DrvNode>,
     // the "start" that we begin walking from
     // each time we insert a node, we check (recursively) for dependencies
-    tree_roots: BTreeSet<Drv>,
-    // large hashset of the drvs we've actually already considered
-    started_drvs: BTreeSet<Drv>,
-    // only the drvs that have been started are inserted here
-    started_tree: BTreeSet<ConcreteTree>,
+    pub tree_roots: BTreeSet<Drv>,
 }
 
 impl DrvRelations {
@@ -95,7 +91,7 @@ impl DrvRelations {
 
     // right now does not care for efficiency. That comes later
     // only updates roots
-    fn insert_node(&mut self, node: DrvNode) {
+    pub fn insert_node(&mut self, node: DrvNode) {
         let mut is_root = true;
 
         if self.tree_roots.contains(&node.root) {

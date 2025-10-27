@@ -67,15 +67,18 @@ pub struct JobsStateInner {
     pub jid_to_job: HashMap<JobId, BuildJob>,
     pub drv_to_jobs: HashMap<Drv, HashSet<JobId>>,
     pub dep_tree: DrvRelations,
-    // more
-    //pub drv_set: HashSet, /* see a new job? figure out if and how it's
-    //* related, then activate it */
 }
 
 #[derive(Clone, Debug, PartialEq, Hash, Eq, Default, Ord, PartialOrd)]
 pub struct Drv {
     pub name: String,
     pub hash: String,
+}
+
+impl Display for Drv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{}.drv", self.hash, self.name)
+    }
 }
 
 impl<'de> Deserialize<'de> for Drv {
@@ -160,6 +163,10 @@ impl JobsState {
                 let mut res = HashSet::new();
                 res.insert(id);
                 vacant_entry.insert(res);
+
+                state.dep_tree.insert(drv.clone()).await;
+                let drv_node = state.dep_tree.nodes.get(&drv).unwrap().clone();
+                state.dep_tree.insert_node(drv_node);
             }
         }
     }
@@ -295,6 +302,7 @@ pub enum JobStatus {
         narinfo_name: String,
     },
     NotEnoughInfo,
+    Cancelled,
 }
 
 impl JobStatus {
@@ -327,6 +335,9 @@ impl Display for JobStatus {
                 narinfo_name,
             } => {
                 write!(f, "Downloading {narinfo_name} from {cache_name}")
+            }
+            JobStatus::Cancelled => {
+                write!(f, "Job was cancelled")
             }
         }
     }
@@ -381,11 +392,17 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                     ActivityType::Builds => {}
                     ActivityType::Build => {
                         // nix store paths are supposed to be valid utf8
-                        if let Some(drv) = parse_to_str(fields.as_ref(), 0) {
-                            let drv = parse_store_path(&drv);
-                            //let new_job = BuildJob::new(id, rid, drv);
-                            let new_job = todo!();
-                            state.replace_build_job(new_job).await;
+                        if let Some(drv_str) = parse_to_str(fields.as_ref(), 0)
+                        {
+                            let maybe_drv: Option<Drv> =
+                                match parse_store_path(&drv_str) {
+                                    Either::Left(d) => Some(d),
+                                    Either::Right(so) => so.get_drv().await,
+                                };
+                            if let Some(drv) = maybe_drv {
+                                let new_job = BuildJob::new(id, rid, drv);
+                                state.replace_build_job(new_job).await;
+                            }
                         } else {
                             // TODO proper logging using the usual crate
                             //eprintln!(
@@ -401,16 +418,21 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                     ActivityType::Substitute => (),
                     ActivityType::QueryPathInfo => {
                         let fr = fields.as_ref();
-                        if let (Some(drv), Some(cache)) =
+                        if let (Some(drv_str), Some(cache)) =
                             (parse_to_str(fr, 0), parse_to_str(fr, 1))
                         {
-                            let drv = parse_store_path(&drv);
-                            let new_job = BuildJob {
-                                status: JobStatus::Querying(cache),
-                                //..BuildJob::new(id, rid, drv)
-                                ..todo!()
-                            };
-                            state.replace_build_job(new_job).await;
+                            let maybe_drv: Option<Drv> =
+                                match parse_store_path(&drv_str) {
+                                    Either::Left(d) => Some(d),
+                                    Either::Right(so) => so.get_drv().await,
+                                };
+                            if let Some(drv) = maybe_drv {
+                                let new_job = BuildJob {
+                                    status: JobStatus::Querying(cache),
+                                    ..BuildJob::new(id, rid, drv)
+                                };
+                                state.replace_build_job(new_job).await;
+                            }
                         }
                     }
                     ActivityType::PostBuildHook => {}

@@ -124,6 +124,7 @@ pub struct App {
 #[derive(Default, Debug)]
 pub struct EagleEyeViewState {
     man_toggle: bool,
+    state: TreeState<String>,
 }
 
 #[derive(Default, Debug)]

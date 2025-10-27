@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use lazy_static::lazy_static;
 use ratatui::{
     Frame,
@@ -7,6 +9,7 @@ use ratatui::{
     widgets::{Block, Cell, Paragraph, Row, Table, TableState, Tabs, Wrap},
 };
 use strum::IntoEnumIterator;
+use tracing::error;
 use tui_tree_widget::{Tree, TreeItem};
 
 use crate::{
@@ -15,7 +18,7 @@ use crate::{
     gruvbox::Gruvbox::{
         self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
     },
-    handle_internal_json::{JobsStateInner, format_duration, format_secs},
+    handle_internal_json::{Drv, JobsStateInner, format_duration, format_secs},
 };
 
 static NON_UNIQUE_ID_ERR_MSG: &str = "all item identifiers must be unique";
@@ -140,18 +143,86 @@ pub fn draw_man_page(f: &mut Frame, size: Rect, app: &mut App) {
     f.render_widget(man, area);
 }
 
-// todo!() fill this out
+pub fn explore_root(
+    root: &mut TreeItem<'_, String>,
+    state: &JobsStateInner,
+    root_drv: &Drv,
+) {
+    let mut new_nodes = vec![(root_drv, vec![])];
+    let mut seen_drvs = HashSet::<&Drv>::new();
+    while let Some((parent_drv, vec_path)) = new_nodes.pop() {
+        seen_drvs.insert(parent_drv);
+        if let Some(children) =
+            state.dep_tree.nodes.get(parent_drv).map(|x| &x.deps)
+        {
+            error!("working through node {parent_drv:?}");
+            // this is so gross. TODO is there a better way to do this?
+            let mut parent_tree_node = &mut *root;
+            for idx in &vec_path {
+                parent_tree_node = parent_tree_node.child_mut(*idx).unwrap();
+            }
+            let mut idx = 0;
+            for a_child in children.iter() {
+                if seen_drvs.contains(&a_child) {
+                    error!("already saw {a_child}, skipping");
+                    continue;
+                }
+
+                error!("adding {a_child} depency of {parent_drv} ");
+                let identifier = a_child.clone().to_string();
+                // TODO there needs to be progress in here
+                let new_node = TreeItem::new(
+                    identifier,
+                    a_child.name.clone().to_string(),
+                    vec![],
+                )
+                .unwrap();
+
+                parent_tree_node.add_child(new_node).unwrap();
+                let mut new_path = vec_path.clone();
+                new_path.push(idx);
+                new_nodes.push((a_child, new_path));
+                idx += 1;
+            }
+        }
+    }
+}
+
+// iterate through tree roots
+// print drv using the tree roots
+// ---- unimplemented part:
+// for each drv, look up and see if there are any build jobs going on. If
+// there are, then you can use that to deduce the status. If there are
+// none, you take the L and say unused
 pub fn gen_drv_tree_leaves_from_state(
     state: &JobsStateInner,
 ) -> Vec<TreeItem<'_, String>> {
-    vec![]
+    let mut roots = vec![];
+    for a_root in &state.dep_tree.tree_roots {
+        error!("building tree node for {a_root}");
+        let mut new_root = TreeItem::new(
+            a_root.clone().to_string(),
+            a_root.name.clone().to_string(),
+            vec![],
+        )
+        .unwrap();
+        explore_root(&mut new_root, state, a_root);
+        roots.push(new_root);
+    }
+
+    roots
 }
 
 pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
     let state = &app.cur_info_builds;
 
+    error!("getting items for eagle eye ui");
     let items: Vec<TreeItem<'_, String>> =
         gen_drv_tree_leaves_from_state(state);
+    error!(
+        "got items for eagle eye ui, there are {:?} items",
+        items.len()
+    );
 
     let chunks = Layout::horizontal([
         // just the drv tree for now
@@ -187,7 +258,7 @@ pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
     f.render_stateful_widget(
         drv_tree_widget,
         chunks[0],
-        &mut app.builder_view.state,
+        &mut app.eagle_eye_view.state,
     );
 }
 
