@@ -69,6 +69,24 @@ pub struct JobsStateInner {
     pub dep_tree: DrvRelations,
 }
 
+impl JobsStateInner {
+    pub fn get_status(&self, drv: &Drv) -> JobStatus {
+        if let Some(jobs) = self.drv_to_jobs.get(drv) {
+            for job in jobs {
+                if let Some(bj) = self.jid_to_job.get(job) {
+                    return bj.status.clone();
+                }
+            }
+        }
+        JobStatus::NotEnoughInfo
+    }
+
+    pub fn make_tree_description(&self, drv: &Drv) -> String {
+        let status = self.get_status(drv);
+        format!("{} - {} - {}", drv.name.clone(), drv.hash.clone(), status)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Hash, Eq, Default, Ord, PartialOrd)]
 pub struct Drv {
     pub name: String,

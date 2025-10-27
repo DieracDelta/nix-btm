@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Cell, Paragraph, Row, Table, TableState, Tabs, Wrap},
 };
 use strum::IntoEnumIterator;
-use tracing::error;
+use tracing::{error, info};
 use tui_tree_widget::{Tree, TreeItem};
 
 use crate::{
@@ -173,7 +173,7 @@ pub fn explore_root(
                 // TODO there needs to be progress in here
                 let new_node = TreeItem::new(
                     identifier,
-                    a_child.name.clone().to_string(),
+                    state.make_tree_description(a_child),
                     vec![],
                 )
                 .unwrap();
@@ -202,13 +202,14 @@ pub fn gen_drv_tree_leaves_from_state(
         error!("building tree node for {a_root}");
         let mut new_root = TreeItem::new(
             a_root.clone().to_string(),
-            a_root.name.clone().to_string(),
+            state.make_tree_description(a_root),
             vec![],
         )
         .unwrap();
         explore_root(&mut new_root, state, a_root);
         roots.push(new_root);
     }
+    info!("total number roots {} ", state.dep_tree.tree_roots.len());
 
     roots
 }

@@ -94,6 +94,7 @@ impl DrvRelations {
     pub fn insert_node(&mut self, node: DrvNode) {
         let mut is_root = true;
 
+        // node already is a root
         if self.tree_roots.contains(&node.root) {
             return;
         }
@@ -112,7 +113,7 @@ impl DrvRelations {
                 .tree_roots
                 .clone()
                 .into_iter()
-                .filter(|r| self.is_child_of(&node.root, r))
+                .filter(|r| !self.is_child_of(&node.root, r))
                 .collect();
 
             // insert it as a root
