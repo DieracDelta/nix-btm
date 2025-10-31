@@ -151,6 +151,12 @@ impl JobsState {
             Entry::Vacant(_vacant_entry) => {}
         }
     }
+    pub async fn insert_idle_drv(&self, drv: Drv) {
+        let mut state = self.write().await;
+        state.dep_tree.insert(drv.clone()).await;
+        let drv_node = state.dep_tree.nodes.get(&drv).unwrap().clone();
+        state.dep_tree.insert_node(drv_node);
+    }
 
     // TODO may want to batch eventually
     // or lock more coarsely
@@ -346,7 +352,7 @@ impl Display for JobStatus {
             }
             JobStatus::CompletedQuery => write!(f, "Completed Query"),
             JobStatus::NotEnoughInfo => {
-                write!(f, "Finished, but wasn't able to infer task type ")
+                write!(f, "Not enough information to make an inference")
             }
             JobStatus::Downloading {
                 cache_name,
@@ -499,7 +505,9 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                 },
                 LogMessage::Msg { level, msg } => {
                     if level == VerbosityLevel::Info {
-                        parse_msg_info(msg, rid);
+                        if let Some(drv) = parse_msg_info(msg, rid).await {
+                            state.insert_idle_drv(drv).await
+                        }
                     } else {
                         error!("verbositylvl {level:?} received msg {msg}");
                     }
@@ -513,7 +521,10 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
     }
 }
 
-fn parse_msg_info(msg: std::borrow::Cow<'_, str>, rid: RequesterId) {
+async fn parse_msg_info(
+    msg: std::borrow::Cow<'_, str>,
+    rid: RequesterId,
+) -> Option<Drv> {
     let re = Regex::new(r"these\s+(\d+)\s+derivations?\s+will\s+be\s+built:")
         .unwrap();
     let re2 = Regex::new(r"^\s*/nix/store/([a-z0-9]{32})-(.+)\.drv$").unwrap();
@@ -527,19 +538,25 @@ fn parse_msg_info(msg: std::borrow::Cow<'_, str>, rid: RequesterId) {
     } else if let Some(caps) = re3.captures(&msg) {
         let count = 1;
     } else if let Some(caps) = re2.captures(&msg) {
-        let hash = &caps[1];
-        let name = &caps[2];
+        let hash = caps[1].to_string();
+        let name = caps[2].to_string();
         // okay yeah this is repetitive/unnecessary
         let drv = format!("/nix/store/{hash}-{name}.drv");
         error!("rid: {rid}, building {drv}");
+        return Some(Drv { name, hash });
     } else if let Some(caps) = re4.captures(&msg) {
-        let hash = &caps[1];
-        let name = &caps[2];
+        let hash = caps[1].to_string();
+        let name = caps[2].to_string();
         let drv = format!("/nix/store/{hash}-{name}");
-        error!("rid: {rid}, building {drv}");
+        let store_output = StoreOutput { name, hash };
+        return store_output.get_drv().await;
+
+        //error!("rid: {rid}, building {drv}");
+        //return Some(Drv { name, hash });
     } else {
         error!("rid: {rid}, could not parse {msg}");
     }
+    None
 }
 
 pub fn parse_store_path(path: &str) -> Either<Drv, StoreOutput> {
@@ -586,17 +603,17 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_parse_msg_info_drv_line() {
+    #[tokio::test]
+    async fn test_parse_msg_info_drv_line() {
         let msg = Cow::Borrowed(
             "  /nix/store/31xvpflz5asihsmyl088cgxyxwflzrz3-coreutils-9.7.drv",
         );
-        parse_msg_info(msg, 0);
+        parse_msg_info(msg, 0).await;
     }
 
-    #[test]
-    fn test_parse_msg_info_build_count() {
+    #[tokio::test]
+    async fn test_parse_msg_info_build_count() {
         let msg = Cow::Borrowed("these 93 derivations will be built:");
-        parse_msg_info(msg, 0);
+        parse_msg_info(msg, 0).await;
     }
 }

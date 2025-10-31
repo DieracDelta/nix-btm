@@ -14,6 +14,7 @@ use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
 
 pub mod derivation_tree;
+pub mod emojis;
 pub mod event_loop;
 pub mod get_stats;
 pub mod gruvbox;

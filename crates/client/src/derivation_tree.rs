@@ -55,6 +55,8 @@ impl DrvRelations {
                 };
                 self.nodes.insert(drv, node);
             }
+        } else {
+            error!("COULD NOT FIND DRV {} IN NIX STORE??", drv);
         }
     }
 
@@ -82,7 +84,7 @@ impl DrvRelations {
             visited.insert(node);
             if let Some(children) = self.nodes.get(node).map(|x| &x.deps) {
                 let f_children: Vec<&Drv> =
-                    children.iter().filter(|x| visited.contains(x)).collect();
+                    children.iter().filter(|x| !visited.contains(x)).collect();
                 stack.extend(f_children);
             }
         }
