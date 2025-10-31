@@ -1,8 +1,7 @@
 use std::fs::File;
 
-use tracing::{info, warn};
 use tracing_subscriber::{
-    EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
+    EnvFilter, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
 pub fn init_tracing() {

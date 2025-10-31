@@ -1,7 +1,4 @@
-use std::{
-    collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
-    ops::Deref,
-};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use either::Either::{Left, Right};
 use serde::Deserialize;
@@ -60,16 +57,8 @@ impl DrvRelations {
         }
     }
 
-    // input drv: -> [[root1, d1, d2, ...], [root2, d1, d2, ...]]
-    pub fn find_drv(&self, drv: Drv) -> Option<Vec<Vec<Drv>>> {
-        unimplemented!()
-    }
-
-    fn handle_store_output(&self, so: StoreOutput) {
-        unimplemented!()
-    }
-
     // TODO benchmark perf vs why-depends, cuz this might be lowkey slower
+    // ofc profile first
     fn is_child_of(&self, parent_drv: &Drv, child_drv: &Drv) -> bool {
         // unwrap fine b/c impossible for the node to be in the roots but not in
         // nodes

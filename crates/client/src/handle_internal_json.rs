@@ -26,7 +26,7 @@ use tokio::{
 };
 use tracing::error;
 
-use crate::derivation_tree::{DrvNode, DrvRelations};
+use crate::derivation_tree::DrvRelations;
 
 pub struct SocketGuard(PathBuf);
 impl Drop for SocketGuard {
@@ -560,7 +560,7 @@ async fn parse_msg_info(
 }
 
 pub fn parse_store_path(path: &str) -> Either<Drv, StoreOutput> {
-    let s = path.strip_prefix("/nix/store/").unwrap_or(&path);
+    let s = path.strip_prefix("/nix/store/").unwrap_or(path);
 
     let (hash, mut name) = match s.split_once('-') {
         Some((h, n)) => (h.to_string(), n.to_string()),

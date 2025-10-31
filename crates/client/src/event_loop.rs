@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    io,
     ops::Deref,
     sync::{Arc, atomic::AtomicBool},
 };
@@ -19,7 +18,7 @@ use tokio_stream::wrappers::WatchStream;
 use crate::{
     App, Pane, Terminal,
     get_stats::{NIX_USERS, ProcMetadata, SORTED_NIX_USERS},
-    handle_internal_json::{BuildJob, JobsState, JobsStateInner},
+    handle_internal_json::JobsStateInner,
     setup_terminal,
     ui::ui,
 };

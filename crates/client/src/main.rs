@@ -46,7 +46,7 @@ use ui::{
 use crate::{
     get_stats::{ProcMetadata, get_active_users_and_pids},
     handle_internal_json::{
-        BuildJob, JobsState, JobsStateInner, handle_daemon_info,
+        JobsStateInner, handle_daemon_info,
     },
     tracing::init_tracing,
 };
