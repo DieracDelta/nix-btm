@@ -1,5 +1,5 @@
-static WAITING_EMOJIS: [&str; 3] = ["⏳", "⏳", "⌛"];
+static _WAITING_EMOJIS: [&str; 3] = ["⏳", "⏳", "⌛"];
 
-static CONSTRUCTION_EMOJIS: &str = "🚧";
+static _CONSTRUCTION_EMOJIS: &str = "🚧";
 
-static FINISHED_EMOJI: &str = "✅️";
+static _FINISHED_EMOJI: &str = "✅️";

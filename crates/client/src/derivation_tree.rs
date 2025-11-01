@@ -160,7 +160,10 @@ impl Drv {
     }
 }
 
-fn drv_tree_of_derivation(name: String, value: Derivation) -> Option<DrvNode> {
+pub fn drv_tree_of_derivation(
+    name: String,
+    value: Derivation,
+) -> Option<DrvNode> {
     if let Left(drv) = parse_store_path(&name) {
         let deps = value.input_drvs.into_keys().collect::<BTreeSet<_>>();
         Some(DrvNode { root: drv, deps })
@@ -183,14 +186,16 @@ pub struct Derivation {
 }
 
 #[derive(Debug, Deserialize)]
-struct InputDrv {
+pub struct InputDrv {
+    #[allow(dead_code)]
     #[serde(default)]
     outputs: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct Output {
+pub struct Output {
     #[serde(default)]
+    #[allow(dead_code)]
     path: String,
 }
 

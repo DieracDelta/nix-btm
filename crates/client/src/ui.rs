@@ -18,12 +18,10 @@ use crate::{
     gruvbox::Gruvbox::{
         self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
     },
-    handle_internal_json::{
-        Drv, JobStatus, JobsStateInner, format_duration, format_secs,
-    },
+    handle_internal_json::{Drv, JobsStateInner, format_duration, format_secs},
 };
 
-static NON_UNIQUE_ID_ERR_MSG: &str = "all item identifiers must be unique";
+static _NON_UNIQUE_ID_ERR_MSG: &str = "all item identifiers must be unique";
 
 lazy_static! {
     pub static ref TITLE_STYLE_SELECTED: Style = {
@@ -223,10 +221,10 @@ pub fn explore_root(
         active_closure
     };
 
-    if let Some(ac) = active {
-        if !ac.contains(root_drv) {
-            return; // root not on a path to any active leaf
-        }
+    if let Some(ac) = active
+        && !ac.contains(root_drv)
+    {
+        return; // root not on a path to any active leaf
     }
 
     let mut printed_leaves: HashSet<Drv> = HashSet::new(); // leaves rendered globally
@@ -298,10 +296,10 @@ pub fn explore_root(
             for child in iter {
                 // Prune siblings not in closure for Aggressive (Normal already
                 // filtered)
-                if let (PruneType::Aggressive, Some(ac)) = (prune, active) {
-                    if !ac.contains(child) {
-                        continue;
-                    }
+                if let (PruneType::Aggressive, Some(ac)) = (prune, active)
+                    && !ac.contains(child)
+                {
+                    continue;
                 }
 
                 // Decide rendering + traversal
@@ -446,11 +444,11 @@ pub fn compute_active_closure(state: &JobsStateInner) -> HashSet<Drv> {
     let mut marked: HashSet<&Drv> = HashSet::new();
 
     while let Some(d) = q.pop_front() {
-        if marked.insert(d) {
-            if let Some(parents) = rev.get(d) {
-                for &p in parents {
-                    q.push_back(p);
-                }
+        if marked.insert(d)
+            && let Some(parents) = rev.get(d)
+        {
+            for &p in parents {
+                q.push_back(p);
             }
         }
     }

@@ -538,8 +538,8 @@ async fn parse_msg_info(
         let count: u32 = caps[1].parse().unwrap();
         error!("rid: {rid}, recved {count} derivations");
         //println!("{} derivations", count);
-    } else if let Some(caps) = re3.captures(&msg) {
-        let count = 1;
+    } else if let Some(_caps) = re3.captures(&msg) {
+        let _count = 1;
     } else if let Some(caps) = re2.captures(&msg) {
         let hash = caps[1].to_string();
         let name = caps[2].to_string();
@@ -550,7 +550,7 @@ async fn parse_msg_info(
     } else if let Some(caps) = re4.captures(&msg) {
         let hash = caps[1].to_string();
         let name = caps[2].to_string();
-        let drv = format!("/nix/store/{hash}-{name}");
+        let _drv = format!("/nix/store/{hash}-{name}");
         let store_output = StoreOutput { name, hash };
         return store_output.get_drv().await;
 
