@@ -1,12 +1,12 @@
-# Catchy Marketing
+# The Catchy Marketing
 
-Do you have more tmux tabs than browser tabs? Do you forget where or if you ran `nix build`? (You might have ADHD, you should probably get that checked)
+Do you have more tmux tabs than browser tabs? Do you forget where or if you ran `nix build`? Do you do janky things like disable the sandbox? Do you find yourself wondering if that nix builder zombie process is supposed to be there?
 
-Did Nix spawn 50 processes that are maxxing out your CPU cores and OOMing your RAM, but disappear so quickly you can't track which `nix build` caused this mess? Too late! Now your NixOS box locked up, linux's OOM manager is randmoly killing off your beloved browser tabs, and an internet racoon stole all your cookies.
+Did Nix spawn 50 processes that are maxxing out your CPU cores and OOMing your RAM, but disappear so quickly you can't track which `nix build` caused the mess? Too late! Now your NixOS box locked up, linux's OOM manager is randomly killing off your beloved processes, and an internet racoon stole all your cookies.
 
 Do you like pizza? Cool, me too :)
 
-If any of these things are true, nix-btm is for you! Fearlessly exert more control over your nix builds than that time you ran `sudo pkill -9 systemd` just to see if you could.
+If any of these things are true, nix-btm is for you! Fearlessly exert more control over your nix builds than that time you ran `sudo pkill -9 systemd` just to see if you could. Learn more about the state of your network of nix-enabled devices than Hydra ever could.
 
 
 # How to run?
@@ -24,14 +24,14 @@ json-log-path = /tmp/nixbtm.sock
 
 Additionally, you'll need to run all nix invocations with `-vvv` in order for the eagle eye view to work (we use some of the informative logs to infer information about what's being build).
 
+For now, you'll also need cgroups disabled and to be working on Linux to get the Builder view to work properly.
+
 Shameless plug: upvote [this issue](https://github.com/NixOS/nix/issues/14304) if removing the `-vvv` option is something you'd like to see.
 
 
 # What is this?
 
-`nix-btm` is intended to be the spiritual successor of `nix-top`, which has been recently deleted.
-
-As it stands currently, `nix-btm` has feature parity with `nix-top` on Linux. On Macos, feature parity is reached if run as root.
+`htop`, but `nix`. `nom`, but global and interactive.
 
 # What's the usecase?
 
@@ -39,9 +39,8 @@ Nix output monitor is really great! `nix-btm` targets the usecases where NOM can
 
 # What's it look like?
 
-TODO update this
 
-[![asciicast](https://asciinema.org/a/hG1DHrV4RC6bF0W1oO1GqvlIb.svg)](https://asciinema.org/a/hG1DHrV4RC6bF0W1oO1GqvlIb)
+[![asciicast](https://asciinema.org/a/6yA0dUIrjOQEiJ3CBOBVHD5XL.svg)](https://asciinema.org/a/6yA0dUIrjOQEiJ3CBOBVHD5XL)
 
 # Potential improvements (unchecked are unimplemented)
 
