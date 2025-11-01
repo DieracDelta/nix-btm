@@ -11,6 +11,7 @@ use futures::{
     StreamExt,
     stream::{BoxStream, SelectAll},
 };
+use nix_btm_common::handle_internal_json::JobsStateInner;
 use ratatui::crossterm::{
     event::DisableMouseCapture, execute, terminal::disable_raw_mode,
 };
@@ -20,7 +21,6 @@ use tokio_stream::wrappers::WatchStream;
 use crate::{
     App, Pane, Terminal, TreeToggle,
     get_stats::{NIX_USERS, ProcMetadata, SORTED_NIX_USERS},
-    handle_internal_json::JobsStateInner,
     setup_terminal,
     ui::ui,
 };

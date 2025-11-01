@@ -1052,6 +1052,7 @@ dependencies = [
  "json-parsing-nix",
  "lazy_static",
  "mimalloc",
+ "nix-btm-common",
  "num_enum",
  "procfs",
  "rand",
@@ -1069,6 +1070,23 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tui-tree-widget",
+]
+
+[[package]]
+name = "nix-btm-common"
+version = "0.4.0"
+dependencies = [
+ "bstr",
+ "either",
+ "futures",
+ "json-parsing-nix",
+ "regex",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tracing",
 ]
 
 [[package]]

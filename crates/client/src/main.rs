@@ -10,15 +10,16 @@ use std::{
 use clap::Parser;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
+use nix_btm_common::handle_internal_json::{
+    JobsStateInner, handle_daemon_info,
+};
 use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
 
-pub mod derivation_tree;
 pub mod emojis;
 pub mod event_loop;
 pub mod get_stats;
 pub mod gruvbox;
-pub mod handle_internal_json;
 pub mod listen_to_output;
 pub mod tracing;
 pub mod ui;
@@ -45,7 +46,6 @@ use ui::{
 
 use crate::{
     get_stats::{ProcMetadata, get_active_users_and_pids},
-    handle_internal_json::{JobsStateInner, handle_daemon_info},
     tracing::init_tracing,
     ui::PruneType,
 };

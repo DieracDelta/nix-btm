@@ -32,6 +32,7 @@ thiserror = {workspace = true}
 serde_bytes = {workspace = true}
 bstr = {workspace = true}
 json-parsing-nix =  {path = "../json_parser"}
+nix-btm-common =  {path = "../nix-btm-common"}
 futures = {workspace = true}
 tokio-stream = {workspace = true}
 regex = { workspace = true }

@@ -25,40 +25,7 @@ use tokio::{
     time::{MissedTickBehavior, interval},
 };
 use tracing::error;
-
 use crate::derivation_tree::DrvRelations;
-
-pub struct SocketGuard(PathBuf);
-impl Drop for SocketGuard {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
-pub fn setup_unix_socket(
-    path: &Path,
-    mode: u32,
-) -> io::Result<(UnixListener, SocketGuard)> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-
-    if let Ok(md) = fs::symlink_metadata(path) {
-        if md.file_type().is_socket() {
-            fs::remove_file(path)?;
-        } else {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                format!("{} exists and is not a socket", path.display()),
-            ));
-        }
-    }
-
-    let listener = UnixListener::bind(path)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
-
-    Ok((listener, SocketGuard(path.to_path_buf())))
-}
 
 pub type JobId = u64;
 
@@ -87,6 +54,7 @@ impl JobsStateInner {
     }
 }
 
+
 #[derive(Clone, Debug, PartialEq, Hash, Eq, Default, Ord, PartialOrd)]
 pub struct Drv {
     pub name: String,
@@ -114,6 +82,7 @@ impl<'de> Deserialize<'de> for Drv {
     }
 }
 
+
 #[derive(
     Clone, Debug, PartialEq, Hash, Eq, Default, Deserialize, Ord, PartialOrd,
 )]
@@ -122,11 +91,6 @@ pub struct StoreOutput {
     pub hash: String,
 }
 
-//impl From<String> for Drv {
-//    fn from(s: String) -> Self {
-//        parse_store_path(s)
-//    }
-//}
 
 #[derive(Clone, Debug, Default)]
 pub struct JobsState(Arc<RwLock<JobsStateInner>>);
@@ -138,6 +102,7 @@ impl Deref for JobsState {
         &self.0
     }
 }
+
 
 impl JobsState {
     pub async fn stop_build_job(&self, id: JobId) {
@@ -208,6 +173,38 @@ impl JobsState {
             Entry::Vacant(_vacant_entry) => {}
         }
     }
+}
+
+pub struct SocketGuard(PathBuf);
+impl Drop for SocketGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+pub fn setup_unix_socket(
+    path: &Path,
+    mode: u32,
+) -> io::Result<(UnixListener, SocketGuard)> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+
+    if let Ok(md) = fs::symlink_metadata(path) {
+        if md.file_type().is_socket() {
+            fs::remove_file(path)?;
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("{} exists and is not a socket", path.display()),
+            ));
+        }
+    }
+
+    let listener = UnixListener::bind(path)?;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+
+    Ok((listener, SocketGuard(path.to_path_buf())))
 }
 
 pub async fn handle_daemon_info(

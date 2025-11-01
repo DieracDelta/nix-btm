@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/client","crates/daemon", "crates/json_parser"]
+members = ["crates/client","crates/daemon", "crates/json_parser", "crates/nix-btm-common"]
 resolver = "2"
 
 [workspace.package]

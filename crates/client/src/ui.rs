@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use lazy_static::lazy_static;
+use nix_btm_common::handle_internal_json::{
+    Drv, JobsStateInner, format_duration, format_secs,
+};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
@@ -18,7 +21,6 @@ use crate::{
     gruvbox::Gruvbox::{
         self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
     },
-    handle_internal_json::{Drv, JobsStateInner, format_duration, format_secs},
 };
 
 static _NON_UNIQUE_ID_ERR_MSG: &str = "all item identifiers must be unique";
