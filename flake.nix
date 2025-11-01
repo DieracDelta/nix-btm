@@ -12,12 +12,12 @@
   };
 
   outputs =
-    inputs@{ self
-    , nixpkgs
-    , utils
-    , rust-overlay
-    , fenix
-    ,
+    {
+      self,
+      nixpkgs,
+      utils,
+      rust-overlay,
+      fenix,
     }:
     utils.lib.eachDefaultSystem (
       system:
@@ -51,6 +51,7 @@
               #
               # };
             };
+            RUSTFLAGS = "--cfg tokio_unstable";
 
             buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
               pkgs.darwin.apple_sdk.frameworks.CoreServices
