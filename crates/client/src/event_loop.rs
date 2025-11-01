@@ -136,6 +136,14 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
                     app.builder_view.horizontal_scroll += 1;
                 }
             }
+            KeyCode::Char('A') => match app.tab_selected {
+                crate::SelectedTab::BuilderView => (),
+                crate::SelectedTab::EagleEyeView => {
+                    app.eagle_eye_view.active_only =
+                        app.eagle_eye_view.active_only.increment();
+                }
+                crate::SelectedTab::BuildJobView => (),
+            },
             KeyCode::Enter => {
                 // HACK the api has a cleaner way
                 if !app.builder_view.state.key_right() {

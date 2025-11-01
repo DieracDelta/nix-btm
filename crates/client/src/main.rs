@@ -45,10 +45,9 @@ use ui::{
 
 use crate::{
     get_stats::{ProcMetadata, get_active_users_and_pids},
-    handle_internal_json::{
-        JobsStateInner, handle_daemon_info,
-    },
+    handle_internal_json::{JobsStateInner, handle_daemon_info},
     tracing::init_tracing,
+    ui::PruneType,
 };
 
 #[global_allocator]
@@ -125,6 +124,7 @@ pub struct App {
 #[derive(Default, Debug)]
 pub struct EagleEyeViewState {
     man_toggle: bool,
+    active_only: PruneType,
     state: TreeState<String>,
 }
 

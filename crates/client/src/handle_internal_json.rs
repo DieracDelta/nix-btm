@@ -330,6 +330,9 @@ pub enum JobStatus {
 }
 
 impl JobStatus {
+    pub fn is_active(&self) -> bool {
+        matches!(self, JobStatus::BuildPhaseType(_))
+    }
     pub fn mark_complete(&mut self) -> Self {
         match self {
             JobStatus::BuildPhaseType(_) => JobStatus::CompletedBuild,
