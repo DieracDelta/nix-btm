@@ -4,7 +4,9 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind};
+use crossterm::event::{
+    Event, EventStream, KeyCode, KeyEventKind, KeyModifiers,
+};
 use futures::{
     StreamExt,
     stream::{BoxStream, SelectAll},
@@ -16,7 +18,7 @@ use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
 
 use crate::{
-    App, Pane, Terminal,
+    App, Pane, Terminal, TreeToggle,
     get_stats::{NIX_USERS, ProcMetadata, SORTED_NIX_USERS},
     handle_internal_json::JobsStateInner,
     setup_terminal,
@@ -36,20 +38,33 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
         && key.kind == KeyEventKind::Press
     {
         match key.code {
-            KeyCode::Char('g') => {
-                if !SORTED_NIX_USERS.is_empty() {
-                    app.builder_view
-                        .state
-                        .select(vec![SORTED_NIX_USERS[0].clone()]);
+            KeyCode::Char('g') => match app.tab_selected {
+                crate::SelectedTab::BuilderView => {
+                    if !SORTED_NIX_USERS.is_empty() {
+                        app.builder_view
+                            .state
+                            .select(vec![SORTED_NIX_USERS[0].clone()]);
+                    }
                 }
-            }
-            KeyCode::Char('G') => {
-                if !SORTED_NIX_USERS.is_empty() {
-                    app.builder_view.state.select(vec![
-                        SORTED_NIX_USERS[SORTED_NIX_USERS.len() - 1].clone(),
-                    ]);
+                crate::SelectedTab::EagleEyeView => {
+                    app.eagle_eye_view.state.select_first();
                 }
-            }
+                crate::SelectedTab::BuildJobView => todo!(),
+            },
+            KeyCode::Char('G') => match app.tab_selected {
+                crate::SelectedTab::BuilderView => {
+                    if !SORTED_NIX_USERS.is_empty() {
+                        app.builder_view.state.select(vec![
+                            SORTED_NIX_USERS[SORTED_NIX_USERS.len() - 1]
+                                .clone(),
+                        ]);
+                    }
+                }
+                crate::SelectedTab::EagleEyeView => {
+                    app.eagle_eye_view.state.select_last();
+                }
+                crate::SelectedTab::BuildJobView => {}
+            },
             KeyCode::Char('q') | KeyCode::Esc => return true,
             KeyCode::Tab => match app.tab_selected {
                 crate::SelectedTab::BuilderView => {
@@ -64,9 +79,36 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
                 }
                 crate::SelectedTab::EagleEyeView => {
                     app.eagle_eye_view.state.toggle_selected();
+                    app.eagle_eye_view.last_toggle = TreeToggle::Never;
                 }
                 crate::SelectedTab::BuildJobView => {}
             },
+            KeyCode::Char('u')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                match app.tab_selected {
+                    crate::SelectedTab::BuilderView => {
+                        app.builder_view.state.scroll_down(10);
+                    }
+                    crate::SelectedTab::EagleEyeView => {
+                        app.eagle_eye_view.state.scroll_up(10);
+                    }
+                    crate::SelectedTab::BuildJobView => (),
+                }
+            }
+            KeyCode::Char('d')
+                if key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                match app.tab_selected {
+                    crate::SelectedTab::BuilderView => {
+                        app.builder_view.state.scroll_down(10);
+                    }
+                    crate::SelectedTab::EagleEyeView => {
+                        app.eagle_eye_view.state.scroll_down(10);
+                    }
+                    crate::SelectedTab::BuildJobView => (),
+                }
+            }
             KeyCode::Char('j') | KeyCode::Down => match app.tab_selected {
                 crate::SelectedTab::BuilderView => {
                     if !SORTED_NIX_USERS.is_empty() {
@@ -136,6 +178,13 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
                     app.builder_view.horizontal_scroll += 1;
                 }
             }
+            KeyCode::Char('O') => match app.tab_selected {
+                crate::SelectedTab::BuilderView => (),
+                crate::SelectedTab::EagleEyeView => {
+                    app.eagle_eye_view.perform_toggle = true;
+                }
+                crate::SelectedTab::BuildJobView => (),
+            },
             KeyCode::Char('A') => match app.tab_selected {
                 crate::SelectedTab::BuilderView => (),
                 crate::SelectedTab::EagleEyeView => {

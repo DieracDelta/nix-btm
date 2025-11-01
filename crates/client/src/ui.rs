@@ -10,10 +10,10 @@ use ratatui::{
 };
 use strum::IntoEnumIterator;
 use tracing::{error, info};
-use tui_tree_widget::{Tree, TreeItem};
+use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::{
-    App, Pane, SelectedTab,
+    App, Pane, SelectedTab, TreeToggle,
     get_stats::{ProcMetadata, gen_ui_by_nix_builder},
     gruvbox::Gruvbox::{
         self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
@@ -443,6 +443,29 @@ pub fn compute_active_closure(state: &JobsStateInner) -> HashSet<Drv> {
     // Return owned set
     marked.into_iter().cloned().collect()
 }
+pub fn expand_all(
+    tree_state: &mut TreeState<String>,
+    roots: &[TreeItem<String>],
+) {
+    let mut q: VecDeque<(&TreeItem<String>, Vec<String>)> = VecDeque::new();
+
+    // seed queue with each root and its 1-step path
+    for root in roots {
+        q.push_back((root, vec![root.identifier().clone()]));
+    }
+
+    while let Some((node, path)) = q.pop_front() {
+        // IMPORTANT: pass the full path (root → … → this node)
+        tree_state.open(path.clone());
+
+        // enqueue children with extended paths
+        for child in node.children() {
+            let mut child_path = path.clone();
+            child_path.push(child.identifier().clone());
+            q.push_back((child, child_path));
+        }
+    }
+}
 
 pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
     let state = &app.cur_info_builds;
@@ -450,6 +473,21 @@ pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
     error!("getting items for eagle eye ui");
     let items: Vec<TreeItem<'_, String>> =
         gen_drv_tree_leaves_from_state(state, app.eagle_eye_view.active_only);
+
+    if !items.is_empty() && app.eagle_eye_view.perform_toggle {
+        match app.eagle_eye_view.last_toggle {
+            crate::TreeToggle::Open => {
+                app.eagle_eye_view.state.close_all();
+                app.eagle_eye_view.last_toggle = TreeToggle::Closed;
+            }
+            crate::TreeToggle::Closed | crate::TreeToggle::Never => {
+                expand_all(&mut app.eagle_eye_view.state, &items);
+                app.eagle_eye_view.last_toggle = TreeToggle::Open;
+            }
+        }
+        app.eagle_eye_view.perform_toggle = false;
+    }
+
     error!(
         "got items for eagle eye ui, there are {:?} items",
         items.len()

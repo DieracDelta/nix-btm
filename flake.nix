@@ -11,11 +11,11 @@
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      rust-overlay,
-      fenix,
+    { self
+    , nixpkgs
+    , rust-overlay
+    , fenix
+    ,
     }:
     let
       systems = [
@@ -28,10 +28,12 @@
       forAllSystems =
         f:
         builtins.listToAttrs (
-          map (system: {
-            name = system;
-            value = f system;
-          }) systems
+          map
+            (system: {
+              name = system;
+              value = f system;
+            })
+            systems
         );
     in
     let

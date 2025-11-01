@@ -121,11 +121,21 @@ pub struct App {
     cur_info: HashMap<String, BTreeSet<ProcMetadata>>,
 }
 
+#[derive(Default, Copy, Clone, Debug)]
+enum TreeToggle {
+    Open,
+    Closed,
+    #[default]
+    Never,
+}
+
 #[derive(Default, Debug)]
 pub struct EagleEyeViewState {
     man_toggle: bool,
     active_only: PruneType,
     state: TreeState<String>,
+    perform_toggle: bool,
+    last_toggle: TreeToggle,
 }
 
 #[derive(Default, Debug)]
