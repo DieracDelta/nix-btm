@@ -6,7 +6,7 @@ Did Nix spawn 50 processes that are maxxing out your CPU cores and OOMing your R
 
 Do you like pizza? Cool, me too :)
 
-If any of these things are true, nix-btm is for you! Fearlessly exert more control over your nix builds than that time you ran `sudo pkill -9 systemd` just to see if you could. Learn more about the state of your network of nix-enabled devices than Hydra ever could.
+If any of these things are true, nix-btm is for you! Fearlessly exert more control over your nix builds than that time you ran `sudo pkill -9 systemd` just to see if you could. Learn more about the state of your network of nix-enabled devices than you can from Hydra, Kubernetes, and ps.
 
 
 # How to run?
@@ -46,14 +46,20 @@ Nix output monitor is really great! `nix-btm` targets the usecases where NOM can
 
 - [ ] scroll for table
 - [ ] a widget with animations in a similar style to nix output monitor
-- [ ] grouping by build instead of builder (not sure if this *is* possible but we might be able to grep)
+- [x] grouping by build instead of builder
 - [ ] build history
 - [ ] build analytics
 - [x] pop up manpage
 - [ ] monitor builds across multiple servers (fed in by IP address)
-- [ ] inference of what's being built
-- [ ] tree view by pid parent
+- [x] basic inference of what's being built
+- [ ] smart inference of what's being built
+  - [ ] downloaded derivations
+  - [ ] built derivations
+- [ ] tying builders to drvs
+- [ ] tying attrset being built to drvs
+- [ ] attrset window
 - [ ] detailed view of build env for task
+- [ ] separating code into a client+daemon so multiple instances of nix-btm can run at the same time (and we don't need to start the nix builds after nix-btm)
 
 # What are some cool things we're doing?
 
