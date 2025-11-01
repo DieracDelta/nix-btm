@@ -6,7 +6,11 @@ on:
       - "**"
   push:
     branches:
-      - "**"
+      - "master"
+
+permissions:
+  contents: write
+  actions: write
 
 jobs:
   style:
@@ -21,3 +25,24 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@main
       - run: |
           nix build .#nix-btm
+      - name: Upload artifact (only on master)
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nix-btm-master
+          path: ./result/bin/nix-btm
+          if-no-files-found: error
+          retention-days: 7
+  cleanup:
+    name: Keep only latest master artifact
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Prune stale artifacts
+        uses: c-hive/gha-remove-artifacts@v1
+        with:
+          age: "1 day"
+          skip-recent: 1
+          skip-tags: false

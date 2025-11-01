@@ -664,11 +664,11 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     let [header_area, inner_area] = vertical.areas(size);
     let horizontal = Layout::horizontal([Min(0), Length(20)]);
     let [tabs_area, title_area] = horizontal.areas(header_area);
+    render_title(f, title_area, &app.tab_selected.to_string());
+    render_tab(f, tabs_area, app);
 
     match app.tab_selected {
         SelectedTab::BuilderView => {
-            render_title(f, title_area, "Builder View");
-            render_tab(f, tabs_area, app);
             if app.builder_view.man_toggle {
                 draw_man_page(f, inner_area, app);
             } else {
@@ -676,8 +676,6 @@ pub fn ui(f: &mut Frame, app: &mut App) {
             }
         }
         SelectedTab::EagleEyeView => {
-            render_tab(f, tabs_area, app);
-            render_title(f, title_area, "Eagle Eye View 🦅");
             if app.eagle_eye_view.man_toggle {
                 draw_man_page(f, inner_area, app);
             } else {
@@ -685,8 +683,6 @@ pub fn ui(f: &mut Frame, app: &mut App) {
             }
         }
         SelectedTab::BuildJobView => {
-            render_tab(f, tabs_area, app);
-            render_title(f, title_area, "Build Job View");
             if app.build_job_view.man_toggle {
                 draw_man_page(f, inner_area, app);
             } else {

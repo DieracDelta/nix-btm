@@ -81,11 +81,11 @@ pub enum Pane {
 )]
 pub enum SelectedTab {
     #[default]
-    #[strum(to_string = "Nix Builder View")]
+    #[strum(to_string = "Nix Builder View 👷")]
     BuilderView,
-    #[strum(to_string = "Eagle Eye View")]
+    #[strum(to_string = "Eagle Eye View 🦅")]
     EagleEyeView,
-    #[strum(to_string = "Build Job View")]
+    #[strum(to_string = "Build Job View 💼")]
     BuildJobView,
 }
 
