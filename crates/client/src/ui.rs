@@ -212,9 +212,9 @@ pub fn explore_root(
     state: &JobsStateInner,
     root_drv: &Drv,
     prune: PruneType,
-    active_closure: Option<&HashSet<Drv>>, // Some(&set) for Normal/Aggressive
+    active_closure: Option<&HashSet<Drv>>,
 ) {
-    // if pruning but no closure, fall back to no-prune
+    // reshuffle if mismatched args (shouldn't be possible)
     let active = if prune == PruneType::None {
         None
     } else {
@@ -227,7 +227,7 @@ pub fn explore_root(
         return; // root not on a path to any active leaf
     }
 
-    let mut printed_leaves: HashSet<Drv> = HashSet::new(); // leaves rendered globally
+    let mut printed_leaves: HashSet<Drv> = HashSet::new();
     let mut leaves_memo: HashMap<Drv, HashSet<Drv>> = HashMap::new();
 
     let mut stack: Vec<(Drv, Vec<usize>)> =
@@ -242,7 +242,6 @@ pub fn explore_root(
         if let Some(children) =
             state.dep_tree.nodes.get(&parent_drv).map(|n| &n.deps)
         {
-            // descend to UI node indicated by `path`
             let mut ui = &mut *root;
             for &i in &path {
                 ui = ui.child_mut(i).expect("UI path out of sync");
@@ -251,8 +250,6 @@ pub fn explore_root(
             let mut added_ids: HashSet<String> = HashSet::new(); // per-parent dedupe
             let mut idx = 0;
 
-            // ── NORMAL mode: preselect children that add NEW active leaves at
-            // this parent
             let mut kept_children: Vec<&Drv> = Vec::new();
             if let (PruneType::Normal, Some(ac)) = (prune, active) {
                 let mut assigned_here: HashSet<Drv> = HashSet::new();
@@ -283,34 +280,27 @@ pub fn explore_root(
                 }
             }
 
-            // IMPORTANT: yield &Drv, never use `.copied()`, and add an explicit
-            // lifetime on the trait object.
             let iter: Box<dyn Iterator<Item = &Drv> + '_> =
                 match (prune, active) {
                     (PruneType::Normal, Some(_)) => {
                         Box::new(kept_children.into_iter())
                     }
-                    _ => Box::new(children.iter()), // <- yields &Drv
+                    _ => Box::new(children.iter()),
                 };
 
             for child in iter {
-                // Prune siblings not in closure for Aggressive (Normal already
-                // filtered)
                 if let (PruneType::Aggressive, Some(ac)) = (prune, active)
                     && !ac.contains(child)
                 {
                     continue;
                 }
 
-                // Decide rendering + traversal
                 let (to_render, push_drv): (Option<Drv>, Option<Drv>) =
                     match (prune, active) {
                         (PruneType::None, _) => {
                             (Some(child.clone()), Some(child.clone()))
                         }
 
-                        // NORMAL: show child iff it exposes ≥1 unprinted active
-                        // leaf (no collapsing)
                         (PruneType::Normal, Some(ac)) => {
                             if state.get_status(child).is_active() {
                                 if !printed_leaves.insert(child.clone()) {
@@ -334,8 +324,6 @@ pub fn explore_root(
                             }
                         }
 
-                        // AGGRESSIVE: collapse wrappers to first visible node;
-                        // still one print per leaf
                         (PruneType::Aggressive, Some(ac)) => {
                             let vis = collapse_to_visible_owned(
                                 child,
@@ -354,7 +342,6 @@ pub fn explore_root(
                             }
                         }
 
-                        // requested pruning but no closure → no-prune
                         (PruneType::Normal | PruneType::Aggressive, None) => {
                             (Some(child.clone()), Some(child.clone()))
                         }
@@ -363,7 +350,7 @@ pub fn explore_root(
                 if let Some(vis) = to_render {
                     let ident = vis.to_string();
                     if !added_ids.insert(ident.clone()) {
-                        continue; // per-parent duplicate
+                        continue;
                     }
 
                     let node = TreeItem::new(
