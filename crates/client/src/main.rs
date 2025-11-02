@@ -47,6 +47,7 @@ use ui::{
 };
 
 use crate::{
+    daemon_comms::daemon_double_fork,
     get_stats::{ProcMetadata, get_active_users_and_pids},
     tracing::init_tracing,
     ui::PruneType,
@@ -200,11 +201,22 @@ pub async fn main() {
 
     let args = Args::parse();
     match args {
-        Args::Daemon { do_fork, socket } => todo!(),
-        Args::Client { socket } => {
+        Args::Daemon {
+            do_fork,
+            nix_json_file_path,
+            daemon_socket_path,
+        } => {
+            if do_fork {
+                daemon_double_fork(daemon_socket_path, nix_json_file_path);
+            }
+        }
+        Args::Client {
+            daemon_socket_path,
+            nix_json_file_path,
+        } => {
             init_tracing();
 
-            run_client(socket).await.unwrap();
+            run_client(nix_json_file_path).await.unwrap();
         }
     }
 
@@ -248,12 +260,22 @@ enum Args {
             help = "Run in background (double-fork). Example value: true"
         )]
         do_fork: bool,
+
         #[arg(
             long,
             short,
+            value_name = "JSON_FILE_PATH",
             help = HELP_STR_SOCKET
             )]
-        socket: Option<String>,
+        nix_json_file_path: String,
+
+        #[arg(
+            long,
+            short,
+            value_name = "SOCKET_PATH",
+            help = "socket path of daemon"
+        )]
+        daemon_socket_path: String,
     },
     Client {
         #[arg(
@@ -262,7 +284,14 @@ enum Args {
             value_name = "SOCKET_PATH",
             help = HELP_STR_SOCKET
         )]
-        socket: Option<String>,
+        daemon_socket_path: Option<String>,
+        #[arg(
+            long,
+            short,
+            value_name = "JSON_FILE_PATH",
+            help = HELP_STR_SOCKET
+        )]
+        nix_json_file_path: Option<String>,
     },
 }
 
