@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "json-parsing-nix"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bstr",
  "num_enum",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "nix-btm"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bstr",
  "clap",
@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "nix-btm-common"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bstr",
  "either",
@@ -1091,7 +1091,14 @@ dependencies = [
 
 [[package]]
 name = "nix-btm-daemon"
-version = "0.4.0"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "json-parsing-nix",
+ "nix-btm-common",
+ "tokio",
+]
 
 [[package]]
 name = "nom"

@@ -1,4 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashSet},
+    sync::LazyLock,
+    time::Instant,
+};
 
 use either::Either::{Left, Right};
 use serde::Deserialize;
@@ -15,12 +19,13 @@ use crate::handle_internal_json::{Drv, StoreOutput, parse_store_path};
 //     - check if it's a dependency of another derivation
 //
 
+pub static START_INSTANT: LazyLock<Instant> = LazyLock::new(|| Instant::now());
+
 // TODO rename to DrvTreeNode
 #[derive(Clone, Debug, Default)]
 pub struct DrvNode {
     pub root: Drv,
     pub deps: BTreeSet<Drv>,
-    //pub outputs: HashSet<StoreOutput>,
 }
 
 #[derive(Clone, Debug, Default)]

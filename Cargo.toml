@@ -3,7 +3,7 @@ members = ["crates/client","crates/daemon", "crates/json_parser", "crates/nix-bt
 resolver = "2"
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 exclude = ["target_dirs", ".github", "target"]
 license-file = "LICENSE"
@@ -42,8 +42,26 @@ regex = { version = "1.12.2" }
 tracing = "0.1.41"
 tracing-subscriber = {version = "0.3.20", features = ["fmt", "env-filter"]}
 console-subscriber = { version = "0.5.0" }
+anyhow = { version = "1.0.100" }
 
+# protocol stuff
+rustix = { version = "1.1.2", features = ["fs", "mm", "net", "event"] }
+memmap2 = { version = "0.9" }
+nix = { version = "0.30.1", default-features = false, features = ["socket", "uio"]}
+serde_cbor = { version = "0.11.2"}
+bytemuck = { version = "1.24.0", features = [ "derive"] }
+libc = { version = "0.2.177" }
+io-uring = { version = "0.7.11" }
 
-[profile.release]
+[profile.dev]
 incremental = true
 panic = "abort"
+
+[profile.release]
+incremental = false
+panic = "abort"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+

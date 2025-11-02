@@ -5,6 +5,7 @@ use std::{
     ops::Deref,
     os::unix::fs::{FileTypeExt, PermissionsExt},
     path::{Path, PathBuf},
+    str::FromStr,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -17,7 +18,7 @@ use either::Either;
 use futures::FutureExt;
 use json_parsing_nix::{ActivityType, Field, LogMessage, VerbosityLevel};
 use regex::Regex;
-use serde::{Deserialize, de::Error};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
@@ -25,9 +26,38 @@ use tokio::{
     time::{MissedTickBehavior, interval},
 };
 use tracing::error;
-use crate::derivation_tree::DrvRelations;
 
-pub type JobId = u64;
+use crate::derivation_tree::{DrvRelations, START_INSTANT};
+
+#[repr(transparent)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct JobId(pub u64);
+
+impl From<u64> for JobId {
+    fn from(value: u64) -> Self {
+        JobId(value)
+    }
+}
+
+impl Deref for JobId {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct JobsStateInner {
@@ -54,8 +84,22 @@ impl JobsStateInner {
     }
 }
 
-
-#[derive(Clone, Debug, PartialEq, Hash, Eq, Default, Ord, PartialOrd)]
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Hash,
+    Eq,
+    Default,
+    Ord,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+)]
+#[serde(
+    try_from = "crate::client_daemon_comms::DrvWire",
+    into = "crate::client_daemon_comms::DrvWire"
+)]
 pub struct Drv {
     pub name: String,
     pub hash: String,
@@ -67,21 +111,38 @@ impl Display for Drv {
     }
 }
 
-impl<'de> Deserialize<'de> for Drv {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
+impl Display for DrvParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "error parsing drv")
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DrvParseError;
+
+impl FromStr for Drv {
+    type Err = DrvParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match parse_store_path(s.trim()) {
             Either::Left(drv) => Ok(drv),
-            Either::Right(_) => {
-                Err(Error::custom("Was just a store path, not a drv"))
-            }
+            Either::Right(_) => Err(DrvParseError),
         }
     }
 }
 
+//impl Serialize for Drv {
+//    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+//        ser.serialize_str(&self.to_string())
+//    }
+//}
+//
+//impl<'de> Deserialize<'de> for Drv {
+//    fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+//        let s = String::deserialize(de)?;
+//        s.parse().map_err(|_| D::Error::custom("not a .drv path"))
+//    }
+//}
 
 #[derive(
     Clone, Debug, PartialEq, Hash, Eq, Default, Deserialize, Ord, PartialOrd,
@@ -90,7 +151,6 @@ pub struct StoreOutput {
     pub name: String,
     pub hash: String,
 }
-
 
 #[derive(Clone, Debug, Default)]
 pub struct JobsState(Arc<RwLock<JobsStateInner>>);
@@ -103,7 +163,6 @@ impl Deref for JobsState {
     }
 }
 
-
 impl JobsState {
     pub async fn stop_build_job(&self, id: JobId) {
         let mut state = self.write().await;
@@ -111,7 +170,8 @@ impl JobsState {
             Entry::Occupied(mut occupied_entry) => {
                 let job = occupied_entry.get_mut();
                 job.status = job.status.mark_complete();
-                job.stop_time = Some(Instant::now());
+                job.stop_time_ns =
+                    Some(START_INSTANT.elapsed().as_nanos() as u64);
             }
             Entry::Vacant(_vacant_entry) => {}
         }
@@ -274,8 +334,8 @@ pub struct BuildJob {
     pub rid: RequesterId,
     pub drv: Drv,
     pub status: JobStatus,
-    pub start_time: Instant,
-    pub stop_time: Option<Instant>,
+    pub start_time_ns: u64,
+    pub stop_time_ns: Option<u64>,
 }
 
 pub type RequesterId = u64;
@@ -283,21 +343,20 @@ pub type RequesterId = u64;
 impl BuildJob {
     pub fn new(jid: u64, rid: u64, drv: Drv) -> Self {
         BuildJob {
-            rid,
-            jid,
+            rid: rid.into(),
+            jid: jid.into(),
             drv,
             status: JobStatus::Starting,
-            start_time: Instant::now(),
-            stop_time: None,
+            start_time_ns: START_INSTANT.elapsed().as_nanos() as u64,
+            stop_time_ns: None,
         }
     }
 
-    pub fn runtime(&self) -> Duration {
-        if let Some(stop_time) = self.stop_time {
-            stop_time - self.start_time
-        } else {
-            self.start_time.elapsed()
-        }
+    pub fn runtime(&self) -> u64 {
+        let end_ns = self
+            .stop_time_ns
+            .unwrap_or_else(|| START_INSTANT.elapsed().as_nanos() as u64);
+        end_ns.saturating_sub(self.start_time_ns)
     }
 }
 
@@ -311,7 +370,7 @@ pub fn parse_to_str<'a>(
     })
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum JobStatus {
     BuildPhaseType(String /* phase name */),
     Starting,
@@ -388,8 +447,8 @@ pub fn format_secs(secs: u64) -> String {
     parts.join(" ")
 }
 
-pub fn format_duration(dur: Duration) -> String {
-    let secs = dur.as_secs();
+pub fn format_duration(dur_ns: u64) -> String {
+    let secs = Duration::from_nanos(dur_ns).as_secs();
     format_secs(secs)
 }
 
@@ -464,7 +523,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                     ActivityType::FetchTree => (),
                 },
                 LogMessage::Stop { id } => {
-                    state.stop_build_job(id).await;
+                    state.stop_build_job(id.into()).await;
                 }
                 LogMessage::Result { fields, id, r#type } => match r#type {
                     json_parsing_nix::ResultType::FileLinked => (),
@@ -484,7 +543,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                             })
                         {
                             state
-                                .mutate_build_job(id, move |job| {
+                                .mutate_build_job(id.into(), move |job| {
                                     job.status =
                                         JobStatus::BuildPhaseType(phase_name);
                                 })

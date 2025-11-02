@@ -9,16 +9,21 @@ clean:
 
 [doc('build')]
 build:
-    cargo build --workspace --target x86_64-unknown-linux-musl --release
+    cargo build --workspace --target x86_64-unknown-linux-musl --profile dev
 
 [doc('test')]
 test:
-    cargo test --workspace --target x86_64-unknown-linux-musl --release
+    cargo test --workspace --target x86_64-unknown-linux-musl --profile dev
 
-[doc('run')]
-run:
+[doc('run-client')]
+run-client:
     rm -f /tmp/nixbtm.sock
-    cargo run --bin nix-btm --target x86_64-unknown-linux-musl --release -- -s /tmp/nixbtm.sock
+    cargo run --bin nix-btm --target x86_64-unknown-linux-musl --profile dev -- client -s /tmp/nixbtm.sock
+
+[doc('run-daemon')]
+run-daemon:
+    rm -f /tmp/nixbtm.sock
+    cargo run --bin nix-btm --target x86_64-unknown-linux-musl --profile dev -- client -s /tmp/nixbtm.sock
 
 [doc('lint')]
 lint: fmt
@@ -26,4 +31,4 @@ lint: fmt
 
 [doc('lint-fix')]
 lint-fix: fmt
-    cargo clippy --fix --workspace --target x86_64-unknown-linux-musl --release --allow-dirty
+    cargo clippy --fix --workspace --target x86_64-unknown-linux-musl --profile dev --allow-dirty

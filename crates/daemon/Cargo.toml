@@ -12,3 +12,8 @@ categories =  { workspace = true }
 exclude =  { workspace = true }
 
 [dependencies]
+json-parsing-nix =  {path = "../json_parser"}
+nix-btm-common =  {path = "../nix-btm-common"}
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }

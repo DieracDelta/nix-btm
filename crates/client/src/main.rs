@@ -16,6 +16,8 @@ use nix_btm_common::handle_internal_json::{
 use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
 
+pub mod client_comms;
+pub mod daemon_comms;
 pub mod emojis;
 pub mod event_loop;
 pub mod get_stats;
@@ -49,6 +51,13 @@ use crate::{
     tracing::init_tracing,
     ui::PruneType,
 };
+
+static HELP_STR_SOCKET: &str = "
+    The fully qualified path of the socket to read from. See the README for \
+                                more details. Without this flag, the Eagle \
+                                Eye view will not work. Example value: \
+                                \"/tmp/nixbtm.sock\"
+";
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -189,6 +198,16 @@ pub async fn main() {
         panic!("This OS is supported!");
     }
 
+    let args = Args::parse();
+    match args {
+        Args::Daemon { do_fork, socket } => todo!(),
+        Args::Client { socket } => {
+            init_tracing();
+
+            run_client(socket).await.unwrap();
+        }
+    }
+
     //let sets = get_active_users_and_pids();
     //let mut total_set = HashSet::new();
     //for (_, set) in sets {
@@ -209,34 +228,52 @@ pub async fn main() {
     // println!("{t:#?}");
 
     // construct_everything();
-    init_tracing();
-
-    run().await.unwrap();
 }
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser)]
 #[command(
-    author,
+    name = "nix-btm",
     version,
-    about = "The fully qualified path of the socket to read from. See the \
-             README for more details. Without this flag, the Eagle Eye view \
-             will not work."
+    about = "nix-btm",
+    long_about = "A top-like client for nix that can either run in \
+                  conjunction with itself as a corresponding daemon or as a \
+                  standalone program with more limited functionality"
 )]
-struct Args {
-    /// Path to the Unix domain socket to connect to
-    #[arg(short, long)]
-    socket: Option<String>,
+enum Args {
+    Daemon {
+        #[arg(
+            long,
+            short,
+            value_name = "DO_FORK",
+            help = "Run in background (double-fork). Example value: true"
+        )]
+        do_fork: bool,
+        #[arg(
+            long,
+            short,
+            help = HELP_STR_SOCKET
+            )]
+        socket: Option<String>,
+    },
+    Client {
+        #[arg(
+            long,
+            short,
+            value_name = "SOCKET_PATH",
+            help = HELP_STR_SOCKET
+        )]
+        socket: Option<String>,
+    },
 }
 
-async fn run() -> Result<()> {
+async fn run_client(socket: Option<String>) -> Result<()> {
     let is_shutdown = Arc::new(AtomicBool::new(false));
     let local_is_shutdown = is_shutdown.clone();
     let local_is_shutdown2 = is_shutdown.clone();
 
     let (tx_jobs, recv_job_updates): (_, watch::Receiver<JobsStateInner>) =
         watch::channel(Default::default());
-    let args = Args::parse();
-    let maybe_jh = args.socket.map(|socket| {
+    let maybe_jh = socket.map(|socket| {
         tokio::task::Builder::new()
             .name("listening for new connections")
             .spawn(async move {
