@@ -280,7 +280,7 @@ pub async fn handle_daemon_info(
     let mut ticker = interval(Duration::from_secs(1));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let cur_state: JobsState = Default::default();
-    let mut next_rid: RequesterId = 0;
+    let mut next_rid: RequesterId = 0.into();
     loop {
         tokio::select! {
             res = listener.accept() => {
@@ -290,8 +290,8 @@ pub async fn handle_daemon_info(
                         if !is_shutdown.load(Ordering::Relaxed) =>
                         {
                             let rid = next_rid;
-                            error!("ACCEPTED SOCKET {next_rid}");
-                            next_rid += 1;
+                            error!("ACCEPTED SOCKET {next_rid:?}");
+                            next_rid = (*next_rid + 1).into();
                             let is_shutdown_ = is_shutdown.clone();
                             let cur_state_ = cur_state.clone();
                             let fut = async move {
@@ -306,7 +306,7 @@ pub async fn handle_daemon_info(
                                 }
                             }.boxed();
 
-                            let _handle = tokio::task::Builder::new().name(&format!("client-socket-handler-{rid}")).spawn(fut);
+                            let _handle = tokio::task::Builder::new().name(&format!("client-socket-handler-{rid:?}")).spawn(fut);
                         }
                     Ok((_stream, _addr)) => {
                     }
@@ -328,7 +328,9 @@ pub async fn handle_daemon_info(
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd,
+)]
 pub struct BuildJob {
     pub jid: JobId,
     pub rid: RequesterId,
@@ -338,10 +340,38 @@ pub struct BuildJob {
     pub stop_time_ns: Option<u64>,
 }
 
-pub type RequesterId = u64;
+#[repr(transparent)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct RequesterId(pub u64);
+
+impl From<u64> for RequesterId {
+    fn from(value: u64) -> Self {
+        RequesterId(value)
+    }
+}
+
+impl Deref for RequesterId {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl BuildJob {
-    pub fn new(jid: u64, rid: u64, drv: Drv) -> Self {
+    pub fn new(jid: JobId, rid: RequesterId, drv: Drv) -> Self {
         BuildJob {
             rid: rid.into(),
             jid: jid.into(),
@@ -370,7 +400,9 @@ pub fn parse_to_str<'a>(
     })
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq,
+)]
 pub enum JobStatus {
     BuildPhaseType(String /* phase name */),
     Starting,
@@ -483,7 +515,8 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                     Either::Right(so) => so.get_drv().await,
                                 };
                             if let Some(drv) = maybe_drv {
-                                let new_job = BuildJob::new(id, rid, drv);
+                                let new_job =
+                                    BuildJob::new(id.into(), rid.into(), drv);
                                 state.replace_build_job(new_job).await;
                             }
                         } else {
@@ -512,7 +545,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                             if let Some(drv) = maybe_drv {
                                 let new_job = BuildJob {
                                     status: JobStatus::Querying(cache),
-                                    ..BuildJob::new(id, rid, drv)
+                                    ..BuildJob::new(id.into(), rid.into(), drv)
                                 };
                                 state.replace_build_job(new_job).await;
                             }
@@ -592,7 +625,7 @@ async fn parse_msg_info(
 
     if let Some(caps) = re.captures(&msg) {
         let count: u32 = caps[1].parse().unwrap();
-        error!("rid: {rid}, recved {count} derivations");
+        error!("rid: {rid:?}, recved {count} derivations");
         //println!("{} derivations", count);
     } else if let Some(_caps) = re3.captures(&msg) {
         let _count = 1;
@@ -601,7 +634,7 @@ async fn parse_msg_info(
         let name = caps[2].to_string();
         // okay yeah this is repetitive/unnecessary
         let drv = format!("/nix/store/{hash}-{name}.drv");
-        error!("rid: {rid}, building {drv}");
+        error!("rid: {rid:?}, building {drv}");
         return Some(Drv { name, hash });
     } else if let Some(caps) = re4.captures(&msg) {
         let hash = caps[1].to_string();
@@ -613,7 +646,7 @@ async fn parse_msg_info(
         //error!("rid: {rid}, building {drv}");
         //return Some(Drv { name, hash });
     } else {
-        error!("rid: {rid}, could not parse {msg}");
+        error!("rid: {rid:?}, could not parse {msg}");
     }
     None
 }
@@ -651,7 +684,7 @@ async fn read_stream(
         if let Ok(Some(line)) = lines.next_line().await {
             handle_line(line, state.clone(), rid).await;
         } else {
-            error!("stopped being able to read socket on {rid}");
+            error!("stopped being able to read socket on {rid:?}");
             return Ok(());
         }
     }
@@ -667,12 +700,12 @@ mod tests {
         let msg = Cow::Borrowed(
             "  /nix/store/31xvpflz5asihsmyl088cgxyxwflzrz3-coreutils-9.7.drv",
         );
-        parse_msg_info(msg, 0).await;
+        parse_msg_info(msg, 0.into()).await;
     }
 
     #[tokio::test]
     async fn test_parse_msg_info_build_count() {
         let msg = Cow::Borrowed("these 93 derivations will be built:");
-        parse_msg_info(msg, 0).await;
+        parse_msg_info(msg, 0.into()).await;
     }
 }

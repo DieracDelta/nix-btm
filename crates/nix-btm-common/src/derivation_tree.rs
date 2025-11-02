@@ -5,7 +5,7 @@ use std::{
 };
 
 use either::Either::{Left, Right};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tracing::error;
 
@@ -19,10 +19,19 @@ use crate::handle_internal_json::{Drv, StoreOutput, parse_store_path};
 //     - check if it's a dependency of another derivation
 //
 
-pub static START_INSTANT: LazyLock<Instant> = LazyLock::new(|| Instant::now());
+pub static START_INSTANT: LazyLock<Instant> = LazyLock::new(Instant::now);
 
-// TODO rename to DrvTreeNode
-#[derive(Clone, Debug, Default)]
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+)]
 pub struct DrvNode {
     pub root: Drv,
     pub deps: BTreeSet<Drv>,
@@ -34,7 +43,7 @@ pub struct ConcreteTree {
     pub children: BTreeSet<ConcreteTree>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DrvRelations {
     // roots with info to form a tree
     pub nodes: BTreeMap<Drv, DrvNode>,
