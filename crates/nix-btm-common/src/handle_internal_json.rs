@@ -10,7 +10,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use bstr::ByteSlice as _;
@@ -18,7 +18,7 @@ use either::Either;
 use futures::FutureExt;
 use json_parsing_nix::{ActivityType, Field, LogMessage, VerbosityLevel};
 use regex::Regex;
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
@@ -373,8 +373,8 @@ impl Deref for RequesterId {
 impl BuildJob {
     pub fn new(jid: JobId, rid: RequesterId, drv: Drv) -> Self {
         BuildJob {
-            rid: rid.into(),
-            jid: jid.into(),
+            rid: rid,
+            jid: jid,
             drv,
             status: JobStatus::Starting,
             start_time_ns: START_INSTANT.elapsed().as_nanos() as u64,
@@ -516,7 +516,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                 };
                             if let Some(drv) = maybe_drv {
                                 let new_job =
-                                    BuildJob::new(id.into(), rid.into(), drv);
+                                    BuildJob::new(id.into(), rid, drv);
                                 state.replace_build_job(new_job).await;
                             }
                         } else {
@@ -545,7 +545,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                             if let Some(drv) = maybe_drv {
                                 let new_job = BuildJob {
                                     status: JobStatus::Querying(cache),
-                                    ..BuildJob::new(id.into(), rid.into(), drv)
+                                    ..BuildJob::new(id.into(), rid, drv)
                                 };
                                 state.replace_build_job(new_job).await;
                             }

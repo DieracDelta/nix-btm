@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+use serde::{Deserialize, Serialize};
 
 use crate::handle_internal_json::{BuildJob, Drv, DrvParseError};
 
