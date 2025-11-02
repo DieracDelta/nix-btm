@@ -18,12 +18,12 @@ test:
 [doc('run-client')]
 run-client:
     rm -f /tmp/nixbtm.sock
-    cargo run --bin nix-btm --target x86_64-unknown-linux-musl --profile dev -- client -s /tmp/nixbtm.sock
+    cargo run --bin nix-btm --target x86_64-unknown-linux-musl --profile dev -- client -n /tmp/nixbtm.sock
 
 [doc('run-daemon')]
 run-daemon:
     rm -f /tmp/nixbtm.sock
-    cargo run --bin nix-btm --target x86_64-unknown-linux-musl --profile dev -- client -s /tmp/nixbtm.sock
+    cargo run --bin nix-btm --target x86_64-unknown-linux-musl --profile dev -- client -n /tmp/nixbtm.sock
 
 [doc('lint')]
 lint: fmt

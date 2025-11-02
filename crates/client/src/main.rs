@@ -255,7 +255,7 @@ enum Args {
     Daemon {
         #[arg(
             long,
-            short,
+            short = 'f',
             value_name = "DO_FORK",
             help = "Run in background (double-fork). Example value: true"
         )]
