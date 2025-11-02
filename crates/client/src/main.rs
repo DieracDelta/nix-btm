@@ -10,14 +10,13 @@ use std::{
 use clap::Parser;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
-use nix_btm_common::handle_internal_json::{
-    JobsStateInner, handle_daemon_info,
+use nix_btm_common::{
+    daemon_comms::daemon_double_fork,
+    handle_internal_json::{JobsStateInner, handle_daemon_info},
 };
 use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
 
-pub mod client_comms;
-pub mod daemon_comms;
 pub mod emojis;
 pub mod event_loop;
 pub mod get_stats;
@@ -47,7 +46,6 @@ use ui::{
 };
 
 use crate::{
-    daemon_comms::daemon_double_fork,
     get_stats::{ProcMetadata, get_active_users_and_pids},
     tracing::init_tracing,
     ui::PruneType,

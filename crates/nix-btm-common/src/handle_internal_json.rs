@@ -352,6 +352,7 @@ pub struct BuildJob {
     Hash,
     Serialize,
     Deserialize,
+    Default,
 )]
 #[serde(transparent)]
 pub struct RequesterId(pub u64);
@@ -373,8 +374,8 @@ impl Deref for RequesterId {
 impl BuildJob {
     pub fn new(jid: JobId, rid: RequesterId, drv: Drv) -> Self {
         BuildJob {
-            rid: rid,
-            jid: jid,
+            rid,
+            jid,
             drv,
             status: JobStatus::Starting,
             start_time_ns: START_INSTANT.elapsed().as_nanos() as u64,
@@ -401,7 +402,15 @@ pub fn parse_to_str<'a>(
 }
 
 #[derive(
-    Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq,
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    Ord,
+    PartialOrd,
+    Eq,
+    PartialEq,
+    Default,
 )]
 pub enum JobStatus {
     BuildPhaseType(String /* phase name */),
@@ -413,6 +422,7 @@ pub enum JobStatus {
         cache_name: String,
         narinfo_name: String,
     },
+    #[default]
     NotEnoughInfo,
     Cancelled,
 }
