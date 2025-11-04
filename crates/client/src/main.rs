@@ -39,7 +39,7 @@ use ratatui::{
 };
 use tokio::sync::watch;
 //use tikv_jemallocator::Jemalloc;
-use tui_tree_widget::TreeState;
+use tui_tree_widget::{TreeItem, TreeState};
 use ui::{
     BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED,
     TITLE_STYLE_UNSELECTED,

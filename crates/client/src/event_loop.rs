@@ -38,6 +38,17 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
         && key.kind == KeyEventKind::Press
     {
         match key.code {
+            KeyCode::Char('y') => match app.tab_selected {
+                crate::SelectedTab::BuilderView => {}
+                crate::SelectedTab::EagleEyeView => {
+                    if let Some(drv_name) =
+                        &app.eagle_eye_view.state.selected().last()
+                    {
+                        let _ = tui_clipboard::osc52_copy(drv_name).await;
+                    }
+                }
+                crate::SelectedTab::BuildJobView => {}
+            },
             KeyCode::Char('g') => match app.tab_selected {
                 crate::SelectedTab::BuilderView => {
                     if !SORTED_NIX_USERS.is_empty() {

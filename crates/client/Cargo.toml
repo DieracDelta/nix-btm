@@ -33,6 +33,7 @@ serde_bytes = {workspace = true}
 bstr = {workspace = true}
 json-parsing-nix =  {path = "../json_parser"}
 nix-btm-common =  {path = "../nix-btm-common"}
+tui-clipboard =  {path = "../clipboard", features = ["async-io"]}
 futures = {workspace = true}
 tokio-stream = {workspace = true}
 regex = { workspace = true }

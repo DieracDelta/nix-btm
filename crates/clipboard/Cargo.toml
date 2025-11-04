@@ -1,0 +1,21 @@
+[package]
+name = "tui-clipboard"
+version.workspace = true
+edition.workspace = true
+exclude.workspace = true
+license-file.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+authors.workspace = true
+categories.workspace = true
+
+[dependencies]
+base64 = "0.22.1"
+futures-io = {version = "0.3.31", optional = true}
+futures-util = {version = "0.3.31", optional = true}
+async-fs = { version = "2.2.0", optional = true }
+
+[features]
+default = []
+async-io = ["dep:async-fs", "dep:futures-util", "dep:futures-io"]
