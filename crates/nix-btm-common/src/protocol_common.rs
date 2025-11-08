@@ -1,15 +1,13 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    sync::atomic::{AtomicU32, AtomicU64},
+    sync::atomic::AtomicU32,
 };
 
 use bytemuck::{Pod, Zeroable};
-use io_uring::{opcode, types};
 use rustix::fs::Mode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    daemon_side::ProtocolError,
     derivation_tree::{DrvNode, DrvRelations},
     handle_internal_json::{
         BuildJob, Drv, DrvParseError, JobId, JobsStateInner,

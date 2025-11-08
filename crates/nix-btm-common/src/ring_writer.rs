@@ -3,8 +3,7 @@ use std::sync::atomic::Ordering;
 use bytemuck::{Pod, bytes_of};
 use io_uring::{
     IoUring, Probe,
-    opcode::{self, FutexWake},
-    types,
+    opcode::FutexWake,
 };
 use libc::FUTEX_BITSET_MATCH_ANY;
 use memmap2::MmapMut;
