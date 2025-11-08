@@ -13,7 +13,7 @@ use serde_cbor as cbor;
 use snafu::GenerateImplicitData;
 
 use crate::{
-    client_daemon_comms::{JobsStateInnerWire, SnapshotHeader},
+    client_daemon_comms::{JobsStateInnerWire, R_MODE, SnapshotHeader},
     daemon_comms::ProtocolError,
     handle_internal_json::JobsStateInner,
 };
@@ -22,8 +22,7 @@ pub fn client_read_snapshot_into_state(
     name: &str,
     total_len: u64,
 ) -> Result<JobsStateInner, ProtocolError> {
-    let shmem =
-        Shm::open(name, OFlags::RDONLY, Mode::from_bits_truncate(0o400))?;
+    let shmem = Shm::open(name, OFlags::RDONLY, R_MODE)?;
     let dup_fd: OwnedFd = dup(shmem.as_fd())?;
     let file = std::fs::File::from(dup_fd);
 

@@ -35,7 +35,7 @@ pub const fn align_up_pow2(num_bytes: u64, align_pow: u32) -> u64 {
 
 // align to a multiple of the page size
 #[inline]
-fn round_up_page(num_bytes: u64) -> u64 {
+pub fn round_up_page(num_bytes: u64) -> u64 {
     let num_bytes_page = rustix::param::page_size() as u64;
     // same reasoning as align_up_pow2
     (num_bytes + (num_bytes_page - 1)) & !(num_bytes_page - 1)
@@ -59,25 +59,25 @@ pub struct SnapshotMemfd {
 
 #[derive(Snafu, Debug)]
 pub enum ProtocolError {
-    #[snafu(display("I/O error: {source}"))]
+    #[snafu(display("I/O error: {source}"), visibility(pub(crate)))]
     Io {
         source: std::io::Error,
         #[snafu(backtrace)]
         backtrace: Backtrace,
     },
     //
-    #[snafu(display("CBOR error: {source}"))]
+    #[snafu(display("CBOR error: {source}"), visibility(pub(crate)))]
     Cbor {
         source: serde_cbor::Error,
         #[snafu(backtrace)]
         backtrace: Backtrace,
     },
-    #[snafu(display("Mismatch Error"))]
+    #[snafu(display("Mismatch Error"), visibility(pub(crate)))]
     MisMatchError {
         #[snafu(backtrace)]
         backtrace: Backtrace,
     },
-    #[snafu(display("Rustix error: {source}"))]
+    #[snafu(display("Rustix error: {source}"), visibility(pub(crate)))]
     RustixIo {
         source: rustix::io::Errno,
         #[snafu(backtrace)]
@@ -111,6 +111,9 @@ impl From<serde_cbor::Error> for ProtocolError {
     }
 }
 
+const SC_HDR_ALIGN: u32 =
+    (usize::BITS - 1) - (align_of::<SnapshotHeader>()).leading_zeros();
+
 // creates a shared memory region
 // and copies the snapshot into it
 // TODO better errors please
@@ -124,22 +127,25 @@ pub fn create_shmem_and_write_snapshot(
     // we need to calculate the size of the shit we're sending
     let state_blob = cbor::to_vec(&state_wire)?;
 
-    // we are rounding up each time which might be extra but who cares
     let header_len = size_of::<SnapshotHeader>() as u64;
-    let mut off = align_up_pow2(header_len, 4);
-
-    let off_jobs = off;
     let len_state_blob = state_blob.len() as u64;
-    off = align_up_pow2(off_jobs + len_state_blob, 4);
-    let total_len_snapshot = round_up_page(off);
+
+    // this is just in case the page size is < 4 required for the struct (how??)
+    let total_len_struct_aligned =
+        align_up_pow2(header_len + len_state_blob, SC_HDR_ALIGN);
+    let total_len_snapshot = round_up_page(total_len_struct_aligned);
 
     let name = format!("nix-btm-snapshot-p{pid}");
     let mut shmem = Shm::open(
         &name,
+        // TODO I use these flags elsewhere. Save into global constant
         OFlags::CREATE | OFlags::EXCL | OFlags::RDWR,
+        // TODO I use these magic numbers elsewhere. Save into global constant
+        // with semantic meaning
         Mode::from_bits_truncate(0o600),
     )?;
     shmem.set_size(total_len_snapshot as usize)?;
+    // TODO I use these elsewehre. Save into global constant
     let mut mappedmem = unsafe { shmem.map(0x0)? };
     let buf = mappedmem.map();
 
