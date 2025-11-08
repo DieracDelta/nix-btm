@@ -27,3 +27,12 @@ rustix = { workspace = true }
 serde_cbor = { workspace = true }
 nix = { workspace = true }
 libc = { workspace = true }
+psx-shm = { workspace = true }
+memmap2 = { workspace = true }
+snafu = { workspace = true }
+eyre = { workspace = true }
+
+
+[dev-dependencies]
+color-eyre = { workspace = true }
+tracing-subscriber = { workspace = true }

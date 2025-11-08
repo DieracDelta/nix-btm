@@ -1,16 +1,20 @@
 use std::{
+    backtrace::Backtrace,
     ffi::CString,
     fmt::Debug,
     os::fd::{AsFd, OwnedFd},
 };
 
 use bytemuck::bytes_of;
+use psx_shm::{Shm, UnlinkOnDrop};
 pub use rustix::*;
 use rustix::{
-    fs::{MemfdFlags, ftruncate, memfd_create},
+    fs::{MemfdFlags, Mode, ftruncate, memfd_create},
     mm::{MapFlags, ProtFlags, mmap},
+    shm::OFlags,
 };
 use serde_cbor as cbor;
+use snafu::{ResultExt, Snafu};
 use tokio::net::UnixStream;
 
 use crate::{
@@ -48,22 +52,77 @@ fn get_pid(stream: &UnixStream) -> Option<i32> {
 // the snapshot in memory
 #[derive(Debug)]
 pub struct SnapshotMemfd {
-    pub fd: OwnedFd,
+    pub shmem: UnlinkOnDrop,
     pub total_len_bytes: u64,
     pub snap_seq_uid: u64,
 }
 
+#[derive(Snafu, Debug)]
+pub enum ProtocolError {
+    #[snafu(display("I/O error: {source}"))]
+    Io {
+        source: std::io::Error,
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    //
+    #[snafu(display("CBOR error: {source}"))]
+    Cbor {
+        source: serde_cbor::Error,
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    #[snafu(display("Mismatch Error"))]
+    MisMatchError {
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    #[snafu(display("Rustix error: {source}"))]
+    RustixIo {
+        source: rustix::io::Errno,
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+}
+impl From<rustix::io::Errno> for ProtocolError {
+    fn from(source: rustix::io::Errno) -> Self {
+        ProtocolError::RustixIo {
+            source,
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
+
+impl From<std::io::Error> for ProtocolError {
+    fn from(source: std::io::Error) -> Self {
+        ProtocolError::Io {
+            source,
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
+
+impl From<serde_cbor::Error> for ProtocolError {
+    fn from(source: serde_cbor::Error) -> Self {
+        ProtocolError::Cbor {
+            source,
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
+
 // creates a shared memory region
 // and copies the snapshot into it
+// TODO better errors please
 pub fn create_shmem_and_write_snapshot(
     state: &JobsStateInner,
     snap_seq_uid: u64,
     pid: i32,
-) -> Option<SnapshotMemfd> {
+) -> Result<SnapshotMemfd, ProtocolError> {
     let state_wire: JobsStateInnerWire = state.clone().into();
 
     // we need to calculate the size of the shit we're sending
-    let state_blob = cbor::to_vec(&state_wire).ok()?;
+    let state_blob = cbor::to_vec(&state_wire)?;
 
     // we are rounding up each time which might be extra but who cares
     let header_len = size_of::<SnapshotHeader>() as u64;
@@ -74,23 +133,15 @@ pub fn create_shmem_and_write_snapshot(
     off = align_up_pow2(off_jobs + len_state_blob, 4);
     let total_len_snapshot = round_up_page(off);
 
-    let name = CString::new(format!("nix-btm-snapshot-p{pid}")).ok()?;
-    let fd: OwnedFd = memfd_create(&name, MemfdFlags::CLOEXEC).ok()?;
-    ftruncate(&fd, total_len_snapshot).ok()?;
-    let base = unsafe {
-        mmap(
-            core::ptr::null_mut(),
-            total_len_snapshot as usize,
-            ProtFlags::READ | ProtFlags::WRITE,
-            MapFlags::SHARED,
-            &fd,
-            0,
-        )
-        .ok()? as *mut u8
-    };
-    let buf = unsafe {
-        core::slice::from_raw_parts_mut(base, total_len_snapshot as usize)
-    };
+    let name = format!("nix-btm-snapshot-p{pid}");
+    let mut shmem = Shm::open(
+        &name,
+        OFlags::CREATE | OFlags::EXCL | OFlags::RDWR,
+        Mode::from_bits_truncate(0o600),
+    )?;
+    shmem.set_size(total_len_snapshot as usize)?;
+    let mut mappedmem = unsafe { shmem.map(0x0)? };
+    let buf = mappedmem.map();
 
     let hdr = SnapshotHeader::new(len_state_blob, snap_seq_uid);
     let hdr_bytes = bytemuck::bytes_of(&hdr);
@@ -101,8 +152,8 @@ pub fn create_shmem_and_write_snapshot(
 
     buf[..core::mem::size_of::<SnapshotHeader>()]
         .copy_from_slice(bytes_of(&hdr));
-    Some(SnapshotMemfd {
-        fd,
+    Ok(SnapshotMemfd {
+        shmem: UnlinkOnDrop { shm: shmem },
         total_len_bytes: total_len_snapshot,
         snap_seq_uid,
     })

@@ -1,30 +1,41 @@
-use std::ffi::c_void;
+use std::{backtrace::Backtrace, ffi::c_void, os::fd::OwnedFd};
 
 use bytemuck::from_bytes;
-use rustix::mm::{MapFlags, ProtFlags, mmap, munmap};
+use memmap2::MmapOptions;
+use psx_shm::Shm;
+use rustix::{
+    fs::Mode,
+    io::dup,
+    mm::{MapFlags, ProtFlags, mmap, munmap},
+    shm::OFlags,
+};
 use serde_cbor as cbor;
+use snafu::GenerateImplicitData;
 
 use crate::{
     client_daemon_comms::{JobsStateInnerWire, SnapshotHeader},
+    daemon_comms::ProtocolError,
     handle_internal_json::JobsStateInner,
 };
 
 pub fn client_read_snapshot_into_state(
-    fd: &rustix::fd::OwnedFd,
+    name: &str,
     total_len: u64,
-) -> Option<JobsStateInner> {
-    let ptr = unsafe {
-        mmap(
-            core::ptr::null_mut(),
-            total_len as usize,
-            ProtFlags::READ,
-            MapFlags::SHARED,
-            fd,
-            0,
-        )
-        .ok()? as *const u8
-    };
-    let bytes = unsafe { core::slice::from_raw_parts(ptr, total_len as usize) };
+) -> Result<JobsStateInner, ProtocolError> {
+    let shmem =
+        Shm::open(name, OFlags::RDONLY, Mode::from_bits_truncate(0o400))?;
+    let dup_fd: OwnedFd = dup(shmem.as_fd())?;
+    let file = std::fs::File::from(dup_fd);
+
+    let sz = shmem.size()?;
+    if sz < total_len as usize {
+        return Err(ProtocolError::MisMatchError {
+            backtrace: snafu::Backtrace::generate(),
+        });
+    }
+    // TODO make Mmap able to get out and make PR
+    let map = unsafe { MmapOptions::new().len(sz).map(&file)? };
+    let bytes: &[u8] = &map;
 
     let hsz = core::mem::size_of::<SnapshotHeader>();
     let hdr: &SnapshotHeader = from_bytes(&bytes[..hsz]);
@@ -33,23 +44,16 @@ pub fn client_read_snapshot_into_state(
     if hdr.magic != SnapshotHeader::MAGIC
         || hdr.version != SnapshotHeader::VERSION
     {
-        unsafe {
-            let _ = munmap(bytes.as_ptr() as *mut c_void, bytes.len());
-        }
-        return None;
+        return Err(ProtocolError::MisMatchError {
+            backtrace: Backtrace::capture(),
+        });
     }
 
     let state_blob = &bytes
         [hdr.header_len as usize..(hdr.header_len + hdr.payload_len) as usize];
 
     let state: JobsStateInner =
-        cbor::from_slice::<JobsStateInnerWire>(state_blob)
-            .ok()?
-            .into();
+        cbor::from_slice::<JobsStateInnerWire>(state_blob)?.into();
 
-    unsafe {
-        let _ = munmap(bytes.as_ptr() as *mut c_void, bytes.len());
-    }
-
-    Some(state)
+    Ok(state)
 }
