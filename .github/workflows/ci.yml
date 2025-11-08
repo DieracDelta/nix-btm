@@ -27,7 +27,7 @@ jobs:
           nix build .#nix-btm
       - name: Upload artifact (only on master)
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: nix-btm-master
           path: ./result/bin/nix-btm
