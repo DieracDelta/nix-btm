@@ -1,25 +1,16 @@
-use std::{
-    backtrace::Backtrace,
-    ffi::CString,
-    fmt::Debug,
-    os::fd::{AsFd, OwnedFd},
-};
+use std::{backtrace::Backtrace, fmt::Debug, os::fd::AsFd};
 
 use bytemuck::bytes_of;
 use psx_shm::{Shm, UnlinkOnDrop};
 pub use rustix::*;
-use rustix::{
-    fs::{MemfdFlags, Mode, ftruncate, memfd_create},
-    mm::{MapFlags, ProtFlags, mmap},
-    shm::OFlags,
-};
+use rustix::{fs::Mode, shm::OFlags};
 use serde_cbor as cbor;
-use snafu::{ResultExt, Snafu};
+use snafu::Snafu;
 use tokio::net::UnixStream;
 
 use crate::{
-    client_daemon_comms::{JobsStateInnerWire, SnapshotHeader},
     handle_internal_json::JobsStateInner,
+    protocol_common::{JobsStateInnerWire, SnapshotHeader},
 };
 
 pub fn daemon_double_fork(socket_path: String, json_file_path: String) {

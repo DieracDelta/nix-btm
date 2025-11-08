@@ -97,8 +97,8 @@ impl JobsStateInner {
     Deserialize,
 )]
 #[serde(
-    try_from = "crate::client_daemon_comms::DrvWire",
-    into = "crate::client_daemon_comms::DrvWire"
+    try_from = "crate::protocol_common::DrvWire",
+    into = "crate::protocol_common::DrvWire"
 )]
 pub struct Drv {
     pub name: String,

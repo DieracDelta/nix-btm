@@ -11,7 +11,7 @@ use clap::Parser;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
 use nix_btm_common::{
-    daemon_comms::daemon_double_fork,
+    daemon_side::daemon_double_fork,
     handle_internal_json::{JobsStateInner, handle_daemon_info},
 };
 use ratatui::text::Line;
@@ -38,8 +38,7 @@ use ratatui::{
     backend::CrosstermBackend, style::Style, widgets::ScrollbarState,
 };
 use tokio::sync::watch;
-//use tikv_jemallocator::Jemalloc;
-use tui_tree_widget::{TreeItem, TreeState};
+use tui_tree_widget::TreeState;
 use ui::{
     BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED,
     TITLE_STYLE_UNSELECTED,

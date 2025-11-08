@@ -36,11 +36,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        client_comms::client_read_snapshot_into_state,
-        client_daemon_comms::{JobsStateInnerWire, SnapshotHeader},
-        daemon_comms::{ProtocolError, create_shmem_and_write_snapshot},
+        client_side::client_read_snapshot_into_state,
+        daemon_side::{ProtocolError, create_shmem_and_write_snapshot},
         derivation_tree::{DrvNode, DrvRelations},
         handle_internal_json::{BuildJob, Drv, JobId, JobsStateInner},
+        protocol_common::{JobsStateInnerWire, SnapshotHeader},
     };
     fn to_eyre_with_origin_bt<
         E: std::error::Error + Send + Sync + 'static + snafu::ErrorCompat,

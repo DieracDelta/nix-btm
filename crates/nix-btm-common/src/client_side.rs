@@ -1,21 +1,16 @@
-use std::{backtrace::Backtrace, ffi::c_void, os::fd::OwnedFd};
+use std::{backtrace::Backtrace, os::fd::OwnedFd};
 
 use bytemuck::from_bytes;
 use memmap2::MmapOptions;
 use psx_shm::Shm;
-use rustix::{
-    fs::Mode,
-    io::dup,
-    mm::{MapFlags, ProtFlags, mmap, munmap},
-    shm::OFlags,
-};
+use rustix::{io::dup, shm::OFlags};
 use serde_cbor as cbor;
 use snafu::GenerateImplicitData;
 
 use crate::{
-    client_daemon_comms::{JobsStateInnerWire, R_MODE, SnapshotHeader},
-    daemon_comms::ProtocolError,
+    daemon_side::ProtocolError,
     handle_internal_json::JobsStateInner,
+    protocol_common::{JobsStateInnerWire, R_MODE, SnapshotHeader},
 };
 
 pub fn client_read_snapshot_into_state(
