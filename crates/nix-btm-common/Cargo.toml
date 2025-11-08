@@ -31,6 +31,7 @@ psx-shm = { workspace = true }
 memmap2 = { workspace = true }
 snafu = { workspace = true }
 eyre = { workspace = true }
+io-uring = { workspace = true }
 
 
 [dev-dependencies]

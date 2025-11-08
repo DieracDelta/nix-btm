@@ -4,10 +4,12 @@ use std::{
 };
 
 use bytemuck::{Pod, Zeroable};
+use io_uring::{opcode, types};
 use rustix::fs::Mode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    daemon_side::ProtocolError,
     derivation_tree::{DrvNode, DrvRelations},
     handle_internal_json::{
         BuildJob, Drv, DrvParseError, JobId, JobsStateInner,
@@ -73,8 +75,8 @@ impl SnapshotHeader {
 #[derive(Clone, Copy, Zeroable, Pod)]
 pub struct ShmHeader {
     pub magic: u64,
-    pub version: u64,
-    pub write_seq: u64,
+    pub version: u32,
+    pub write_seq: u32,
     pub next_entry_offset: u32,
     pub ring_len: u32,
 }
@@ -85,12 +87,12 @@ pub struct ShmHeader {
 pub struct ShmRecordHeader {
     pub payload_kind: u32, // Kind enum as numeric value
     pub payload_len: u32,  // length of CBOR payload
-    pub seq: u64,          // sequence number
+    pub seq: u32,          // sequence number
 }
 
 impl ShmHeader {
     pub const MAGIC: u64 = u64::from_be_bytes(*b"FOOBAR42");
-    pub const VERSION: u64 = 1;
+    pub const VERSION: u32 = 1;
 }
 
 pub(crate) struct ShmHeaderViewMut<'a> {
@@ -103,11 +105,16 @@ impl<'a> ShmHeaderViewMut<'a> {
     }
 
     #[inline]
-    pub(crate) fn write_seq(&self) -> &AtomicU64 {
+    pub(crate) fn write_seq(&self) -> &AtomicU32 {
         unsafe {
-            &*(std::ptr::addr_of!(self.hdr.write_seq) as *const AtomicU64)
+            &*(std::ptr::addr_of!(self.hdr.write_seq) as *const AtomicU32)
         }
     }
+    #[inline]
+    pub(crate) fn write_seq_mut_ptr(&self) -> *const u32 {
+        std::ptr::addr_of!(self.hdr.write_seq)
+    }
+
     #[inline]
     pub(crate) fn write_next_entry_offset(&self) -> &AtomicU32 {
         unsafe {
@@ -125,7 +132,7 @@ impl<'a> ShmHeaderViewMut<'a> {
         self.hdr.magic
     }
     #[inline]
-    pub(crate) fn version(&self) -> u64 {
+    pub(crate) fn version(&self) -> u32 {
         self.hdr.version
     }
 }
@@ -139,6 +146,21 @@ pub enum Kind {
     JobFinish = 3,
     DepGraphUpdate = 4,
     Heartbeat = 5,
+}
+
+impl TryFrom<u32> for Kind {
+    type Error = ();
+    fn try_from(v: u32) -> Result<Self, ()> {
+        Ok(match v {
+            0 => Kind::Padding,
+            1 => Kind::JobNew,
+            2 => Kind::JobUpdate,
+            3 => Kind::JobFinish,
+            4 => Kind::DepGraphUpdate,
+            5 => Kind::Heartbeat,
+            _ => return Err(()),
+        })
+    }
 }
 
 impl From<Kind> for u32 {

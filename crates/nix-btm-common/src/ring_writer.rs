@@ -1,14 +1,21 @@
 use std::sync::atomic::Ordering;
 
 use bytemuck::{Pod, bytes_of};
+use io_uring::{
+    IoUring, Probe,
+    opcode::{self, FutexWake},
+    types,
+};
+use libc::FUTEX_BITSET_MATCH_ANY;
 use memmap2::MmapMut;
 use psx_shm::Shm;
 use rustix::shm::OFlags;
-use snafu::{ResultExt, ensure};
+use snafu::{GenerateImplicitData, ResultExt, ensure};
 
 use crate::{
     daemon_side::{
-        CborSnafu, IoSnafu, MisMatchSnafu, ProtocolError, align_up_pow2,
+        CborSnafu, IoSnafu, IoUringSnafu, MisMatchSnafu, ProtocolError,
+        align_up_pow2,
     },
     protocol_common::{Kind, ShmHeaderViewMut, ShmRecordHeader, Update},
 };
@@ -24,11 +31,12 @@ const RING_ALIGN_SHIFT: u32 = 3;
 
 use crate::protocol_common::{RW_MODE, ShmHeader};
 
+// TODO some pieces of this may change depending on usage
 pub struct RingWriter {
+    uring: IoUring,
     shm: Shm,
-    map: MmapMut, // single mapping
+    map: MmapMut,
     hdr: *mut ShmHeader,
-    ring: *mut u8,
     ring_len: u64,
 }
 
@@ -69,13 +77,47 @@ impl RingWriter {
             };
         }
 
+        let uring = IoUring::new(256).context(IoSnafu)?;
+        let mut probe = Probe::new();
+        let _ = uring.submitter().register_probe(&mut probe);
+        ensure!(
+            probe.is_supported(io_uring::opcode::FutexWake::CODE),
+            IoUringSnafu
+        );
+
         Ok(Self {
+            uring,
             shm,
             map,
             hdr,
-            ring,
             ring_len,
         })
+    }
+
+    #[inline]
+    fn wake_readers(&mut self) -> Result<(), ProtocolError> {
+        // Publish with Release ordering
+        let hv = self.header_view();
+
+        let uaddr: *const u32 = hv.write_seq_mut_ptr();
+        let nr_wake: u64 = u64::MAX;
+        let flags: u32 = FUTEX_BITSET_MATCH_ANY as u32;
+        let mask: u64 = 0;
+
+        let sqe = FutexWake::new(uaddr, nr_wake, mask, flags)
+            .build()
+            .user_data(0xf00f00);
+
+        // Push & submit (simple path: wake every update)
+        unsafe {
+            self.uring.submission().push(&sqe).ok();
+        }
+        self.uring.submit().map_err(|source| ProtocolError::Io {
+            source,
+            backtrace: snafu::Backtrace::generate(),
+        })?;
+
+        Ok(())
     }
 
     #[inline]
@@ -88,7 +130,7 @@ impl RingWriter {
         &mut self.map[hdr_sz as usize..hdr_sz as usize + self.ring_len as usize]
     }
 
-    pub fn write_update(&mut self, upd: &Update) -> Result<u64, ProtocolError> {
+    pub fn write_update(&mut self, upd: &Update) -> Result<u32, ProtocolError> {
         let kind_num = match upd {
             Update::JobNew(_) => Kind::JobNew as u32,
             Update::JobUpdate { .. } => Kind::JobUpdate as u32,
@@ -129,7 +171,7 @@ impl RingWriter {
         &mut self,
         kind: u32,
         payload: &[u8],
-    ) -> Result<u64, ProtocolError> {
+    ) -> Result<u32, ProtocolError> {
         let ring_len = self.ring_len;
         let space_required_for_payload = align_up_pow2(
             SHM_RECORD_HDR_SIZE + payload.len() as u64,
@@ -187,6 +229,8 @@ impl RingWriter {
                 .store(next_entry_offset as u32, Ordering::Release);
             hv.write_seq().store(seq, Ordering::Release);
         }
+
+        self.wake_readers()?;
 
         Ok(seq)
     }

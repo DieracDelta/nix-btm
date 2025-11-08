@@ -74,6 +74,14 @@ pub enum ProtocolError {
         #[snafu(backtrace)]
         backtrace: Backtrace,
     },
+    #[snafu(
+        display("Kernel doesn't support io_uring Futex"),
+        visibility(pub(crate))
+    )]
+    IoUringError {
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
 }
 impl From<rustix::io::Errno> for ProtocolError {
     fn from(source: rustix::io::Errno) -> Self {
