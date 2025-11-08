@@ -1,10 +1,7 @@
 use std::sync::atomic::Ordering;
 
 use bytemuck::{Pod, bytes_of};
-use io_uring::{
-    IoUring, Probe,
-    opcode::FutexWake,
-};
+use io_uring::{IoUring, Probe, opcode::FutexWake};
 use libc::FUTEX_BITSET_MATCH_ANY;
 use memmap2::MmapMut;
 use psx_shm::Shm;
@@ -16,7 +13,7 @@ use crate::{
         CborSnafu, IoSnafu, IoUringSnafu, MisMatchSnafu, ProtocolError,
         align_up_pow2,
     },
-    protocol_common::{Kind, ShmHeaderViewMut, ShmRecordHeader, Update},
+    protocol_common::{Kind, ShmHeaderView, ShmRecordHeader, Update},
 };
 
 /// how much to shift to get alignment
@@ -64,7 +61,7 @@ impl RingWriter {
 
         let base = map.as_ptr() as *mut u8;
         let hdr = base as *mut ShmHeader;
-        let ring = unsafe { base.add(size_of::<ShmHeader>()) };
+        //let ring = unsafe { base.add(size_of::<ShmHeader>()) };
 
         unsafe {
             *hdr = ShmHeader {
@@ -98,7 +95,7 @@ impl RingWriter {
         // Publish with Release ordering
         let hv = self.header_view();
 
-        let uaddr: *const u32 = hv.write_seq_mut_ptr();
+        let uaddr: *const u32 = hv.write_seq_ptr();
         let nr_wake: u64 = u64::MAX;
         let flags: u32 = FUTEX_BITSET_MATCH_ANY as u32;
         let mask: u64 = 0;
@@ -120,8 +117,8 @@ impl RingWriter {
     }
 
     #[inline]
-    fn header_view(&mut self) -> ShmHeaderViewMut<'_> {
-        unsafe { ShmHeaderViewMut::new(&mut *self.hdr) }
+    fn header_view(&mut self) -> ShmHeaderView<'_> {
+        unsafe { ShmHeaderView::new(&mut *self.hdr) }
     }
 
     fn ring_mut(&mut self) -> &mut [u8] {

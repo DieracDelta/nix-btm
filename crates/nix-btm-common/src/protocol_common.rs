@@ -1,13 +1,16 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    sync::atomic::AtomicU32,
+    marker::PhantomData,
+    sync::atomic::{AtomicU32, AtomicU64},
 };
 
 use bytemuck::{Pod, Zeroable};
+use io_uring::{opcode, types};
 use rustix::fs::Mode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    daemon_side::ProtocolError,
     derivation_tree::{DrvNode, DrvRelations},
     handle_internal_json::{
         BuildJob, Drv, DrvParseError, JobId, JobsStateInner,
@@ -93,47 +96,107 @@ impl ShmHeader {
     pub const VERSION: u32 = 1;
 }
 
-pub(crate) struct ShmHeaderViewMut<'a> {
-    hdr: &'a mut ShmHeader,
+pub(crate) struct ShmHeaderView<'a> {
+    hdr: *const ShmHeader,
+    _pd: PhantomData<&'a ShmHeader>,
 }
 
-impl<'a> ShmHeaderViewMut<'a> {
+impl<'a> ShmHeaderView<'a> {
     pub(crate) fn new(hdr: &'a mut ShmHeader) -> Self {
-        Self { hdr }
-    }
-
-    #[inline]
-    pub(crate) fn write_seq(&self) -> &AtomicU32 {
-        unsafe {
-            &*(std::ptr::addr_of!(self.hdr.write_seq) as *const AtomicU32)
+        Self {
+            hdr,
+            _pd: PhantomData,
         }
     }
+
     #[inline]
-    pub(crate) fn write_seq_mut_ptr(&self) -> *const u32 {
-        std::ptr::addr_of!(self.hdr.write_seq)
+    pub fn write_seq(&self) -> &AtomicU32 {
+        unsafe {
+            &*(std::ptr::addr_of!((*self.hdr).write_seq) as *const AtomicU32)
+        }
     }
 
     #[inline]
-    pub(crate) fn write_next_entry_offset(&self) -> &AtomicU32 {
+    pub fn write_seq_ptr(&self) -> *const u32 {
+        unsafe { std::ptr::addr_of!((*self.hdr).write_seq) }
+    }
+
+    #[inline]
+    pub fn write_next_entry_offset(&self) -> &AtomicU32 {
         unsafe {
-            &*(std::ptr::addr_of!(self.hdr.next_entry_offset)
+            &*(std::ptr::addr_of!((*self.hdr).next_entry_offset)
                 as *const AtomicU32)
         }
     }
 
+    /// safe because this should never change
     #[inline]
-    pub(crate) fn ring_len(&self) -> u32 {
-        self.hdr.ring_len
+    pub fn magic(&self) -> u64 {
+        unsafe { (*self.hdr).magic }
     }
+
+    /// safe because this should never change
     #[inline]
-    pub(crate) fn magic(&self) -> u64 {
-        self.hdr.magic
+    pub fn version(&self) -> u32 {
+        unsafe { (*self.hdr).version }
     }
+
+    /// safe because this should never change
     #[inline]
-    pub(crate) fn version(&self) -> u32 {
-        self.hdr.version
+    pub fn ring_len(&self) -> u32 {
+        unsafe { (*self.hdr).ring_len }
     }
 }
+
+//pub struct ShmHeaderView<'a> {
+//    hdr: *const ShmHeader,
+//    _pd: PhantomData<&'a ShmHeader>,
+//}
+//
+//impl<'a> ShmHeaderView<'a> {
+//    #[inline]
+//    pub fn new(hdr: *const ShmHeader) -> Self {
+//        Self {
+//            hdr,
+//            _pd: PhantomData,
+//        }
+//    }
+//
+//    #[inline]
+//    pub fn write_seq(&self) -> &AtomicU32 {
+//        unsafe {
+//            &*(std::ptr::addr_of!((*self.hdr).write_seq) as *const AtomicU32)
+//        }
+//    }
+//
+//    #[inline]
+//    pub fn write_next_entry_offset(&self) -> &AtomicU32 {
+//        unsafe {
+//            &*(std::ptr::addr_of!((*self.hdr).next_entry_offset)
+//                as *const AtomicU32)
+//        }
+//    }
+//
+//    // Pure reads for static fields:
+//    #[inline]
+//    pub fn ring_len(&self) -> u32 {
+//        unsafe { (*self.hdr).ring_len }
+//    }
+//    #[inline]
+//    pub fn magic(&self) -> u64 {
+//        unsafe { (*self.hdr).magic }
+//    }
+//    #[inline]
+//    pub fn version(&self) -> u32 {
+//        unsafe { (*self.hdr).version }
+//    }
+//
+//    // Futex address for io_uring waiters:
+//    #[inline]
+//    pub fn write_seq_ptr(&self) -> *const u32 {
+//        unsafe { std::ptr::addr_of!((*self.hdr).write_seq) }
+//    }
+//}
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -227,3 +290,5 @@ impl From<JobsStateInnerWire> for JobsStateInner {
 
 pub const RW_MODE: Mode = Mode::from_bits_retain(0o600);
 pub const R_MODE: Mode = Mode::from_bits_retain(0o400);
+
+

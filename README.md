@@ -11,9 +11,15 @@ If any of these things are true, nix-btm is for you! Fearlessly exert more contr
 
 # How to run?
 
-`nix run github:DieracDelta/nix-btm/master`
+Step 1: Use linux
 
-# How to get Eagle Eye view/Jobs View to work?
+Step 2:
+
+`nix run github:DieracDelta/nix-btm/0.3.0`
+
+But, this will only provide the process monitor.
+
+## How to get Eagle Eye view/Jobs View to work?
 
 You'll need to set this in your `nix.conf`:
 
@@ -61,9 +67,21 @@ Nix output monitor is really great! `nix-btm` targets the usecases where NOM can
 - [ ] detailed view of build env for task
 - [ ] separating code into a client+daemon so multiple instances of nix-btm can run at the same time (and we don't need to start the nix builds after nix-btm)
 
-# What are some cool things we're doing?
+# Premature Performance Optimizing Harder than Last Time
 
-Blazingly fast? Shaw, git gud! We're lightning fast.
+Blazingly fast like Rust? Shaw, git gud! We're lightning fast.
 
-Nix-btm comes with a client-daemon architecture that will stream events to client using io_uring and a shared memory ring buffer as our IPC. No, this was not a bottleneck. This is 100% premature optimization.
+Nix-btm comes with a client-daemon architecture.
+
+- The socket streaming from nix daemon to nix-btm daemon IO will be async (io_uring). I expect this to be a bottleneck, so
+- The daemon will stream events to local clients using a io_uring futex and a memmapped ring buffer. No, this was not a bottleneck. This is 100% premature optimization. (implementation in progress)
+- The daemon will handle control requests (notably catchup and fd requests for the ring buffer) probably via RPC (unimplemented)
+- The daemon will naively implement a catchup protocol for local clients by dumping the state into some mapped memory
+- I want to vectorize *something*. I'm not sure what, but I'm going to profile and find some hot paths to simdify
+
+## But...why are you like this?
+
+My career has transitioned to PL research. But sometimes I want to larp as a systems engineer. So, this project is ~~me enabling myself~~ a systems-ey side project. You better believe I'm going to realize all the impractical unhinged ideas I could never justify to any somewhat reasonable industry PM.
+
+
 
