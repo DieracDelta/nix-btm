@@ -1,16 +1,20 @@
 use std::{
+    backtrace::Backtrace,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     marker::PhantomData,
-    sync::atomic::{AtomicU32, AtomicU64},
+    sync::atomic::{AtomicU32, AtomicU64, Ordering},
 };
 
-use bytemuck::{Pod, Zeroable};
+use bytemuck::{Pod, PodCastError, Zeroable, try_from_bytes_mut};
 use io_uring::{opcode, types};
 use rustix::fs::Mode;
 use serde::{Deserialize, Serialize};
+use snafu::{ResultExt, ensure};
 
 use crate::{
-    daemon_side::ProtocolError,
+    daemon_side::{
+        MisMatchSnafu, PodCastSnafu, ProtocolError, UnexpectedRingSizeSnafu,
+    },
     derivation_tree::{DrvNode, DrvRelations},
     handle_internal_json::{
         BuildJob, Drv, DrvParseError, JobId, JobsStateInner,
@@ -73,13 +77,13 @@ impl SnapshotHeader {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Zeroable, Pod)]
+#[derive(Clone, Copy, Zeroable, Pod, Debug)]
 pub struct ShmHeader {
-    pub magic: u64,
-    pub version: u32,
-    pub write_seq: u32,
-    pub next_entry_offset: u32,
-    pub ring_len: u32,
+    pub(crate) magic: u64,
+    pub(crate) version: u32,
+    pub(crate) write_seq: u32,
+    pub(crate) next_entry_offset: u32,
+    pub(crate) ring_len: u32,
 }
 
 /// Fixed-size prefix of each record in the ring buffer
@@ -101,8 +105,10 @@ pub(crate) struct ShmHeaderView<'a> {
     _pd: PhantomData<&'a ShmHeader>,
 }
 
+const EXPECTED_SHM_SIZE: usize = size_of::<ShmHeader>();
+
 impl<'a> ShmHeaderView<'a> {
-    pub(crate) fn new(hdr: &'a mut ShmHeader) -> Self {
+    pub(crate) fn new(hdr: *const ShmHeader) -> Self {
         Self {
             hdr,
             _pd: PhantomData,
@@ -290,5 +296,3 @@ impl From<JobsStateInnerWire> for JobsStateInner {
 
 pub const RW_MODE: Mode = Mode::from_bits_retain(0o600);
 pub const R_MODE: Mode = Mode::from_bits_retain(0o400);
-
-

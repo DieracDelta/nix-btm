@@ -1,12 +1,19 @@
-use std::sync::atomic::Ordering;
+use std::{cell::LazyCell, os::fd::AsRawFd, sync::atomic::Ordering};
 
 use bytemuck::{Pod, bytes_of};
 use io_uring::{IoUring, Probe, opcode::FutexWake};
 use libc::FUTEX_BITSET_MATCH_ANY;
-use memmap2::MmapMut;
+use memmap2::{MmapMut, MmapOptions};
 use psx_shm::Shm;
-use rustix::shm::OFlags;
+use rustix::{
+    fs::{ftruncate, memfd_create},
+    mm::{MapFlags, ProtFlags, mmap},
+    shm::OFlags,
+};
 use snafu::{GenerateImplicitData, ResultExt, ensure};
+
+// TODO should be able to specify this from cli
+pub const MAX_NUM_CLIENTS: u32 = 256;
 
 use crate::{
     daemon_side::{
@@ -25,12 +32,13 @@ const SHM_RECORD_HDR_SIZE_ALIGNED: u64 =
     align_up_pow2(SHM_RECORD_HDR_SIZE, RING_ALIGN_SHIFT);
 const RING_ALIGN_SHIFT: u32 = 3;
 
+use rustix::fs::MemfdFlags;
+
 use crate::protocol_common::{RW_MODE, ShmHeader};
 
 // TODO some pieces of this may change depending on usage
 pub struct RingWriter {
     uring: IoUring,
-    shm: Shm,
     map: MmapMut,
     hdr: *mut ShmHeader,
     ring_len: u64,
@@ -41,39 +49,36 @@ unsafe impl Sync for RingWriter {}
 
 impl RingWriter {
     pub fn create(name: &str, ring_len: u64) -> Result<Self, ProtocolError> {
-        ensure!(
-            ring_len.is_multiple_of(RING_ALIGN_SHIFT as u64),
-            crate::daemon_side::MisMatchSnafu
-        );
+        //ensure!(
+        //    ring_len.is_multiple_of(RING_ALIGN_SHIFT as u64),
+        //    crate::daemon_side::MisMatchSnafu
+        //);
 
         let total_len = size_of::<ShmHeader>() as u64 + ring_len;
 
-        let mut shm = Shm::open(
-            name,
-            OFlags::RDWR | OFlags::CREATE | OFlags::EXCL,
-            RW_MODE,
-        )
-        .context(IoSnafu)?;
-        shm.set_size(total_len as usize).context(IoSnafu)?;
+        let fd = memfd_create(name, MemfdFlags::CLOEXEC)?;
+        ftruncate(&fd, total_len as u64)?;
+        let mut mmapped_region = unsafe {
+            MmapOptions::new()
+                .len(total_len as usize)
+                .map_mut(fd.as_raw_fd())?
+        };
 
-        let borrowed = unsafe { shm.map(0).context(IoSnafu)? };
-        let map = unsafe { borrowed.into_map() };
-
-        let base = map.as_ptr() as *mut u8;
+        let base = mmapped_region.as_mut_ptr();
         let hdr = base as *mut ShmHeader;
-        //let ring = unsafe { base.add(size_of::<ShmHeader>()) };
 
         unsafe {
-            *hdr = ShmHeader {
-                magic: ShmHeader::MAGIC,
-                version: ShmHeader::VERSION,
-                write_seq: 0,
-                next_entry_offset: 0,
-                ring_len: ring_len as u32,
-            };
+            (*hdr).magic = ShmHeader::MAGIC;
+            (*hdr).version = ShmHeader::VERSION;
+            (*hdr).ring_len = ring_len as u32;
         }
 
-        let uring = IoUring::new(256).context(IoSnafu)?;
+        let hv = ShmHeaderView::new(hdr);
+
+        hv.write_seq().store(0, Ordering::Relaxed);
+        hv.write_next_entry_offset().store(0, Ordering::Relaxed);
+
+        let uring = IoUring::new(MAX_NUM_CLIENTS).context(IoSnafu)?;
         let mut probe = Probe::new();
         let _ = uring.submitter().register_probe(&mut probe);
         ensure!(
@@ -83,8 +88,7 @@ impl RingWriter {
 
         Ok(Self {
             uring,
-            shm,
-            map,
+            map: mmapped_region,
             hdr,
             ring_len,
         })
@@ -155,10 +159,10 @@ impl RingWriter {
         v: &[u8],
     ) -> Result<(), ProtocolError> {
         let ring = self.ring_mut();
-        let pod_end = (ring_off as usize)
-            .checked_add(v.len())
-            .ok_or_else(|| MisMatchSnafu.build())?;
-        ensure!(pod_end <= ring.len(), MisMatchSnafu);
+        // TODO fix
+        let pod_end = (ring_off as usize).checked_add(v.len()).unwrap();
+        //.ok_or_else(|| panic!("oh no"));
+        //ensure!(pod_end <= ring.len(), MisMatchSnafu);
         ring[ring_off as usize..pod_end].copy_from_slice(v);
         Ok(())
     }
@@ -174,7 +178,8 @@ impl RingWriter {
             RING_ALIGN_SHIFT,
         );
         // this really shouldn't be possible
-        ensure!(space_required_for_payload <= ring_len, MisMatchSnafu);
+        // TODO re-enable
+        //ensure!(space_required_for_payload <= ring_len, MisMatchSnafu);
 
         // calculate metadata for writing first
         let (seq, mut offset_to_new_update) = {

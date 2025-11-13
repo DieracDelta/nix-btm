@@ -1,6 +1,6 @@
 use std::{backtrace::Backtrace, fmt::Debug, os::fd::AsFd};
 
-use bytemuck::bytes_of;
+use bytemuck::{PodCastError, bytes_of};
 use psx_shm::{Shm, UnlinkOnDrop};
 pub use rustix::*;
 use rustix::{fs::Mode, shm::OFlags};
@@ -10,7 +10,7 @@ use tokio::net::UnixStream;
 
 use crate::{
     handle_internal_json::JobsStateInner,
-    protocol_common::{JobsStateInnerWire, SnapshotHeader},
+    protocol_common::{JobsStateInnerWire, ShmHeader, SnapshotHeader},
 };
 
 pub fn daemon_double_fork(socket_path: String, json_file_path: String) {
@@ -63,8 +63,13 @@ pub enum ProtocolError {
         #[snafu(backtrace)]
         backtrace: Backtrace,
     },
-    #[snafu(display("Mismatch Error"), visibility(pub(crate)))]
+    #[snafu(
+        display("Mismatch Error: expected: {expected:?}, got: {got:?}"),
+        visibility(pub(crate))
+    )]
     MisMatchError {
+        expected: ShmHeader,
+        got: ShmHeader,
         #[snafu(backtrace)]
         backtrace: Backtrace,
     },
@@ -79,6 +84,35 @@ pub enum ProtocolError {
         visibility(pub(crate))
     )]
     IoUringError {
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    #[snafu(
+        display(
+            "Unexpected Ring Size: got {got:?} bytes but expected :{:?} bytes"
+        ),
+        visibility(pub(crate))
+    )]
+    UnexpectedRingSize {
+        expected: u64,
+        got: u64,
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    #[snafu(
+        display("Bytemuck cast failed while interpreting memory: {kind}"),
+        visibility(pub(crate))
+    )]
+    PodCast {
+        kind: PodCastError,
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    #[snafu(
+        display("IoURING unsupported: failed probe"),
+        visibility(pub(crate))
+    )]
+    IoUringNotSupported {
         #[snafu(backtrace)]
         backtrace: Backtrace,
     },
