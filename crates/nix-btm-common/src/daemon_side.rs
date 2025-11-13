@@ -13,10 +13,6 @@ use crate::{
     protocol_common::{JobsStateInnerWire, SnapshotHeader},
 };
 
-pub fn daemon_double_fork(socket_path: String, json_file_path: String) {
-    todo!();
-}
-
 /// Align `x` up to the next multiple of 2^`align_pow` bytes.
 #[inline]
 pub const fn align_up_pow2(num_bytes: u64, align_pow: u32) -> u64 {
@@ -46,68 +42,6 @@ pub struct SnapshotMemfd {
     pub shmem: UnlinkOnDrop,
     pub total_len_bytes: u64,
     pub snap_seq_uid: u64,
-}
-
-#[derive(Snafu, Debug)]
-pub enum ProtocolError {
-    #[snafu(display("I/O error: {source}"), visibility(pub(crate)))]
-    Io {
-        source: std::io::Error,
-        #[snafu(backtrace)]
-        backtrace: Backtrace,
-    },
-    //
-    #[snafu(display("CBOR error: {source}"), visibility(pub(crate)))]
-    Cbor {
-        source: serde_cbor::Error,
-        #[snafu(backtrace)]
-        backtrace: Backtrace,
-    },
-    #[snafu(display("Mismatch Error"), visibility(pub(crate)))]
-    MisMatchError {
-        #[snafu(backtrace)]
-        backtrace: Backtrace,
-    },
-    #[snafu(display("Rustix error: {source}"), visibility(pub(crate)))]
-    RustixIo {
-        source: rustix::io::Errno,
-        #[snafu(backtrace)]
-        backtrace: Backtrace,
-    },
-    #[snafu(
-        display("Kernel doesn't support io_uring Futex"),
-        visibility(pub(crate))
-    )]
-    IoUringError {
-        #[snafu(backtrace)]
-        backtrace: Backtrace,
-    },
-}
-impl From<rustix::io::Errno> for ProtocolError {
-    fn from(source: rustix::io::Errno) -> Self {
-        ProtocolError::RustixIo {
-            source,
-            backtrace: Backtrace::capture(),
-        }
-    }
-}
-
-impl From<std::io::Error> for ProtocolError {
-    fn from(source: std::io::Error) -> Self {
-        ProtocolError::Io {
-            source,
-            backtrace: Backtrace::capture(),
-        }
-    }
-}
-
-impl From<serde_cbor::Error> for ProtocolError {
-    fn from(source: serde_cbor::Error) -> Self {
-        ProtocolError::Cbor {
-            source,
-            backtrace: Backtrace::capture(),
-        }
-    }
 }
 
 const SC_HDR_ALIGN: u32 =

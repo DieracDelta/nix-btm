@@ -18,7 +18,6 @@ ratatui = {workspace = true}
 sysinfo = {workspace = true}
 tui-tree-widget = {workspace = true}
 lazy_static = {workspace = true}
-procfs = {workspace = true}
 strip-ansi-escapes = {workspace = true}
 strum = {workspace = true}
 clap = {workspace = true}
@@ -41,3 +40,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 console-subscriber = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+procfs = {workspace = true}

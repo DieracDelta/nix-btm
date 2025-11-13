@@ -11,7 +11,7 @@ use clap::Parser;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
 use nix_btm_common::{
-    daemon_side::daemon_double_fork,
+    double_fork::daemon_double_fork,
     handle_internal_json::{JobsStateInner, handle_daemon_info},
 };
 use ratatui::text::Line;
@@ -21,6 +21,7 @@ pub mod emojis;
 pub mod event_loop;
 pub mod get_stats;
 pub mod gruvbox;
+#[cfg(target_os = "linux")]
 pub mod listen_to_output;
 pub mod tracing;
 pub mod ui;
