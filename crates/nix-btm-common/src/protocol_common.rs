@@ -9,17 +9,76 @@ use bytemuck::{Pod, PodCastError, Zeroable, try_from_bytes_mut};
 use io_uring::{opcode, types};
 use rustix::fs::Mode;
 use serde::{Deserialize, Serialize};
-use snafu::{ResultExt, ensure};
+use snafu::{ResultExt, Snafu, ensure};
 
 use crate::{
-    daemon_side::{
-        MisMatchSnafu, PodCastSnafu, ProtocolError, UnexpectedRingSizeSnafu,
-    },
     derivation_tree::{DrvNode, DrvRelations},
     handle_internal_json::{
         BuildJob, Drv, DrvParseError, JobId, JobsStateInner,
     },
 };
+#[derive(Snafu, Debug)]
+pub enum ProtocolError {
+    #[snafu(display("I/O error: {source}"), visibility(pub(crate)))]
+    Io {
+        source: std::io::Error,
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    //
+    #[snafu(display("CBOR error: {source}"), visibility(pub(crate)))]
+    Cbor {
+        source: serde_cbor::Error,
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    #[snafu(display("Mismatch Error"), visibility(pub(crate)))]
+    MisMatchError {
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    #[snafu(display("Rustix error: {source}"), visibility(pub(crate)))]
+    RustixIo {
+        source: rustix::io::Errno,
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+    #[snafu(
+        display("Kernel doesn't support io_uring Futex"),
+        visibility(pub(crate))
+    )]
+    IoUringError {
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
+}
+
+impl From<rustix::io::Errno> for ProtocolError {
+    fn from(source: rustix::io::Errno) -> Self {
+        ProtocolError::RustixIo {
+            source,
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
+
+impl From<std::io::Error> for ProtocolError {
+    fn from(source: std::io::Error) -> Self {
+        ProtocolError::Io {
+            source,
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
+
+impl From<serde_cbor::Error> for ProtocolError {
+    fn from(source: serde_cbor::Error) -> Self {
+        ProtocolError::Cbor {
+            source,
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
 
 // needed because drv serialization is already done differently to accomodate
 // for json. Don't need that for cbor

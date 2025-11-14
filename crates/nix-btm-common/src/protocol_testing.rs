@@ -37,7 +37,7 @@ mod tests {
     use super::*;
     use crate::{
         client_side::client_read_snapshot_into_state,
-        daemon_side::{ProtocolError, create_shmem_and_write_snapshot},
+        daemon_side::create_shmem_and_write_snapshot,
         derivation_tree::{DrvNode, DrvRelations},
         handle_internal_json::{BuildJob, Drv, JobId, JobsStateInner},
         protocol_common::{JobsStateInnerWire, SnapshotHeader},

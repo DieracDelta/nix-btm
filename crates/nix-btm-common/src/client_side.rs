@@ -8,7 +8,6 @@ use serde_cbor as cbor;
 use snafu::GenerateImplicitData;
 
 use crate::{
-    daemon_side::ProtocolError,
     handle_internal_json::JobsStateInner,
     protocol_common::{JobsStateInnerWire, R_MODE, SnapshotHeader},
 };

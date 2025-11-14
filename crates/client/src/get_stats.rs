@@ -7,7 +7,7 @@ use std::{
     process::Command,
 };
 
-use procfs::process::Process as ProcFsProcess;
+//use procfs::process::Process as ProcFsProcess;
 
 #[allow(clippy::unnecessary_literal_unwrap)]
 pub fn nll_todo<T>() -> T {
@@ -487,39 +487,39 @@ fn drv_to_readable_drv(input: &str, has_postfix: bool) -> String {
 
 // TODO error handling
 // TODO macos support
-pub fn create_drv_root(root: TreeNode) -> DrvRoot {
-    let root_pid = root.pid;
-    // this can totally fail
-    let proc = ProcFsProcess::new(root_pid.as_u32() as i32).unwrap();
-    let fds = proc.fd().unwrap();
-    for fd in fds {
-        let Ok(fd) = fd else { continue };
-        match fd.target {
-            procfs::process::FDTarget::Path(path) => {
-                if path.to_str().unwrap().starts_with("/nix/var/log/nix/drvs/")
-                {
-                    let drv_name = bz2_to_drv(path.to_str().unwrap());
-                    let readable = drv_to_readable_drv(&drv_name, true);
-                    return DrvRoot {
-                        drv: Drv {
-                            drv: drv_name,
-                            human_readable_drv: readable,
-                        },
-                        procs: root,
-                    };
-                }
-            }
-            _ => continue,
-        }
-    }
-    unreachable!()
-}
+//pub fn create_drv_root(root: TreeNode) -> DrvRoot {
+//    let root_pid = root.pid;
+//    // this can totally fail
+//    let proc = ProcFsProcess::new(root_pid.as_u32() as i32).unwrap();
+//    let fds = proc.fd().unwrap();
+//    for fd in fds {
+//        let Ok(fd) = fd else { continue };
+//        match fd.target {
+//            procfs::process::FDTarget::Path(path) => {
+//                if
+// path.to_str().unwrap().starts_with("/nix/var/log/nix/drvs/")                {
+//                    let drv_name = bz2_to_drv(path.to_str().unwrap());
+//                    let readable = drv_to_readable_drv(&drv_name, true);
+//                    return DrvRoot {
+//                        drv: Drv {
+//                            drv: drv_name,
+//                            human_readable_drv: readable,
+//                        },
+//                        procs: root,
+//                    };
+//                }
+//            }
+//            _ => continue,
+//        }
+//    }
+//    unreachable!()
+//}
 
-pub fn get_drvs(map: HashMap<Pid, TreeNode>) -> HashMap<Pid, DrvRoot> {
-    map.into_iter()
-        .map(|(k, v)| (k, create_drv_root(v)))
-        .collect::<HashMap<_, _>>()
-}
+//pub fn get_drvs(map: HashMap<Pid, TreeNode>) -> HashMap<Pid, DrvRoot> {
+//    map.into_iter()
+//        .map(|(k, v)| (k, create_drv_root(v)))
+//        .collect::<HashMap<_, _>>()
+//}
 
 #[derive(Clone, Debug)]
 pub struct DrvPath(Vec<Drv>);
@@ -721,83 +721,84 @@ pub fn merge_drv_trees(
     None
 }
 
-pub fn construct_everything() {
-    let sets = get_active_users_and_pids();
-    let mut total_set = HashSet::new();
-    for (_, set) in sets {
-        let sett: HashSet<_> = set.into_iter().collect();
-        let unioned = total_set.union(&sett).cloned();
-        total_set = unioned.collect::<HashSet<_>>();
-    }
-    let mut map = construct_pid_map(total_set.clone());
-    let total_tree = construct_tree(map.keys().cloned().collect(), &mut map);
-    println!("total_tree {:?}", total_tree);
-    let total_tree = total_tree.into_iter().next().unwrap().1;
-    let real_roots = strip_tf_outta_tree(total_tree, &map);
-    println!("real roots {:?}", real_roots);
-    let drvs_roots = get_drvs(real_roots.clone());
-    println!("drvs roots {:?}", drvs_roots);
-    let dep_view: HashSet<&Drv> = drvs_roots.values().map(|v| &v.drv).collect();
-    println!("DEP VIEW: {:?}", dep_view);
-    let nodes = create_dep_tree(dep_view);
-    println!("DEP TREE: {:?}", nodes);
-    nodes.iter().for_each(dump_dep_tree);
-
-    // dump_pids(&real_roots, &map);
-}
-
-#[cfg(test)]
-mod tests {
-    // TODO fix test so it can run on any computer. This requires pre-fetching
-    // the drvs
-    #[test]
-    pub fn test_invoke_why_depends() {
-        let parent = super::Drv {
-            drv: "/nix/store/qyw7qc22j2ngf9wip8sxagaxb0387gnq-cargo-1.78.0"
-                .to_string(),
-            human_readable_drv: "cargo-1.78.0".to_string(),
-        };
-        let child = super::Drv {
-            drv: "/nix/store/8bdd933v69w05k5v8hfcq74bi1f9545k-openssl-3.0.13"
-                .to_string(),
-            human_readable_drv: "openssl-3.0.13".to_string(),
-        };
-        // invoke the bash command `nix why-depends parent child` and get output
-        // into string
-        let result = super::invoke_why_depends(&parent, &child);
-        println!("{result:?}");
-        assert!(result.is_some());
-        let result_ = result.unwrap();
-        // TODO fix this test
-        assert_eq!(result_.1, parent.drv);
-        assert_eq!(result_.0.get(&parent.drv).unwrap().drv, parent);
-        assert_eq!(result_.0.get(&parent.drv).unwrap().children.len(), 1);
-        assert_eq!(
-            *result_
-                .0
-                .get(&parent.drv)
-                .unwrap()
-                .children
-                .iter()
-                .next()
-                .unwrap(),
-            child.drv
-        );
-        // assert!(result_[1] == child);
-    }
-
-    #[test]
-    pub fn test_create_dep_tree() {
-        // fuck testing stick it into the cli and see what happens
-        // let parent = super::Drv {
-        //     drv: "/nix/store/0bfvsp2s2pkj8ihzkn4mdgpapgfab3gs-vimplugin-treesitter-grammar-hoon"
-        //     human_readable_drv: vimplugin-treesitter-grammar-hoon
-        //
-        // };
-        // let child = super::Drv {
-        //     drv: "/nix/store/d4lbynl52arvqw3amz8mdz2nqvzdw4xf-hoon-grammar-0.
-        // 0.0+rev=a24c5a3" };
-        //
-        //
-    }
-}
+//pub fn construct_everything() {
+//    let sets = get_active_users_and_pids();
+//    let mut total_set = HashSet::new();
+//    for (_, set) in sets {
+//        let sett: HashSet<_> = set.into_iter().collect();
+//        let unioned = total_set.union(&sett).cloned();
+//        total_set = unioned.collect::<HashSet<_>>();
+//    }
+//    let mut map = construct_pid_map(total_set.clone());
+//    let total_tree = construct_tree(map.keys().cloned().collect(), &mut map);
+//    println!("total_tree {:?}", total_tree);
+//    let total_tree = total_tree.into_iter().next().unwrap().1;
+//    let real_roots = strip_tf_outta_tree(total_tree, &map);
+//    println!("real roots {:?}", real_roots);
+//    let drvs_roots = get_drvs(real_roots.clone());
+//    println!("drvs roots {:?}", drvs_roots);
+//    let dep_view: HashSet<&Drv> = drvs_roots.values().map(|v|
+// &v.drv).collect();    println!("DEP VIEW: {:?}", dep_view);
+//    let nodes = create_dep_tree(dep_view);
+//    println!("DEP TREE: {:?}", nodes);
+//    nodes.iter().for_each(dump_dep_tree);
+//
+//    // dump_pids(&real_roots, &map);
+//}
+//
+//#[cfg(test)]
+//mod tests {
+//    // TODO fix test so it can run on any computer. This requires pre-fetching
+//    // the drvs
+//    #[test]
+//    pub fn test_invoke_why_depends() {
+//        let parent = super::Drv {
+//            drv: "/nix/store/qyw7qc22j2ngf9wip8sxagaxb0387gnq-cargo-1.78.0"
+//                .to_string(),
+//            human_readable_drv: "cargo-1.78.0".to_string(),
+//        };
+//        let child = super::Drv {
+//            drv: "/nix/store/8bdd933v69w05k5v8hfcq74bi1f9545k-openssl-3.0.13"
+//                .to_string(),
+//            human_readable_drv: "openssl-3.0.13".to_string(),
+//        };
+//        // invoke the bash command `nix why-depends parent child` and get
+// output        // into string
+//        let result = super::invoke_why_depends(&parent, &child);
+//        println!("{result:?}");
+//        assert!(result.is_some());
+//        let result_ = result.unwrap();
+//        // TODO fix this test
+//        assert_eq!(result_.1, parent.drv);
+//        assert_eq!(result_.0.get(&parent.drv).unwrap().drv, parent);
+//        assert_eq!(result_.0.get(&parent.drv).unwrap().children.len(), 1);
+//        assert_eq!(
+//            *result_
+//                .0
+//                .get(&parent.drv)
+//                .unwrap()
+//                .children
+//                .iter()
+//                .next()
+//                .unwrap(),
+//            child.drv
+//        );
+//        // assert!(result_[1] == child);
+//    }
+//
+//    #[test]
+//    pub fn test_create_dep_tree() {
+//        // fuck testing stick it into the cli and see what happens
+//        // let parent = super::Drv {
+//        //     drv:
+// "/nix/store/
+// 0bfvsp2s2pkj8ihzkn4mdgpapgfab3gs-vimplugin-treesitter-grammar-hoon"        //
+// human_readable_drv: vimplugin-treesitter-grammar-hoon        //
+//        // };
+//        // let child = super::Drv {
+//        //     drv:
+// "/nix/store/d4lbynl52arvqw3amz8mdz2nqvzdw4xf-hoon-grammar-0.        // 0.
+// 0+rev=a24c5a3" };        //
+//        //
+//    }
+//}

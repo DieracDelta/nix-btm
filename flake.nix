@@ -11,11 +11,11 @@
   };
 
   outputs =
-    { self
-    , nixpkgs
-    , rust-overlay
-    , fenix
-    ,
+    {
+      self,
+      nixpkgs,
+      rust-overlay,
+      fenix,
     }:
     let
       systems = [
@@ -28,12 +28,10 @@
       forAllSystems =
         f:
         builtins.listToAttrs (
-          map
-            (system: {
-              name = system;
-              value = f system;
-            })
-            systems
+          map (system: {
+            name = system;
+            value = f system;
+          }) systems
         );
     in
     let
@@ -52,6 +50,34 @@
               allowUnfree = true;
             };
           };
+          target = if os == "linux" then "${arch}-unknown-${os}-musl" else "${arch}-apple-darwin";
+
+          rust_tc = with pkgs; [
+            (rust-bin.stable.latest.minimal.override {
+              extensions = [
+                "cargo"
+                "clippy"
+                "rust-src"
+                "rustc"
+                "llvm-tools-preview"
+              ];
+              targets = [ target ];
+            })
+            (rust-bin.nightly.latest.minimal.override {
+              extensions = [ "rustfmt" ];
+              targets = [ target ];
+            })
+          ];
+
+          # maybe_libiconv = pkgs.lib.optional (os == "darwin") (
+          #   with pkgs;
+          #   [
+          #     libiconv
+          #     libiconv.dev
+          #   ]
+          # );
+
+          maybe_hardcoded_hack = if os == "darwin" then " -L/opt/homebrew/lib" else "";
 
           nix-btm =
             with pkgs;
@@ -70,12 +96,8 @@
               };
 
               # Make tokio::task::Builder available
-              RUSTFLAGS = "--cfg tokio_unstable";
-
-              buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
-                pkgs.darwin.apple_sdk.frameworks.CoreServices
-                pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
-              ];
+              RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable" + maybe_hardcoded_hack;
+              CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
 
               meta = with lib; {
                 description = "Rust tool to monitor nix processes";
@@ -87,7 +109,8 @@
 
           consoleShell = pkgs.mkShell.override { } {
             hardeningDisable = [ "fortify" ];
-            RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable";
+            RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable" + maybe_hardcoded_hack;
+            CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
             shellHook = ''
               export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
             '';
@@ -96,62 +119,42 @@
             TOKIO_CONSOLE_BUFFER_CAPACITY = "2048";
             RUST_LOG = "info,tokio=trace,runtime=trace";
             RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
-            buildInputs = with pkgs; [
-              python3
-              (rust-bin.stable.latest.minimal.override {
-                extensions = [
-                  "cargo"
-                  "clippy"
-                  "rust-src"
-                  "rustc"
-                  "llvm-tools-preview"
-                ];
-                targets = [ "${arch}-unknown-${os}-musl" ];
-              })
-              (rust-bin.nightly.latest.minimal.override {
-                extensions = [ "rustfmt" ];
-                targets = [ "${arch}-unknown-${os}-musl" ];
-              })
+            buildInputs =
+              with pkgs;
+              [
+                python3
 
-              just
-              libiconv
-              cargo-generate
-              treefmt
-              fenix.packages.${system}.rust-analyzer
-              tokio-console
-            ];
+                just
+                libiconv
+                cargo-generate
+                treefmt
+                fenix.packages.${system}.rust-analyzer
+                tokio-console
+              ]
+              ++ rust_tc;
+            # ++ maybe_libiconv;
           };
 
           devShell = pkgs.mkShell.override { } {
             hardeningDisable = [ "fortify" ];
-            RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable";
+            RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable" + maybe_hardcoded_hack;
+            CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
             shellHook = ''
               export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
             '';
             RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
-            buildInputs = with pkgs; [
-              python3
-              (rust-bin.stable.latest.minimal.override {
-                extensions = [
-                  "cargo"
-                  "clippy"
-                  "rust-src"
-                  "rustc"
-                  "llvm-tools-preview"
-                ];
-                targets = [ "${arch}-unknown-${os}-musl" ];
-              })
-              (rust-bin.nightly.latest.minimal.override {
-                extensions = [ "rustfmt" ];
-                targets = [ "${arch}-unknown-${os}-musl" ];
-              })
-
-              just
-              libiconv
-              cargo-generate
-              treefmt
-              fenix.packages.${system}.rust-analyzer
-            ];
+            buildInputs =
+              with pkgs;
+              [
+                python3
+                just
+                libiconv
+                cargo-generate
+                treefmt
+                fenix.packages.${system}.rust-analyzer
+              ]
+              ++ rust_tc;
+            # ++ maybe_libiconv;
           };
         in
         {
@@ -165,17 +168,13 @@
           };
         };
 
-      # Build the big outputs tree from the per-system pieces
       all = forAllSystems perSystem;
     in
     {
-      # Per-system package sets
       packages = builtins.mapAttrs (_: v: v.packages) all;
 
-      # Per-system dev shells
       devShells = builtins.mapAttrs (_: v: v.devShells) all;
 
-      # Keep a defaultPackage attrset for convenience (one per system)
       defaultPackage = builtins.mapAttrs (_: v: v.packages.default) all;
     };
 }
