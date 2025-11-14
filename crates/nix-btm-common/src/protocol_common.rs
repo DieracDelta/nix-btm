@@ -6,7 +6,6 @@ use std::{
 };
 
 use bytemuck::{Pod, PodCastError, Zeroable, try_from_bytes_mut};
-use io_uring::{opcode, types};
 use rustix::fs::Mode;
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu, ensure};

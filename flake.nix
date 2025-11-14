@@ -97,7 +97,7 @@
 
               # Make tokio::task::Builder available
               RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable" + maybe_hardcoded_hack;
-              CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+              CARGO_BUILD_TARGET = target;
 
               meta = with lib; {
                 description = "Rust tool to monitor nix processes";
@@ -110,7 +110,7 @@
           consoleShell = pkgs.mkShell.override { } {
             hardeningDisable = [ "fortify" ];
             RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable" + maybe_hardcoded_hack;
-            CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+            CARGO_BUILD_TARGET = target;
             shellHook = ''
               export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
             '';
@@ -138,7 +138,7 @@
           devShell = pkgs.mkShell.override { } {
             hardeningDisable = [ "fortify" ];
             RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable" + maybe_hardcoded_hack;
-            CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+            CARGO_BUILD_TARGET = target;
             shellHook = ''
               export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
             '';
