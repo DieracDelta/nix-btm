@@ -14,11 +14,10 @@ use rustix::{
 use snafu::{GenerateImplicitData, ResultExt as _, ensure};
 
 use crate::{
-    daemon_side::{
-        IoSnafu, IoUringNotSupportedSnafu, MisMatchSnafu, ProtocolError,
-        RustixIoSnafu, UnexpectedRingSizeSnafu,
+    protocol_common::{
+        IoSnafu, IoUringNotSupportedSnafu, ProtocolError, RustixIoSnafu,
+        ShmHeader, ShmHeaderView, Update,
     },
-    protocol_common::{ShmHeader, ShmHeaderView, Update},
     ring_writer::MAX_NUM_CLIENTS,
 };
 
@@ -49,13 +48,13 @@ impl RingReader {
         // TODO in prod probably want to hide this behind a sanity check feature
         // flag
         let len = st.st_size;
-        ensure!(
-            len as usize == expected_shm_len,
-            UnexpectedRingSizeSnafu {
-                expected: expected_shm_len as u64,
-                got: len as u64
-            }
-        );
+        //ensure!( todo!()
+        //    len as usize == expected_shm_len,
+        //    UnexpectedRingSizeSnafu {
+        //        expected: expected_shm_len as u64,
+        //        got: len as u64
+        //    }
+        //);
 
         let mmaped_region = unsafe {
             MmapOptions::new()
@@ -75,29 +74,29 @@ impl RingReader {
         let (ring_len, off, next_seq) = unsafe {
             std::sync::atomic::fence(Ordering::Acquire);
             let hv = ShmHeaderView::new(hdr_ptr);
-            ensure!(
-                hv.magic() == ShmHeader::MAGIC,
-                UnexpectedRingSizeSnafu {
-                    expected: ShmHeader::MAGIC,
-                    got: hv.magic(),
-                }
-            );
-            ensure!(
-                hv.version() == ShmHeader::VERSION,
-                UnexpectedRingSizeSnafu {
-                    expected: ShmHeader::VERSION,
-                    got: hv.version(),
-                }
-            );
+            //ensure!(
+            //    hv.magic() == ShmHeader::MAGIC,
+            //    UnexpectedRingSizeSnafu {
+            //        expected: ShmHeader::MAGIC,
+            //        got: hv.magic(),
+            //    }
+            //);
+            //ensure!(
+            //    hv.version() == ShmHeader::VERSION,
+            //    UnexpectedRingSizeSnafu {
+            //        expected: ShmHeader::VERSION,
+            //        got: hv.version(),
+            //    }
+            //);
             // safe to do this read
             let ring_len = hv.ring_len();
 
             // atomics for the reset
-            let off =
-                hv.write_next_entry_offset().load(Ordering::Acquire) as usize;
+            let off = todo!();
+            //hv.write_next_entry_offset().load(Ordering::Acquire) as usize;
 
-            let next_seq =
-                hv.write_seq().load(Ordering::Acquire).wrapping_add(1);
+            let next_seq = todo!();
+            //hv.write_seq().load(Ordering::Acquire).wrapping_add(1);
             (ring_len, off, next_seq)
         };
 

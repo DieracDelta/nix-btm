@@ -43,11 +43,16 @@ pub enum ProtocolError {
         #[snafu(backtrace)]
         backtrace: Backtrace,
     },
+    #[snafu(display("Error with using IoUring"), visibility(pub(crate)))]
+    IoUringError {
+        #[snafu(backtrace)]
+        backtrace: Backtrace,
+    },
     #[snafu(
         display("Kernel doesn't support io_uring Futex"),
         visibility(pub(crate))
     )]
-    IoUringError {
+    IoUringNotSupported {
         #[snafu(backtrace)]
         backtrace: Backtrace,
     },
@@ -140,9 +145,8 @@ impl SnapshotHeader {
 pub struct ShmHeader {
     pub(crate) magic: u64,
     pub(crate) version: u32,
-    pub(crate) write_seq: u32,
-    pub(crate) next_entry_offset: u32,
     pub(crate) ring_len: u32,
+    pub(crate) write_seq_and_next_entry_offset: u64,
 }
 
 /// Fixed-size prefix of each record in the ring buffer
@@ -175,24 +179,25 @@ impl<'a> ShmHeaderView<'a> {
     }
 
     #[inline]
-    pub fn write_seq(&self) -> &AtomicU32 {
+    pub fn write_seq_and_next_entry_offset(&self) -> &AtomicU64 {
         unsafe {
-            &*(std::ptr::addr_of!((*self.hdr).write_seq) as *const AtomicU32)
+            &*(std::ptr::addr_of!((*self.hdr).write_seq_and_next_entry_offset)
+                as *const AtomicU64)
         }
     }
 
-    #[inline]
-    pub fn write_seq_ptr(&self) -> *const u32 {
-        unsafe { std::ptr::addr_of!((*self.hdr).write_seq) }
-    }
-
-    #[inline]
-    pub fn write_next_entry_offset(&self) -> &AtomicU32 {
-        unsafe {
-            &*(std::ptr::addr_of!((*self.hdr).next_entry_offset)
-                as *const AtomicU32)
-        }
-    }
+    //#[inline]
+    //pub fn write_seq_ptr(&self) -> *const u32 {
+    //    unsafe { std::ptr::addr_of!((*self.hdr).write_seq) }
+    //}
+    //
+    //#[inline]
+    //pub fn write_next_entry_offset(&self) -> &AtomicU32 {
+    //    unsafe {
+    //        &*(std::ptr::addr_of!((*self.hdr).next_entry_offset)
+    //            as *const AtomicU32)
+    //    }
+    //}
 
     /// safe because this should never change
     #[inline]

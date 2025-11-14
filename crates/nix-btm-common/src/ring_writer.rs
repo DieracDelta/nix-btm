@@ -16,11 +16,11 @@ use snafu::{GenerateImplicitData, ResultExt, ensure};
 pub const MAX_NUM_CLIENTS: u32 = 256;
 
 use crate::{
-    daemon_side::{
-        CborSnafu, IoSnafu, IoUringSnafu, MisMatchSnafu, ProtocolError,
-        align_up_pow2,
+    daemon_side::align_up_pow2,
+    protocol_common::{
+        CborSnafu, IoSnafu, IoUringSnafu, Kind, ProtocolError, ShmHeaderView,
+        ShmRecordHeader, Update,
     },
-    protocol_common::{Kind, ShmHeaderView, ShmRecordHeader, Update},
 };
 
 /// how much to shift to get alignment
@@ -75,8 +75,9 @@ impl RingWriter {
 
         let hv = ShmHeaderView::new(hdr);
 
-        hv.write_seq().store(0, Ordering::Relaxed);
-        hv.write_next_entry_offset().store(0, Ordering::Relaxed);
+        todo!();
+        //hv.write_seq().store(0, Ordering::Relaxed);
+        //hv.write_next_entry_offset().store(0, Ordering::Relaxed);
 
         let uring = IoUring::new(MAX_NUM_CLIENTS).context(IoSnafu)?;
         let mut probe = Probe::new();
@@ -99,7 +100,7 @@ impl RingWriter {
         // Publish with Release ordering
         let hv = self.header_view();
 
-        let uaddr: *const u32 = hv.write_seq_ptr();
+        let uaddr: *const u32 = todo!(); //hv.write_seq_ptr();
         let nr_wake: u64 = u64::MAX;
         let flags: u32 = FUTEX_BITSET_MATCH_ANY as u32;
         let mask: u64 = 0;
@@ -122,7 +123,7 @@ impl RingWriter {
 
     #[inline]
     fn header_view(&mut self) -> ShmHeaderView<'_> {
-        unsafe { ShmHeaderView::new(&mut *self.hdr) }
+        unsafe { ShmHeaderView::new(&*self.hdr) }
     }
 
     fn ring_mut(&mut self) -> &mut [u8] {
@@ -184,10 +185,9 @@ impl RingWriter {
         // calculate metadata for writing first
         let (seq, mut offset_to_new_update) = {
             let hv = self.header_view();
-            let prev_seq = hv.write_seq().load(Ordering::Acquire);
+            let prev_seq: u32 = todo!(); // hv.write_seq().load(Ordering::Acquire);
             let seq = prev_seq.wrapping_add(1);
-            let off =
-                hv.write_next_entry_offset().load(Ordering::Acquire) as u64;
+            let off = todo!(); //hv.write_next_entry_offset().load(Ordering::Acquire) as u64;
             (seq, off)
         };
 
@@ -226,9 +226,10 @@ impl RingWriter {
             let hv = self.header_view();
             let next_entry_offset =
                 (offset_to_new_update + space_required_for_payload) % ring_len;
-            hv.write_next_entry_offset()
-                .store(next_entry_offset as u32, Ordering::Release);
-            hv.write_seq().store(seq, Ordering::Release);
+            todo!()
+            //hv.write_next_entry_offset()
+            //    .store(next_entry_offset as u32, Ordering::Release);
+            //hv.write_seq().store(seq, Ordering::Release);
         }
 
         self.wake_readers()?;
