@@ -80,13 +80,12 @@
           maybe_hardcoded_hack = if os == "darwin" then " -L/opt/homebrew/lib" else "";
 
           nix-btm =
-            with pkgs;
+            with pkgs.pkgsMusl;
             rustPlatform.buildRustPackage {
               pname = "nix-btm";
               version = "0.3.0";
 
               src = ./.;
-              # TODO cli flags to decide if we're client mode or daemon mode. This way we only build the client
               buildAndTestSubdir = "./crates/client";
 
               doCheck = false;
@@ -95,9 +94,13 @@
                 lockFile = ./Cargo.lock;
               };
 
-              # Make tokio::task::Builder available
-              RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable" + maybe_hardcoded_hack;
-              CARGO_BUILD_TARGET = target;
+              env = {
+                # requires features: sync_unsafe_cell, unbounded_shifts, let_chains, ip
+                RUSTC_BOOTSTRAP = 1;
+                RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable";
+                NIX_CFLAGS_COMPILE = "-Wno-error";
+                CARGO_BUILD_TARGET = target;
+              };
 
               meta = with lib; {
                 description = "Rust tool to monitor nix processes";
@@ -135,9 +138,11 @@
             # ++ maybe_libiconv;
           };
 
-          devShell = pkgs.mkShell.override { } {
+          devShell = pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
             hardeningDisable = [ "fortify" ];
-            RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable" + maybe_hardcoded_hack;
+            RUSTFLAGS =
+              "-C target-feature=+crt-static --cfg tokio_unstable -C link-arg=--ld-path=${pkgs.wild}/bin/wild"
+              + maybe_hardcoded_hack;
             CARGO_BUILD_TARGET = target;
             shellHook = ''
               export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
@@ -146,6 +151,7 @@
             buildInputs =
               with pkgs;
               [
+                wild
                 python3
                 just
                 libiconv
