@@ -24,13 +24,15 @@ use crate::{
 };
 
 /// how much to shift to get alignment
-const SHM_HDR_SIZE: u64 = size_of::<ShmHeader>() as u64;
-const SHM_HDR_SIZE_ALIGNED: u64 = align_up_pow2(SHM_HDR_SIZE, RING_ALIGN_SHIFT);
+const SHM_HDR_SIZE: u32 = size_of::<ShmHeader>() as u32;
+const SHM_HDR_SIZE_ALIGNED: u32 = align_up_pow2(SHM_HDR_SIZE, RING_ALIGN_SHIFT);
 
-const SHM_RECORD_HDR_SIZE: u64 = size_of::<ShmRecordHeader>() as u64;
-const SHM_RECORD_HDR_SIZE_ALIGNED: u64 =
-    align_up_pow2(SHM_RECORD_HDR_SIZE, RING_ALIGN_SHIFT);
+const SHM_RECORD_HDR_SIZE: u32 = size_of::<ShmRecordHeader>() as u32;
+//const SHM_RECORD_HDR_SIZE_ALIGNED: u32 =
+//    align_up_pow2(SHM_RECORD_HDR_SIZE, RING_ALIGN_SHIFT);
 const RING_ALIGN_SHIFT: u32 = 3;
+
+const FUTEX_MAGIC_NUMBER: u64 = 0xf00f00;
 
 use rustix::fs::MemfdFlags;
 
@@ -41,20 +43,20 @@ pub struct RingWriter {
     uring: IoUring,
     map: MmapMut,
     hdr: *mut ShmHeader,
-    ring_len: u64,
+    ring_len: u32,
 }
 
 unsafe impl Send for RingWriter {}
 unsafe impl Sync for RingWriter {}
 
 impl RingWriter {
-    pub fn create(name: &str, ring_len: u64) -> Result<Self, ProtocolError> {
+    pub fn create(name: &str, ring_len: u32) -> Result<Self, ProtocolError> {
         //ensure!(
         //    ring_len.is_multiple_of(RING_ALIGN_SHIFT as u64),
         //    crate::daemon_side::MisMatchSnafu
         //);
 
-        let total_len = size_of::<ShmHeader>() as u64 + ring_len;
+        let total_len = size_of::<ShmHeader>() as u32;
 
         let fd = memfd_create(name, MemfdFlags::CLOEXEC)?;
         ftruncate(&fd, total_len as u64)?;
@@ -70,14 +72,12 @@ impl RingWriter {
         unsafe {
             (*hdr).magic = ShmHeader::MAGIC;
             (*hdr).version = ShmHeader::VERSION;
-            (*hdr).ring_len = ring_len as u32;
+            (*hdr).ring_len = ring_len;
         }
 
         let hv = ShmHeaderView::new(hdr);
 
-        todo!();
-        //hv.write_seq().store(0, Ordering::Relaxed);
-        //hv.write_next_entry_offset().store(0, Ordering::Relaxed);
+        hv.write_seq_and_next_entry_offset(0, 0);
 
         let uring = IoUring::new(MAX_NUM_CLIENTS).context(IoSnafu)?;
         let mut probe = Probe::new();
@@ -100,14 +100,14 @@ impl RingWriter {
         // Publish with Release ordering
         let hv = self.header_view();
 
-        let uaddr: *const u32 = todo!(); //hv.write_seq_ptr();
+        let uaddr: *const u32 = hv.get_seq_ptr();
         let nr_wake: u64 = u64::MAX;
         let flags: u32 = FUTEX_BITSET_MATCH_ANY as u32;
         let mask: u64 = 0;
 
         let sqe = FutexWake::new(uaddr, nr_wake, mask, flags)
             .build()
-            .user_data(0xf00f00);
+            .user_data(FUTEX_MAGIC_NUMBER);
 
         // Push & submit (simple path: wake every update)
         unsafe {
@@ -175,7 +175,7 @@ impl RingWriter {
     ) -> Result<u32, ProtocolError> {
         let ring_len = self.ring_len;
         let space_required_for_payload = align_up_pow2(
-            SHM_RECORD_HDR_SIZE + payload.len() as u64,
+            SHM_RECORD_HDR_SIZE + (payload.len() as u32),
             RING_ALIGN_SHIFT,
         );
         // this really shouldn't be possible
@@ -185,24 +185,23 @@ impl RingWriter {
         // calculate metadata for writing first
         let (seq, mut offset_to_new_update) = {
             let hv = self.header_view();
-            let prev_seq: u32 = todo!(); // hv.write_seq().load(Ordering::Acquire);
+            let (prev_seq, prev_offset) = hv.read_seq_and_next_entry_offset();
             let seq = prev_seq.wrapping_add(1);
-            let off = todo!(); //hv.write_next_entry_offset().load(Ordering::Acquire) as u64;
-            (seq, off)
+            (seq, prev_offset)
         };
 
-        let remain = ring_len - offset_to_new_update;
+        let remain: u32 = (ring_len as u32) - offset_to_new_update;
 
         // if we can't fit the entire thing in, but we can fit the header, then
         // just fit the header
-        if space_required_for_payload > remain {
+        if space_required_for_payload as u32 > remain {
             if remain >= SHM_RECORD_HDR_SIZE {
                 let pad_hdr = ShmRecordHeader {
                     payload_kind: Kind::Padding.into(),
                     payload_len: 0,
                     seq,
                 };
-                self.put_pod_at(offset_to_new_update, &pad_hdr)?;
+                self.put_pod_at(offset_to_new_update as u64, &pad_hdr)?;
             }
             std::sync::atomic::fence(Ordering::Release);
             offset_to_new_update = 0;
@@ -216,20 +215,20 @@ impl RingWriter {
         };
 
         // write payload THEN header
-        self.put_bytes_at(SHM_RECORD_HDR_SIZE + offset_to_new_update, payload)?;
+        self.put_bytes_at(
+            SHM_RECORD_HDR_SIZE as u64 + offset_to_new_update as u64,
+            payload,
+        )?;
         // write header
-        self.put_pod_at(offset_to_new_update, &header)?;
+        self.put_pod_at(offset_to_new_update as u64, &header)?;
         std::sync::atomic::fence(Ordering::Release);
 
         // finally update header
         {
             let hv = self.header_view();
-            let next_entry_offset =
+            let next_entry_offset: u32 =
                 (offset_to_new_update + space_required_for_payload) % ring_len;
-            todo!()
-            //hv.write_next_entry_offset()
-            //    .store(next_entry_offset as u32, Ordering::Release);
-            //hv.write_seq().store(seq, Ordering::Release);
+            hv.write_seq_and_next_entry_offset(seq, next_entry_offset);
         }
 
         self.wake_readers()?;

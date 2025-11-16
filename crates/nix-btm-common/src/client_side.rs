@@ -24,12 +24,9 @@ pub fn client_read_snapshot_into_state(
 
     let sz = shmem.size()?;
     if sz < total_len as usize {
-        return todo!();
-        //return Err(ProtocolError::UnexpectedRingSize {
-        //    expected: total_len,
-        //    got: sz as u64,
-        //    backtrace: snafu::Backtrace::generate(),
-        //});
+        return Err(ProtocolError::MisMatchError {
+            backtrace: snafu::Backtrace::generate(),
+        });
     }
     // TODO make Mmap able to get out and make PR
     let map = unsafe { MmapOptions::new().len(sz).map(&file)? };

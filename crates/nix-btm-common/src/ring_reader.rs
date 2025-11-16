@@ -30,8 +30,8 @@ pub enum ReadResult {
 pub struct RingReader {
     map: Mmap,
     hdr_ptr: *mut ShmHeader,
-    ring_len: usize,
-    off: usize,
+    ring_len: u32,
+    off: u32,
     next_seq: u32,
     uring: IoUring,
 }
@@ -62,14 +62,6 @@ impl RingReader {
                 .map(fd.as_raw_fd())?
         };
 
-        //let map = unsafe {
-        //    MmapOptions::new().len(expected_size).map(bf.as_raw_fd())
-        //}
-        //.map_err(|source| ProtocolError::Io {
-        //    source,
-        //    backtrace: Backtrace::generate(),
-        //})?;
-
         let hdr_ptr = mmaped_region.as_ptr() as *const ShmHeader;
         let (ring_len, off, next_seq) = unsafe {
             std::sync::atomic::fence(Ordering::Acquire);
@@ -92,11 +84,8 @@ impl RingReader {
             let ring_len = hv.ring_len();
 
             // atomics for the reset
-            let off = todo!();
-            //hv.write_next_entry_offset().load(Ordering::Acquire) as usize;
-
-            let next_seq = todo!();
-            //hv.write_seq().load(Ordering::Acquire).wrapping_add(1);
+            let (cur_seq, off) = hv.read_seq_and_next_entry_offset();
+            let next_seq = cur_seq.wrapping_add(1);
             (ring_len, off, next_seq)
         };
 
@@ -112,7 +101,7 @@ impl RingReader {
         Ok(Self {
             map: mmaped_region,
             hdr_ptr: (hdr_ptr as *mut ShmHeader),
-            ring_len: ring_len as usize,
+            ring_len,
             off,
             next_seq,
             uring,

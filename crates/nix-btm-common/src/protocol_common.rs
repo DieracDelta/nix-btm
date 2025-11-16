@@ -178,25 +178,39 @@ impl<'a> ShmHeaderView<'a> {
     }
 
     #[inline]
-    pub fn write_seq_and_next_entry_offset(&self) -> &AtomicU64 {
-        unsafe {
+    pub fn write_seq_and_next_entry_offset(
+        &self,
+        write_seq: u32,
+        next_entry_offset: u32,
+    ) {
+        let encoded_val: u64 =
+            ((write_seq as u64) << 32) | (next_entry_offset as u64);
+        let write_loc = unsafe {
             &*(std::ptr::addr_of!((*self.hdr).write_seq_and_next_entry_offset)
                 as *const AtomicU64)
-        }
+        };
+        write_loc.store(encoded_val, Ordering::SeqCst);
     }
 
-    //#[inline]
-    //pub fn write_seq_ptr(&self) -> *const u32 {
-    //    unsafe { std::ptr::addr_of!((*self.hdr).write_seq) }
-    //}
-    //
-    //#[inline]
-    //pub fn write_next_entry_offset(&self) -> &AtomicU32 {
-    //    unsafe {
-    //        &*(std::ptr::addr_of!((*self.hdr).next_entry_offset)
-    //            as *const AtomicU32)
-    //    }
-    //}
+    #[inline]
+    pub fn read_seq_and_next_entry_offset(&self) -> (u32, u32) {
+        let write_loc = unsafe {
+            &*(std::ptr::addr_of!((*self.hdr).write_seq_and_next_entry_offset)
+                as *const AtomicU64)
+        };
+        let encoded_val = write_loc.load(Ordering::Acquire);
+        let write_seq = (encoded_val >> 32) as u32;
+        let next_entry_offset = encoded_val as u32;
+        (write_seq, next_entry_offset)
+    }
+
+    // for the futex
+    pub fn get_seq_ptr(&self) -> *const u32 {
+        unsafe {
+            std::ptr::addr_of!((*self.hdr).write_seq_and_next_entry_offset)
+                as *const u32
+        }
+    }
 
     /// safe because this should never change
     #[inline]
