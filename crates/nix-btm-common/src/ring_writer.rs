@@ -31,10 +31,10 @@ use crate::{
 const SHM_HDR_SIZE: u32 = size_of::<ShmHeader>() as u32;
 const SHM_HDR_SIZE_ALIGNED: u32 = align_up_pow2(SHM_HDR_SIZE, RING_ALIGN_SHIFT);
 
-const SHM_RECORD_HDR_SIZE: u32 = size_of::<ShmRecordHeader>() as u32;
+pub(crate) const SHM_RECORD_HDR_SIZE: u32 = size_of::<ShmRecordHeader>() as u32;
 //const SHM_RECORD_HDR_SIZE_ALIGNED: u32 =
 //    align_up_pow2(SHM_RECORD_HDR_SIZE, RING_ALIGN_SHIFT);
-const RING_ALIGN_SHIFT: u32 = 3;
+pub(crate) const RING_ALIGN_SHIFT: u32 = 3;
 
 const FUTEX_MAGIC_NUMBER: u64 = 0xf00f00;
 
@@ -84,6 +84,7 @@ impl RingWriter {
         let hv = ShmHeaderView::new(hdr);
 
         hv.write_seq_and_next_entry_offset(0, 0);
+        hv.write_start_seq_and_offset(0, 0);
 
         let uring = IoUring::new(MAX_NUM_CLIENTS).context(IoSnafu)?;
         let mut probe = Probe::new();
@@ -211,6 +212,14 @@ impl RingWriter {
                 self.put_pod_at(offset_to_new_update as u64, &pad_hdr)?;
             }
             std::sync::atomic::fence(Ordering::Release);
+
+            // Wraparound: update start_offset to invalidate old data
+            let hv = self.header_view();
+            let (prev_start_seq, _prev_start_offset) =
+                hv.read_start_seq_and_offset();
+            let new_start_seq = prev_start_seq.wrapping_add(1);
+            hv.write_start_seq_and_offset(new_start_seq, 0);
+
             offset_to_new_update = 0;
             // TODO in this path don't I need to increment the seq number again?
         }

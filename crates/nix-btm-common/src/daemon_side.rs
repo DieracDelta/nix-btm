@@ -25,7 +25,12 @@ pub const fn align_up_pow2(num_bytes: u32, align_pow: u32) -> u32 {
 // align to a multiple of the page size
 #[inline]
 pub fn round_up_page(num_bytes: u64) -> u64 {
+    #[cfg(target_os = "linux")]
     let num_bytes_page = rustix::param::page_size() as u64;
+
+    #[cfg(not(target_os = "linux"))]
+    let num_bytes_page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) as u64 };
+
     // same reasoning as align_up_pow2
     (num_bytes + (num_bytes_page - 1)) & !(num_bytes_page - 1)
 }
