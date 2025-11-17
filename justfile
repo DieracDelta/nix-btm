@@ -13,7 +13,7 @@ build:
 
 [doc('test')]
 test:
-    cargo test --workspace --profile dev
+    cargo test --workspace --profile dev -- --nocapture
 
 [doc('run-client')]
 run-client:

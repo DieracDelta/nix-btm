@@ -282,7 +282,9 @@ impl<'a> ShmHeaderView<'a> {
 //}
 
 #[repr(u32)]
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
+)]
 pub enum Kind {
     Padding = 0,
     JobNew = 1,

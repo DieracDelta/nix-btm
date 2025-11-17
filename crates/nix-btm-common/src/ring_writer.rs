@@ -1,4 +1,8 @@
-use std::{cell::LazyCell, os::fd::AsRawFd, sync::atomic::Ordering};
+use std::{
+    cell::LazyCell,
+    os::fd::{AsRawFd, OwnedFd, RawFd},
+    sync::atomic::Ordering,
+};
 
 use bytemuck::{Pod, bytes_of};
 use io_uring::{IoUring, Probe, opcode::FutexWake};
@@ -44,6 +48,7 @@ pub struct RingWriter {
     map: MmapMut,
     hdr: *mut ShmHeader,
     ring_len: u32,
+    pub fd: OwnedFd,
 }
 
 unsafe impl Send for RingWriter {}
@@ -56,10 +61,11 @@ impl RingWriter {
         //    crate::daemon_side::MisMatchSnafu
         //);
 
-        let total_len = size_of::<ShmHeader>() as u32;
+        let total_len = SHM_HDR_SIZE + ring_len;
 
         let fd = memfd_create(name, MemfdFlags::CLOEXEC)?;
         ftruncate(&fd, total_len as u64)?;
+        tracing::error!("allocating with total_len {total_len:?}");
         let mut mmapped_region = unsafe {
             MmapOptions::new()
                 .len(total_len as usize)
@@ -92,6 +98,7 @@ impl RingWriter {
             map: mmapped_region,
             hdr,
             ring_len,
+            fd,
         })
     }
 
@@ -127,7 +134,7 @@ impl RingWriter {
     }
 
     fn ring_mut(&mut self) -> &mut [u8] {
-        let hdr_sz = SHM_RECORD_HDR_SIZE;
+        let hdr_sz = SHM_HDR_SIZE;
         &mut self.map[hdr_sz as usize..hdr_sz as usize + self.ring_len as usize]
     }
 

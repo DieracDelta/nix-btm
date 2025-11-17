@@ -34,6 +34,7 @@ pub struct RingReader {
     off: u32,
     next_seq: u32,
     uring: IoUring,
+    fd: RawFd,
 }
 
 impl RingReader {
@@ -47,7 +48,7 @@ impl RingReader {
         // sanity check size
         // TODO in prod probably want to hide this behind a sanity check feature
         // flag
-        let len = st.st_size;
+        //let len = st.st_size;
         //ensure!( todo!()
         //    len as usize == expected_shm_len,
         //    UnexpectedRingSizeSnafu {
@@ -58,12 +59,12 @@ impl RingReader {
 
         let mmaped_region = unsafe {
             MmapOptions::new()
-                .len(expected_shm_len as usize)
+                .len(expected_shm_len)
                 .map(fd.as_raw_fd())?
         };
 
         let hdr_ptr = mmaped_region.as_ptr() as *const ShmHeader;
-        let (ring_len, off, next_seq) = unsafe {
+        let (ring_len, off, next_seq) = {
             std::sync::atomic::fence(Ordering::Acquire);
             let hv = ShmHeaderView::new(hdr_ptr);
             //ensure!(
@@ -104,6 +105,7 @@ impl RingReader {
             ring_len,
             off,
             next_seq,
+            fd,
             uring,
         })
     }
