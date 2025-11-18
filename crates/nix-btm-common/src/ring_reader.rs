@@ -24,6 +24,7 @@ use crate::{
     ring_writer::{MAX_NUM_CLIENTS, RING_ALIGN_SHIFT, SHM_RECORD_HDR_SIZE},
 };
 
+#[derive(Debug)]
 pub enum ReadResult {
     Update { seq: u32, update: Update },
     Lost { from: u32, to: u32 },
@@ -130,39 +131,46 @@ impl RingReader {
         &self.map[hdr_size..hdr_size + self.ring_len as usize]
     }
 
-    /// Check if the reader's current position is still valid, then try to read.
+    /// Try to read data immediately, then validate the read was safe.
     /// Returns NeedCatchup if the reader has fallen too far behind or data is
     /// invalid.
     pub fn try_read(&mut self) -> ReadResult {
         std::sync::atomic::fence(Ordering::Acquire);
+
+        // Step 1: Save current position and read immediately (optimistic read)
+        let original_offset = self.off;
+        let original_next_seq = self.next_seq;
+        let parse_result = self.try_parse_current_record();
+
+        // Step 2: Check atomics to verify the read was valid
         let hv = ShmHeaderView::new(self.hdr_ptr);
         let (start_seq, start_offset) = hv.read_start_seq_and_offset();
         let (_end_seq, end_offset) = hv.read_seq_and_next_entry_offset();
 
-        // we're out of sync
-        if self.next_seq < start_seq {
+        // Check 1: Are we out of sync (lapped)?
+        if original_next_seq < start_seq {
             return ReadResult::NeedCatchup;
         }
 
-        let offset_valid = if end_offset > start_offset {
+        // Check 2: Was the original offset in valid range?
+        let was_offset_valid = if end_offset > start_offset {
             // no wraparound
-            self.off >= start_offset && self.off < end_offset
+            original_offset >= start_offset && original_offset < end_offset
         } else if end_offset < start_offset {
             // Wraparound case: valid range is [start_offset, ring_len) U [0,
             // end_offset)
-            self.off >= start_offset || self.off < end_offset
+            original_offset >= start_offset || original_offset < end_offset
         } else {
             // end_offset == start_offset: ring is empty
             return ReadResult::NoUpdate;
         };
 
-        if !offset_valid {
+        if !was_offset_valid {
             return ReadResult::NeedCatchup;
         }
 
-        // try to read the record immediately before it can be
-        // overwritten
-        match self.try_parse_current_record() {
+        // Step 3: Data was valid, return the parse result
+        match parse_result {
             Ok(Some(update)) => update,
             Ok(None) => ReadResult::NoUpdate,
             Err(_) => ReadResult::NeedCatchup,
