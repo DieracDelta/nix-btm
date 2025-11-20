@@ -1,21 +1,23 @@
 pub mod derivation_tree;
 pub mod handle_internal_json;
 
-// right now the ipc is only done on linux
-// in the future we want to add stuff for macos and remote builders using rpc
-#[cfg(target_os = "linux")]
+// Platform-specific notification system (io_uring on Linux, kqueue on macOS)
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub mod notify;
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod ring_reader;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod ring_writer;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod client_side;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod daemon_side;
 
 pub mod protocol_common;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod protocol_testing;
 
 pub mod double_fork;
@@ -23,8 +25,8 @@ pub mod double_fork;
 // RPC control plane for client-daemon communication
 pub mod rpc;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod rpc_client;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod rpc_daemon;

@@ -1,20 +1,19 @@
 use std::sync::atomic::Ordering;
 
 use bytemuck::{Pod, bytes_of};
-use io_uring::{IoUring, Probe, opcode::FutexWake};
-use libc::FUTEX_BITSET_MATCH_ANY;
 use psx_shm::Shm;
 use rustix::{
     fs::Mode,
     shm::OFlags,
 };
-use snafu::{GenerateImplicitData, ResultExt};
+use snafu::ResultExt;
 
 // TODO should be able to specify this from cli
 pub const MAX_NUM_CLIENTS: u32 = 256;
 
 use crate::{
     daemon_side::align_up_pow2,
+    notify::Notifier,
     protocol_common::{
         CborSnafu, Kind, ProtocolError, ShmHeaderView,
         ShmRecordHeader, Update,
@@ -23,6 +22,7 @@ use crate::{
 
 /// how much to shift to get alignment
 const SHM_HDR_SIZE: u32 = size_of::<ShmHeader>() as u32;
+#[allow(dead_code)]
 const SHM_HDR_SIZE_ALIGNED: u32 = align_up_pow2(SHM_HDR_SIZE, RING_ALIGN_SHIFT);
 
 pub(crate) const SHM_RECORD_HDR_SIZE: u32 = size_of::<ShmRecordHeader>() as u32;
@@ -30,13 +30,11 @@ pub(crate) const SHM_RECORD_HDR_SIZE: u32 = size_of::<ShmRecordHeader>() as u32;
 //    align_up_pow2(SHM_RECORD_HDR_SIZE, RING_ALIGN_SHIFT);
 pub(crate) const RING_ALIGN_SHIFT: u32 = 3;
 
-const FUTEX_MAGIC_NUMBER: u64 = 0xf00f00;
-
 use crate::protocol_common::ShmHeader;
 
 // TODO some pieces of this may change depending on usage
 pub struct RingWriter {
-    uring: Option<IoUring>, // None if io_uring not supported
+    notifier: Option<Notifier>, // Platform-specific notifier (io_uring on Linux, kqueue on macOS)
     _shm: Shm, // Keep shm alive but don't use it directly
     base_ptr: *mut u8, // Base pointer to mapped memory
     hdr: *mut ShmHeader,
@@ -73,30 +71,8 @@ impl RingWriter {
         hv.write_seq_and_next_entry_offset(0, 0);
         hv.write_start_seq_and_offset(0, 0);
 
-        // Try to initialize io_uring with FutexWake support
-        // If not available, fall back to POSIX-only mode (no wake notifications)
-        // Can be disabled with DISABLE_IO_URING=1 environment variable for testing
-        let uring = if std::env::var("DISABLE_IO_URING").is_ok() {
-            eprintln!("Info: io_uring disabled via DISABLE_IO_URING, using POSIX mode (polling only)");
-            None
-        } else {
-            match IoUring::new(MAX_NUM_CLIENTS) {
-                Ok(uring) => {
-                    let mut probe = Probe::new();
-                    let _ = uring.submitter().register_probe(&mut probe);
-                    if probe.is_supported(io_uring::opcode::FutexWake::CODE) {
-                        Some(uring)
-                    } else {
-                        eprintln!("Warning: io_uring FutexWake not supported, falling back to POSIX mode (polling only)");
-                        None
-                    }
-                }
-                Err(_) => {
-                    eprintln!("Warning: io_uring not available, falling back to POSIX mode (polling only)");
-                    None
-                }
-            }
-        };
+        // Initialize platform-specific notifier (io_uring on Linux, kqueue on macOS)
+        let notifier = Notifier::new()?;
 
         // SAFETY: We keep the shm alive and don't unlink it, so the mapping remains valid
         // We leak the BorrowedMap to get a 'static lifetime since we manage the Shm lifetime ourselves
@@ -104,7 +80,7 @@ impl RingWriter {
         std::mem::forget(mapped);
 
         Ok(Self {
-            uring,
+            notifier,
             _shm: shm,
             base_ptr,
             hdr,
@@ -115,28 +91,12 @@ impl RingWriter {
 
     #[inline]
     fn wake_readers(&mut self) -> Result<(), ProtocolError> {
-        // If io_uring is available, use FutexWake to notify readers
+        // Use platform-specific notifier to wake readers
         // Otherwise, readers will poll (POSIX fallback mode)
-        if self.uring.is_some() {
+        if self.notifier.is_some() {
             let hv = self.header_view();
             let uaddr: *const u32 = hv.get_seq_ptr();
-            let nr_wake: u64 = u64::MAX;
-            let flags: u32 = FUTEX_BITSET_MATCH_ANY as u32;
-            let mask: u64 = 0;
-
-            let sqe = FutexWake::new(uaddr, nr_wake, mask, flags)
-                .build()
-                .user_data(FUTEX_MAGIC_NUMBER);
-
-            // Push & submit (simple path: wake every update)
-            let uring = self.uring.as_mut().unwrap();
-            unsafe {
-                uring.submission().push(&sqe).ok();
-            }
-            uring.submit().map_err(|source| ProtocolError::Io {
-                source,
-                backtrace: snafu::Backtrace::generate(),
-            })?;
+            self.notifier.as_mut().unwrap().wake(uaddr)?;
         }
         // In POSIX mode, do nothing - readers will poll
 

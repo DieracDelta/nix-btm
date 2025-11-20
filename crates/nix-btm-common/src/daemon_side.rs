@@ -35,12 +35,41 @@ pub fn round_up_page(num_bytes: u64) -> u64 {
     (num_bytes + (num_bytes_page - 1)) & !(num_bytes_page - 1)
 }
 
-use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
-
+/// Get the peer process ID from a Unix stream socket.
+/// This is platform-specific: Linux uses SO_PEERCRED, macOS uses LOCAL_PEERPID.
+#[allow(dead_code)]
 fn get_pid(stream: &UnixStream) -> Option<i32> {
-    getsockopt(&stream.as_fd(), PeerCredentials)
-        .ok()
-        .map(|x| x.pid())
+    #[cfg(target_os = "linux")]
+    {
+        use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
+        getsockopt(&stream.as_fd(), PeerCredentials)
+            .ok()
+            .map(|x| x.pid())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = stream.as_raw_fd();
+        let mut pid: libc::pid_t = 0;
+        let mut len = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+
+        let ret = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_LOCAL,
+                libc::LOCAL_PEERPID,
+                &mut pid as *mut _ as *mut libc::c_void,
+                &mut len,
+            )
+        };
+
+        if ret == 0 {
+            Some(pid)
+        } else {
+            None
+        }
+    }
 }
 
 // the snapshot in memory

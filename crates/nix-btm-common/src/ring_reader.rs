@@ -1,21 +1,21 @@
 use std::{
     mem::size_of,
-    os::fd::{AsRawFd, RawFd},
+    os::fd::AsRawFd,
     sync::atomic::Ordering,
 };
 
 use bytemuck::try_from_bytes;
-use io_uring::{IoUring, Probe, opcode::FutexWait};
 use memmap2::Mmap;
 use snafu::{GenerateImplicitData, ResultExt};
 
 use crate::{
     daemon_side::align_up_pow2,
+    notify::Waiter,
     protocol_common::{
         Kind, ProtocolError,
         ShmHeader, ShmHeaderView, ShmRecordHeader, Update,
     },
-    ring_writer::{MAX_NUM_CLIENTS, RING_ALIGN_SHIFT, SHM_RECORD_HDR_SIZE},
+    ring_writer::{RING_ALIGN_SHIFT, SHM_RECORD_HDR_SIZE},
 };
 
 #[derive(Debug)]
@@ -32,8 +32,8 @@ pub struct RingReader {
     pub ring_len: u32,
     off: u32,
     next_seq: u32,
-    uring: Option<IoUring>, // None if io_uring not supported
-    fd: RawFd,
+    #[allow(dead_code)]
+    waiter: Option<Waiter>, // Platform-specific waiter (io_uring on Linux, kqueue on macOS)
 }
 
 impl RingReader {
@@ -94,32 +94,8 @@ impl RingReader {
             (ring_len, start_offset, next_seq)
         };
 
-        // Try to initialize io_uring with FutexWait support
-        // If not available, fall back to POSIX-only mode (polling)
-        // Can be disabled with DISABLE_IO_URING=1 environment variable for testing
-        let uring = if std::env::var("DISABLE_IO_URING").is_ok() {
-            eprintln!("Info: io_uring disabled via DISABLE_IO_URING, using POSIX mode (polling only)");
-            None
-        } else {
-            match IoUring::new(MAX_NUM_CLIENTS) {
-                Ok(uring) => {
-                    let mut probe = Probe::new();
-                    let _ = uring.submitter().register_probe(&mut probe);
-                    if probe.is_supported(FutexWait::CODE) {
-                        Some(uring)
-                    } else {
-                        eprintln!("Warning: io_uring FutexWait not supported, falling back to POSIX mode (polling only)");
-                        None
-                    }
-                }
-                Err(_) => {
-                    eprintln!("Warning: io_uring not available, falling back to POSIX mode (polling only)");
-                    None
-                }
-            }
-        };
-
-        let fd = fd.as_raw_fd();
+        // Initialize platform-specific waiter (io_uring on Linux, kqueue on macOS)
+        let waiter = Waiter::new()?;
 
         Ok(Self {
             map: mmaped_region,
@@ -127,8 +103,7 @@ impl RingReader {
             ring_len,
             off,
             next_seq,
-            uring,
-            fd,
+            waiter,
         })
     }
 
