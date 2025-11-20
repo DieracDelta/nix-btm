@@ -7,14 +7,15 @@ on:
   push:
     branches:
       - "master"
+      - "llm"
 
 permissions:
   contents: write
   actions: write
 
 jobs:
-  style:
-    name: Format & Lint
+  build-linux:
+    name: Build (Linux)
     runs-on: ubuntu-latest
     permissions:
       id-token: "write"
@@ -29,7 +30,28 @@ jobs:
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         uses: actions/upload-artifact@v5
         with:
-          name: nix-btm-master
+          name: nix-btm-linux-master
+          path: ./result/bin/nix-btm
+          if-no-files-found: error
+          retention-days: 7
+
+  build-macos:
+    name: Build (macOS)
+    runs-on: macos-latest
+    permissions:
+      id-token: "write"
+      contents: "write"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: |
+          nix build .#nix-btm
+      - name: Upload artifact (only on master)
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: nix-btm-macos-master
           path: ./result/bin/nix-btm
           if-no-files-found: error
           retention-days: 7

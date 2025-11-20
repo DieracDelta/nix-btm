@@ -82,7 +82,7 @@
           maybe_hardcoded_hack = if os == "darwin" then " -L/opt/homebrew/lib" else "";
 
           nix-btm =
-            with pkgs.pkgsMusl;
+            with if os == "darwin" then pkgs else pkgs.pkgsMusl;
             rustPlatform.buildRustPackage {
               pname = "nix-btm";
               version = "0.3.0";
@@ -136,8 +136,11 @@
                 fenix.packages.${system}.rust-analyzer
                 tokio-console
               ]
-              ++ rust_tc;
-            # ++ maybe_libiconv;
+              ++ rust_tc
+              ++ lib.optionals pkgs.stdenv.isDarwin [
+                pkgs.libiconv
+                pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
+              ];
           };
 
           devShell = pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {

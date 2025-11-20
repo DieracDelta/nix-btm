@@ -123,6 +123,33 @@ mod platform {
             }
 
             let kq = unsafe { OwnedFd::from_raw_fd(kq) };
+
+            // Register the EVFILT_USER event before we can trigger it
+            let event = libc::kevent {
+                ident: 1, // Fixed identifier for ring buffer notifications
+                filter: libc::EVFILT_USER,
+                flags: libc::EV_ADD | libc::EV_CLEAR,
+                fflags: 0,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            };
+
+            let ret = unsafe {
+                libc::kevent(
+                    kq.as_raw_fd(),
+                    &event,
+                    1,
+                    std::ptr::null_mut(),
+                    0,
+                    std::ptr::null(),
+                )
+            };
+
+            if ret < 0 {
+                eprintln!("Warning: Failed to register kqueue event, falling back to POSIX mode");
+                return Ok(None);
+            }
+
             Ok(Some(Self { kq }))
         }
 

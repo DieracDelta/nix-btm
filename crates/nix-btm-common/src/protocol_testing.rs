@@ -2,22 +2,14 @@
 mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet, HashMap},
-        fs::File,
-        io::{Read, Seek, SeekFrom},
-        os::{
-            fd::{AsFd, OwnedFd},
-            unix::io::{AsRawFd, FromRawFd},
-        },
+        os::fd::AsFd,
         sync::Once,
     };
 
     use color_eyre::eyre::Context;
-    use rustix::{
-        io::dup,
-        mm::{MapFlags, ProtFlags, mmap, munmap},
-    };
-    use snafu::{ErrorCompat, Report};
-    use tracing_subscriber::EnvFilter;
+    use memmap2::MmapOptions;
+    use rustix::io::dup;
+    use snafu::ErrorCompat;
 
     static INIT: Once = Once::new();
 
@@ -107,13 +99,20 @@ mod tests {
         .map_err(to_eyre_with_origin_bt)
         .wrap_err("top-level failure")?;
 
+        // Use mmap to read shared memory (required for macOS compatibility)
         let dup_fd =
             dup(mem.shmem.shm.as_fd()).expect("Unable to duplicate fd");
-        let mut file = File::from(dup_fd);
+        let file = std::fs::File::from(dup_fd);
+        let map = unsafe {
+            MmapOptions::new()
+                .len(mem.total_len_bytes as usize)
+                .map(&file)
+                .expect("mmap failed")
+        };
+        let bytes: &[u8] = &map;
 
-        let mut hdr_bytes = vec![0u8; core::mem::size_of::<SnapshotHeader>()];
-        file.read_exact(&mut hdr_bytes).expect("issue reading file");
-        let hdr: &SnapshotHeader = bytemuck::from_bytes(&hdr_bytes);
+        let hsz = core::mem::size_of::<SnapshotHeader>();
+        let hdr: &SnapshotHeader = bytemuck::from_bytes(&bytes[..hsz]);
 
         assert_eq!(hdr.magic, SnapshotHeader::MAGIC, "bad magic");
         assert_eq!(hdr.version, SnapshotHeader::VERSION, "bad version");
@@ -125,17 +124,13 @@ mod tests {
         assert_eq!(hdr.snap_seq_uid, snap_seq_uid, "snap_seq_uid mismatch");
         assert!(hdr.payload_len > 0, "payload_len should be > 0");
 
-        file.seek(SeekFrom::Start(hdr.header_len))
-            .expect("seek to payload");
-        let mut first_byte = [0u8; 1];
-        file.read_exact(&mut first_byte)
-            .expect("read first payload byte");
+        let first_byte = bytes[hdr.header_len as usize];
 
         let expected_wire: JobsStateInnerWire = state_in.into();
         let expected_payload =
             serde_cbor::to_vec(&expected_wire).expect("encode");
         assert_eq!(
-            first_byte[0], expected_payload[0],
+            first_byte, expected_payload[0],
             "payload does not start at header_len"
         );
 

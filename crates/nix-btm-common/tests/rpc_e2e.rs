@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::ffi::CString;
 
 use nix_btm_common::{
     handle_internal_json::JobsStateInner,
@@ -12,6 +13,14 @@ use nix_btm_common::{
 };
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::RwLock;
+
+/// Unlink shared memory by name (works on both Linux and macOS)
+fn shm_cleanup(name: &str) {
+    let c_name = CString::new(name).unwrap();
+    unsafe {
+        libc::shm_unlink(c_name.as_ptr());
+    }
+}
 
 /// Helper to create a temporary Unix socket listener with unique path
 async fn create_test_listener(test_name: &str) -> (UnixListener, String) {
@@ -29,7 +38,7 @@ async fn create_test_listener(test_name: &str) -> (UnixListener, String) {
 #[tokio::test]
 async fn test_rpc_request_ring_fd() {
     // Cleanup any leftover shm from previous test runs
-    let _ = std::fs::remove_file("/dev/shm/test_rpc_ring");
+    shm_cleanup("test_rpc_ring");
 
     // Setup: Create ring buffer
     let ring_len = 1024u32;
@@ -92,8 +101,8 @@ async fn test_rpc_request_snapshot() {
     let client_pid = (hasher.finish() % 1000000) as i32 + 1000000;
 
     // Cleanup any leftover shm from previous test runs
-    let _ = std::fs::remove_file("/dev/shm/test_rpc_snapshot");
-    let _ = std::fs::remove_file(&format!("/dev/shm/nix-btm-snapshot-p{}", client_pid));
+    shm_cleanup("test_rpc_snapshot");
+    shm_cleanup(&format!("nix-btm-snapshot-p{}", client_pid));
 
     // Setup: Create ring buffer
     let ring_len = 1024u32;
@@ -169,8 +178,8 @@ async fn test_rpc_multiple_requests() {
     let client_pid = (hasher.finish() % 1000000) as i32 + 2000000;
 
     // Cleanup any leftover shm from previous test runs
-    let _ = std::fs::remove_file("/dev/shm/test_rpc_multi");
-    let _ = std::fs::remove_file(&format!("/dev/shm/nix-btm-snapshot-p{}", client_pid));
+    shm_cleanup("test_rpc_multi");
+    shm_cleanup(&format!("nix-btm-snapshot-p{}", client_pid));
 
     // Setup: Create ring buffer
     let ring_len = 1024u32;

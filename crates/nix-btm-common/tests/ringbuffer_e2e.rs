@@ -1,4 +1,5 @@
 use std::{
+    ffi::CString,
     mem::size_of,
     os::fd::{AsRawFd, OwnedFd},
 };
@@ -12,6 +13,14 @@ use nix_btm_common::{
     ring_writer::RingWriter,
 };
 use serde_cbor;
+
+/// Unlink shared memory by name (works on both Linux and macOS)
+fn shm_cleanup(name: &str) {
+    let c_name = CString::new(name).unwrap();
+    unsafe {
+        libc::shm_unlink(c_name.as_ptr());
+    }
+}
 
 // These must match your ring_writer.rs constants
 const SHM_RECORD_HDR_SIZE: u32 = size_of::<ShmRecordHeader>() as u32;
@@ -62,7 +71,7 @@ fn decode_updates_from_ring(
 #[test]
 fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
     // Cleanup any leftover shm from previous runs
-    let _ = std::fs::remove_file("/dev/shm/test_ring_e2e");
+    shm_cleanup("test_ring_e2e");
 
     let ring_len: u32 = 1024;
 
@@ -164,7 +173,7 @@ fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
 
 #[test]
 fn ring_writer_wraparound_and_reader_validity() {
-    let _ = std::fs::remove_file("/dev/shm/test_ring_wraparound");
+    shm_cleanup("test_ring_wraparound");
     // Use a small ring buffer to force wraparound quickly
     let ring_len: u32 = 256;
 
@@ -259,7 +268,7 @@ fn ring_writer_wraparound_and_reader_validity() {
 
 #[test]
 fn ring_reader_detects_being_lapped() {
-    let _ = std::fs::remove_file("/dev/shm/test_ring_lapped");
+    shm_cleanup("test_ring_lapped");
     // Small ring to make lapping easy
     let ring_len: u32 = 128;
 
