@@ -1,25 +1,19 @@
 use std::{
-    backtrace::Backtrace,
     mem::size_of,
-    os::fd::{AsRawFd, BorrowedFd, RawFd},
-    ptr,
+    os::fd::{AsRawFd, RawFd},
     sync::atomic::Ordering,
 };
 
 use bytemuck::try_from_bytes;
 use io_uring::{IoUring, Probe, opcode::FutexWait};
-use memmap2::{Mmap, MmapOptions};
-use rustix::{
-    fs::fstat,
-    mm::{MapFlags, ProtFlags, mmap},
-};
-use snafu::{GenerateImplicitData, ResultExt as _, ensure};
+use memmap2::Mmap;
+use snafu::{GenerateImplicitData, ResultExt};
 
 use crate::{
     daemon_side::align_up_pow2,
     protocol_common::{
-        IoSnafu, IoUringNotSupportedSnafu, Kind, MisMatchSnafu, ProtocolError,
-        RustixIoSnafu, ShmHeader, ShmHeaderView, ShmRecordHeader, Update,
+        Kind, ProtocolError,
+        ShmHeader, ShmHeaderView, ShmRecordHeader, Update,
     },
     ring_writer::{MAX_NUM_CLIENTS, RING_ALIGN_SHIFT, SHM_RECORD_HDR_SIZE},
 };
@@ -35,37 +29,33 @@ pub enum ReadResult {
 pub struct RingReader {
     map: Mmap,
     hdr_ptr: *mut ShmHeader,
-    ring_len: u32,
+    pub ring_len: u32,
     off: u32,
     next_seq: u32,
-    uring: IoUring,
+    uring: Option<IoUring>, // None if io_uring not supported
     fd: RawFd,
 }
 
 impl RingReader {
-    pub fn from_fd(
-        fd: RawFd,
+    pub fn from_name(
+        name: &str,
         expected_shm_len: usize,
     ) -> Result<Self, ProtocolError> {
-        let bf = unsafe { BorrowedFd::borrow_raw(fd) };
-        let st = fstat(bf).context(RustixIoSnafu)?;
+        use psx_shm::Shm;
+        use rustix::shm::OFlags;
+        use rustix::fs::Mode;
 
-        // sanity check size
-        // TODO in prod probably want to hide this behind a sanity check feature
-        // flag
-        //let len = st.st_size;
-        //ensure!( todo!()
-        //    len as usize == expected_shm_len,
-        //    UnexpectedRingSizeSnafu {
-        //        expected: expected_shm_len as u64,
-        //        got: len as u64
-        //    }
-        //);
+        // Open existing shared memory
+        let shm = Shm::open(
+            name,
+            OFlags::RDONLY,
+            Mode::from_bits_truncate(0o600),
+        )?;
 
-        let mmaped_region = unsafe {
-            MmapOptions::new()
-                .len(expected_shm_len)
-                .map(fd.as_raw_fd())?
+        // Map using memmap2 directly on the file descriptor
+        let fd = shm.as_fd();
+        let mmaped_region: Mmap = unsafe {
+            Mmap::map(fd.as_raw_fd())?
         };
 
         let hdr_ptr = mmaped_region.as_ptr() as *const ShmHeader;
@@ -104,14 +94,32 @@ impl RingReader {
             (ring_len, start_offset, next_seq)
         };
 
-        // io_uring with FutexWait support
-        let uring = IoUring::new(MAX_NUM_CLIENTS).context(IoSnafu)?;
-        let mut probe = Probe::new();
-        let _ = uring.submitter().register_probe(&mut probe);
-        ensure!(
-            probe.is_supported(FutexWait::CODE),
-            IoUringNotSupportedSnafu
-        );
+        // Try to initialize io_uring with FutexWait support
+        // If not available, fall back to POSIX-only mode (polling)
+        // Can be disabled with DISABLE_IO_URING=1 environment variable for testing
+        let uring = if std::env::var("DISABLE_IO_URING").is_ok() {
+            eprintln!("Info: io_uring disabled via DISABLE_IO_URING, using POSIX mode (polling only)");
+            None
+        } else {
+            match IoUring::new(MAX_NUM_CLIENTS) {
+                Ok(uring) => {
+                    let mut probe = Probe::new();
+                    let _ = uring.submitter().register_probe(&mut probe);
+                    if probe.is_supported(FutexWait::CODE) {
+                        Some(uring)
+                    } else {
+                        eprintln!("Warning: io_uring FutexWait not supported, falling back to POSIX mode (polling only)");
+                        None
+                    }
+                }
+                Err(_) => {
+                    eprintln!("Warning: io_uring not available, falling back to POSIX mode (polling only)");
+                    None
+                }
+            }
+        };
+
+        let fd = fd.as_raw_fd();
 
         Ok(Self {
             map: mmaped_region,
@@ -119,8 +127,8 @@ impl RingReader {
             ring_len,
             off,
             next_seq,
-            fd,
             uring,
+            fd,
         })
     }
 

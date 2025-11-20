@@ -1,20 +1,14 @@
-use std::{
-    cell::LazyCell,
-    os::fd::{AsRawFd, OwnedFd, RawFd},
-    sync::atomic::Ordering,
-};
+use std::sync::atomic::Ordering;
 
 use bytemuck::{Pod, bytes_of};
 use io_uring::{IoUring, Probe, opcode::FutexWake};
 use libc::FUTEX_BITSET_MATCH_ANY;
-use memmap2::{MmapMut, MmapOptions};
 use psx_shm::Shm;
 use rustix::{
-    fs::{ftruncate, memfd_create},
-    mm::{MapFlags, ProtFlags, mmap},
+    fs::Mode,
     shm::OFlags,
 };
-use snafu::{GenerateImplicitData, ResultExt, ensure};
+use snafu::{GenerateImplicitData, ResultExt};
 
 // TODO should be able to specify this from cli
 pub const MAX_NUM_CLIENTS: u32 = 256;
@@ -22,7 +16,7 @@ pub const MAX_NUM_CLIENTS: u32 = 256;
 use crate::{
     daemon_side::align_up_pow2,
     protocol_common::{
-        CborSnafu, IoSnafu, IoUringSnafu, Kind, ProtocolError, ShmHeaderView,
+        CborSnafu, Kind, ProtocolError, ShmHeaderView,
         ShmRecordHeader, Update,
     },
 };
@@ -38,17 +32,16 @@ pub(crate) const RING_ALIGN_SHIFT: u32 = 3;
 
 const FUTEX_MAGIC_NUMBER: u64 = 0xf00f00;
 
-use rustix::fs::MemfdFlags;
-
-use crate::protocol_common::{RW_MODE, ShmHeader};
+use crate::protocol_common::ShmHeader;
 
 // TODO some pieces of this may change depending on usage
 pub struct RingWriter {
-    uring: IoUring,
-    map: MmapMut,
+    uring: Option<IoUring>, // None if io_uring not supported
+    _shm: Shm, // Keep shm alive but don't use it directly
+    base_ptr: *mut u8, // Base pointer to mapped memory
     hdr: *mut ShmHeader,
-    ring_len: u32,
-    pub fd: OwnedFd,
+    pub ring_len: u32,
+    pub name: String,
 }
 
 unsafe impl Send for RingWriter {}
@@ -56,23 +49,18 @@ unsafe impl Sync for RingWriter {}
 
 impl RingWriter {
     pub fn create(name: &str, ring_len: u32) -> Result<Self, ProtocolError> {
-        //ensure!(
-        //    ring_len.is_multiple_of(RING_ALIGN_SHIFT as u64),
-        //    crate::daemon_side::MisMatchSnafu
-        //);
-
         let total_len = SHM_HDR_SIZE + ring_len;
 
-        let fd = memfd_create(name, MemfdFlags::CLOEXEC)?;
-        ftruncate(&fd, total_len as u64)?;
-        tracing::error!("allocating with total_len {total_len:?}");
-        let mut mmapped_region = unsafe {
-            MmapOptions::new()
-                .len(total_len as usize)
-                .map_mut(fd.as_raw_fd())?
-        };
+        // Create named shared memory
+        let mut shm = Shm::open(
+            name,
+            OFlags::CREATE | OFlags::EXCL | OFlags::RDWR,
+            Mode::from_bits_truncate(0o600),
+        )?;
+        shm.set_size(total_len as usize)?;
 
-        let base = mmapped_region.as_mut_ptr();
+        let mut mapped = unsafe { shm.map(0x0)? };
+        let base = mapped.map().as_mut_ptr();
         let hdr = base as *mut ShmHeader;
 
         unsafe {
@@ -82,61 +70,92 @@ impl RingWriter {
         }
 
         let hv = ShmHeaderView::new(hdr);
-
         hv.write_seq_and_next_entry_offset(0, 0);
         hv.write_start_seq_and_offset(0, 0);
 
-        let uring = IoUring::new(MAX_NUM_CLIENTS).context(IoSnafu)?;
-        let mut probe = Probe::new();
-        let _ = uring.submitter().register_probe(&mut probe);
-        ensure!(
-            probe.is_supported(io_uring::opcode::FutexWake::CODE),
-            IoUringSnafu
-        );
+        // Try to initialize io_uring with FutexWake support
+        // If not available, fall back to POSIX-only mode (no wake notifications)
+        // Can be disabled with DISABLE_IO_URING=1 environment variable for testing
+        let uring = if std::env::var("DISABLE_IO_URING").is_ok() {
+            eprintln!("Info: io_uring disabled via DISABLE_IO_URING, using POSIX mode (polling only)");
+            None
+        } else {
+            match IoUring::new(MAX_NUM_CLIENTS) {
+                Ok(uring) => {
+                    let mut probe = Probe::new();
+                    let _ = uring.submitter().register_probe(&mut probe);
+                    if probe.is_supported(io_uring::opcode::FutexWake::CODE) {
+                        Some(uring)
+                    } else {
+                        eprintln!("Warning: io_uring FutexWake not supported, falling back to POSIX mode (polling only)");
+                        None
+                    }
+                }
+                Err(_) => {
+                    eprintln!("Warning: io_uring not available, falling back to POSIX mode (polling only)");
+                    None
+                }
+            }
+        };
+
+        // SAFETY: We keep the shm alive and don't unlink it, so the mapping remains valid
+        // We leak the BorrowedMap to get a 'static lifetime since we manage the Shm lifetime ourselves
+        let base_ptr = base;
+        std::mem::forget(mapped);
 
         Ok(Self {
             uring,
-            map: mmapped_region,
+            _shm: shm,
+            base_ptr,
             hdr,
             ring_len,
-            fd,
+            name: name.to_string(),
         })
     }
 
     #[inline]
     fn wake_readers(&mut self) -> Result<(), ProtocolError> {
-        // Publish with Release ordering
-        let hv = self.header_view();
+        // If io_uring is available, use FutexWake to notify readers
+        // Otherwise, readers will poll (POSIX fallback mode)
+        if self.uring.is_some() {
+            let hv = self.header_view();
+            let uaddr: *const u32 = hv.get_seq_ptr();
+            let nr_wake: u64 = u64::MAX;
+            let flags: u32 = FUTEX_BITSET_MATCH_ANY as u32;
+            let mask: u64 = 0;
 
-        let uaddr: *const u32 = hv.get_seq_ptr();
-        let nr_wake: u64 = u64::MAX;
-        let flags: u32 = FUTEX_BITSET_MATCH_ANY as u32;
-        let mask: u64 = 0;
+            let sqe = FutexWake::new(uaddr, nr_wake, mask, flags)
+                .build()
+                .user_data(FUTEX_MAGIC_NUMBER);
 
-        let sqe = FutexWake::new(uaddr, nr_wake, mask, flags)
-            .build()
-            .user_data(FUTEX_MAGIC_NUMBER);
-
-        // Push & submit (simple path: wake every update)
-        unsafe {
-            self.uring.submission().push(&sqe).ok();
+            // Push & submit (simple path: wake every update)
+            let uring = self.uring.as_mut().unwrap();
+            unsafe {
+                uring.submission().push(&sqe).ok();
+            }
+            uring.submit().map_err(|source| ProtocolError::Io {
+                source,
+                backtrace: snafu::Backtrace::generate(),
+            })?;
         }
-        self.uring.submit().map_err(|source| ProtocolError::Io {
-            source,
-            backtrace: snafu::Backtrace::generate(),
-        })?;
+        // In POSIX mode, do nothing - readers will poll
 
         Ok(())
     }
 
     #[inline]
-    fn header_view(&mut self) -> ShmHeaderView<'_> {
+    pub fn header_view(&self) -> ShmHeaderView<'_> {
         unsafe { ShmHeaderView::new(&*self.hdr) }
     }
 
     fn ring_mut(&mut self) -> &mut [u8] {
         let hdr_sz = SHM_HDR_SIZE;
-        &mut self.map[hdr_sz as usize..hdr_sz as usize + self.ring_len as usize]
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.base_ptr.add(hdr_sz as usize),
+                self.ring_len as usize
+            )
+        }
     }
 
     pub fn write_update(&mut self, upd: &Update) -> Result<u32, ProtocolError> {

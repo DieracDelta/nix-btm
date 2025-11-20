@@ -84,6 +84,15 @@ impl From<serde_cbor::Error> for ProtocolError {
     }
 }
 
+impl From<nix::Error> for ProtocolError {
+    fn from(source: nix::Error) -> Self {
+        ProtocolError::Io {
+            source: source.into(),
+            backtrace: Backtrace::capture(),
+        }
+    }
+}
+
 // needed because drv serialization is already done differently to accomodate
 // for json. Don't need that for cbor
 #[derive(Serialize, Deserialize)]

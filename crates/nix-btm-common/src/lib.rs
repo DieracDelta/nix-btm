@@ -19,3 +19,12 @@ pub mod protocol_common;
 pub mod protocol_testing;
 
 pub mod double_fork;
+
+// RPC control plane for client-daemon communication
+pub mod rpc;
+
+#[cfg(target_os = "linux")]
+pub mod rpc_client;
+
+#[cfg(target_os = "linux")]
+pub mod rpc_daemon;

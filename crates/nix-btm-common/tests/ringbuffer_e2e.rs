@@ -61,12 +61,15 @@ fn decode_updates_from_ring(
 
 #[test]
 fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
+    // Cleanup any leftover shm from previous runs
+    let _ = std::fs::remove_file("/dev/shm/test_ring_e2e");
+
     let ring_len: u32 = 1024;
 
     let mut writer = RingWriter::create("test_ring_e2e", ring_len)
         .expect("RingWriter::create should succeed");
 
-    let fd = writer.fd.as_raw_fd();
+    let ring_name = writer.name.clone();
 
     // total_len must match what RingWriter::create used
     let total_len = (size_of::<ShmHeader>() as u32 + ring_len) as usize;
@@ -86,9 +89,9 @@ fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
         seqs.push(seq);
     }
 
-    // 3. Attach a reader to the same shm (tests RingReader::from_fd)
-    let mut reader = RingReader::from_fd(fd, total_len)
-        .expect("RingReader::from_fd should succeed");
+    // 3. Attach a reader to the same shm (tests RingReader::from_name)
+    let mut reader = RingReader::from_name(&ring_name, total_len)
+        .expect("RingReader::from_name should succeed");
 
     // 4. Read updates via the reader
     use nix_btm_common::ring_reader::ReadResult;
@@ -122,10 +125,20 @@ fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
         }
     }
 
+    // Open the shared memory by name to verify raw ring bytes
+    use psx_shm::Shm;
+    use rustix::shm::OFlags;
+    use rustix::fs::Mode;
+    let shm = Shm::open(
+        &ring_name,
+        OFlags::RDONLY,
+        Mode::from_bits_truncate(0o600),
+    ).expect("Failed to open shared memory");
+
     let mmap = unsafe {
         MmapOptions::new()
             .len(total_len)
-            .map(fd)
+            .map(shm.as_fd().as_raw_fd())
             .expect("mmap of shm fd should succeed")
     };
 
@@ -151,13 +164,14 @@ fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
 
 #[test]
 fn ring_writer_wraparound_and_reader_validity() {
+    let _ = std::fs::remove_file("/dev/shm/test_ring_wraparound");
     // Use a small ring buffer to force wraparound quickly
     let ring_len: u32 = 256;
 
     let mut writer = RingWriter::create("test_ring_wraparound", ring_len)
         .expect("RingWriter::create should succeed");
 
-    let fd = writer.fd.as_raw_fd();
+    let ring_name = writer.name.clone();
     let total_len = (size_of::<ShmHeader>() as u32 + ring_len) as usize;
 
     // Write enough updates to wrap around the ring multiple times
@@ -176,8 +190,8 @@ fn ring_writer_wraparound_and_reader_validity() {
     }
 
     // Create a reader AFTER all writes - it should start from the oldest valid data
-    let mut reader = RingReader::from_fd(fd, total_len)
-        .expect("RingReader::from_fd should succeed");
+    let mut reader = RingReader::from_name(&ring_name, total_len)
+        .expect("RingReader::from_name should succeed");
 
     // Read all available updates
     use nix_btm_common::ring_reader::ReadResult;
@@ -245,13 +259,14 @@ fn ring_writer_wraparound_and_reader_validity() {
 
 #[test]
 fn ring_reader_detects_being_lapped() {
+    let _ = std::fs::remove_file("/dev/shm/test_ring_lapped");
     // Small ring to make lapping easy
     let ring_len: u32 = 128;
 
     let mut writer = RingWriter::create("test_ring_lapped", ring_len)
         .expect("RingWriter::create should succeed");
 
-    let fd = writer.fd.as_raw_fd();
+    let ring_name = writer.name.clone();
     let total_len = (size_of::<ShmHeader>() as u32 + ring_len) as usize;
 
     // Write a few updates
@@ -261,8 +276,8 @@ fn ring_reader_detects_being_lapped() {
     }
 
     // Create reader - it will start at the beginning
-    let mut reader = RingReader::from_fd(fd, total_len)
-        .expect("RingReader::from_fd should succeed");
+    let mut reader = RingReader::from_name(&ring_name, total_len)
+        .expect("RingReader::from_name should succeed");
 
     // Read one update
     use nix_btm_common::ring_reader::ReadResult;
