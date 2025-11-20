@@ -51,6 +51,8 @@
             };
           };
           target = if os == "linux" then "${arch}-unknown-${os}-musl" else "${arch}-apple-darwin";
+          maybeWildFlag = if os == "darwin" then "" else " -C link-arg=--ld-path=${pkgs.wild}/bin/wild ";
+          maybeWild = if os == "darwin" then [ ] else [ pkgs.wild ];
 
           rust_tc = with pkgs; [
             (rust-bin.stable.latest.minimal.override {
@@ -141,8 +143,7 @@
           devShell = pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
             hardeningDisable = [ "fortify" ];
             RUSTFLAGS =
-              "-C target-feature=+crt-static --cfg tokio_unstable -C link-arg=--ld-path=${pkgs.wild}/bin/wild"
-              + maybe_hardcoded_hack;
+              "-C target-feature=+crt-static --cfg tokio_unstable " + maybe_hardcoded_hack + maybeWildFlag;
             CARGO_BUILD_TARGET = target;
             shellHook = ''
               export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";
@@ -151,7 +152,6 @@
             buildInputs =
               with pkgs;
               [
-                wild
                 python3
                 just
                 libiconv
@@ -159,6 +159,7 @@
                 treefmt
                 fenix.packages.${system}.rust-analyzer
               ]
+              ++ maybeWild
               ++ rust_tc;
             # ++ maybe_libiconv;
           };
