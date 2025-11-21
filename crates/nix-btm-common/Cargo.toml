@@ -11,30 +11,30 @@ authors.workspace = true
 categories.workspace = true
 
 [dependencies]
-futures = {workspace = true }
-either = {workspace = true }
+futures.workspace = true
+either.workspace = true
 json-parsing-nix =  {path = "../json_parser" }
-regex = { workspace = true }
-serde = {workspace = true }
-serde_json = {workspace = true }
-serde_bytes = {workspace = true }
-tokio = {workspace = true }
-tokio-stream = {workspace = true }
-bstr = {workspace = true }
-tracing = { workspace = true }
-bytemuck = { workspace = true }
-rustix = { workspace = true }
-serde_cbor = { workspace = true }
-nix = { workspace = true }
-libc = { workspace = true }
-psx-shm = { workspace = true }
-memmap2 = { workspace = true }
-snafu = { workspace = true }
-eyre = { workspace = true }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_bytes.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+bstr.workspace = true
+tracing.workspace = true
+bytemuck.workspace = true
+rustix.workspace = true
+serde_cbor.workspace = true
+nix.workspace = true
+libc.workspace = true
+psx-shm.workspace = true
+memmap2.workspace = true
+snafu.workspace = true
+eyre.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-io-uring = { workspace = true }
+io-uring.workspace = true
 
 [dev-dependencies]
-color-eyre = { workspace = true }
-tracing-subscriber = { workspace = true }
+color-eyre.workspace = true
+tracing-subscriber.workspace = true

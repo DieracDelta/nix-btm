@@ -11,8 +11,8 @@ use clap::Parser;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
 use nix_btm_common::{
-    double_fork::daemon_double_fork,
     handle_internal_json::{JobsStateInner, handle_daemon_info},
+    spawn_named,
 };
 use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
@@ -23,7 +23,7 @@ pub mod get_stats;
 pub mod gruvbox;
 #[cfg(target_os = "linux")]
 pub mod listen_to_output;
-pub mod tracing;
+pub mod tracing_init;
 pub mod ui;
 
 use crossterm::{
@@ -38,7 +38,7 @@ use event_loop::event_loop;
 use ratatui::{
     backend::CrosstermBackend, style::Style, widgets::ScrollbarState,
 };
-use tokio::sync::watch;
+use tokio::{runtime::Runtime, sync::watch};
 use tui_tree_widget::TreeState;
 use ui::{
     BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED,
@@ -47,7 +47,7 @@ use ui::{
 
 use crate::{
     get_stats::{ProcMetadata, get_active_users_and_pids},
-    tracing::init_tracing,
+    tracing_init::init_tracing,
     ui::PruneType,
 };
 
@@ -191,31 +191,94 @@ impl BuilderViewState {
     }
 }
 
-#[tokio::main]
-pub async fn main() {
+use std::process::exit;
+
+use libc::{pid_t, setsid};
+use rustix::{
+    fs::Mode,
+    process::{chdir, umask},
+};
+use tracing::error;
+
+enum ProcessType {
+    Child,
+    Parent,
+}
+
+// TODO better error if fail to fork
+// TODO check correctness
+pub fn daemon_double_fork(args: Args) {
+    let _ = do_fork();
+    unsafe {
+        setsid();
+        chdir("/").unwrap();
+        umask(Mode::empty());
+    }
+    let _ = do_fork();
+    init_async_runtime(args);
+}
+
+pub fn do_fork() {
+    let pid: pid_t = unsafe { libc::fork() };
+
+    match pid {
+        p if p < 0 => {
+            error!("unable to fork");
+            unsafe {
+                exit(-1);
+            }
+        }
+        p if p == 0 => return,
+        p if p > 0 => unsafe {
+            exit(0);
+        },
+        _ => unreachable!(),
+    }
+}
+
+pub fn init_async_runtime(args: Args) {
+    if matches!(args, Args::Daemon { daemonize, ..} if daemonize) {
+        // this is the only place where logging will be off
+        init_tracing(&args);
+    }
+
+    let rt = Runtime::new().expect("unable to initialize tokio runtime");
+
+    rt.block_on(async {})
+}
+
+pub async fn run_daemon() {
+    let args = Args::parse();
+    todo!()
+}
+
+pub fn main() {
     if !sysinfo::IS_SUPPORTED_SYSTEM {
         panic!("This OS is supported!");
     }
 
     let args = Args::parse();
     match args {
-        Args::Daemon {
-            do_fork,
-            nix_json_file_path,
-            daemon_socket_path,
-        } => {
-            if do_fork {
-                daemon_double_fork(daemon_socket_path, nix_json_file_path);
+        Args::Daemon { daemonize, .. } => {
+            if daemonize {
+                daemon_double_fork(args);
+                // TODO perform init on shmem based on config flag
+            } else {
+                init_tracing(&args);
+                init_async_runtime(args);
             }
         }
-        Args::Client {
-            daemon_socket_path,
-            nix_json_file_path,
-        } => {
-            init_tracing();
+        Args::Client { .. } => {
+            init_tracing(&args);
+            init_async_runtime(args);
+            // TODO initialize state based on flag
+            // connect to daemon
+            // locally maintained state
+            // errors based on this
 
-            run_client(nix_json_file_path).await.unwrap();
+            //run_client(nix_json_file_path).unwrap();
         }
+        Args::Standalone { .. } => unimplemented!(),
     }
 
     //let sets = get_active_users_and_pids();
@@ -254,16 +317,18 @@ enum Args {
         #[arg(
             long,
             short = 'f',
-            value_name = "DO_FORK",
-            help = "Run in background (double-fork). Example value: true"
+            value_name = "DAEMONIZE",
+            help = "Run in background (double-fork). Example value: false",
+            default_value = "false"
         )]
-        do_fork: bool,
+        daemonize: bool,
 
         #[arg(
             long,
             short,
             value_name = "JSON_FILE_PATH",
-            help = HELP_STR_SOCKET
+            help = HELP_STR_SOCKET,
+            default_value = "/tmp/nixbtm.sock"
             )]
         nix_json_file_path: String,
 
@@ -271,25 +336,58 @@ enum Args {
             long,
             short,
             value_name = "SOCKET_PATH",
-            help = "socket path of daemon"
+            help = "socket path of daemon",
+            default_value = "/tmp/nix-daemon.sock"
         )]
         daemon_socket_path: String,
+
+        #[arg(
+            long,
+            short,
+            value_name = "LOG_PATH",
+            help = "Optional log path value. If not provided, logs will \
+                    placed in /tmp/nixbtm-daemon-$PID.log",
+            default_value = "None"
+        )]
+        daemon_log_path: Option<String>,
     },
     Client {
         #[arg(
             long,
             short,
-            value_name = "SOCKET_PATH",
-            help = HELP_STR_SOCKET
+            value_name = "DAEMON_SOCKET_PATH",
+            help = HELP_STR_SOCKET,
+            default_value = "/tmp/nix-daemon.sock"
         )]
         daemon_socket_path: Option<String>,
         #[arg(
             long,
             short,
-            value_name = "JSON_FILE_PATH",
-            help = HELP_STR_SOCKET
+            value_name = "LOG_PATH",
+            help = "Optional log path value. If not provided, logs will \
+                    placed in /tmp/nixbtm-client-$PID.log",
+            default_value = "None"
         )]
-        nix_json_file_path: Option<String>,
+        client_log_path: Option<String>,
+    },
+    Standalone {
+        #[arg(
+            long,
+            short,
+            value_name = "JSON_FILE_PATH",
+            help = HELP_STR_SOCKET,
+            default_value = "/tmp/nixbtm.sock"
+            )]
+        nix_json_file_path: String,
+        #[arg(
+            long,
+            short,
+            value_name = "LOG_PATH",
+            help = "Optional log path value. If not provided, logs will \
+                    placed in /tmp/nixbtm-standalone-$PID.log",
+            default_value = "None"
+        )]
+        standalone_log_path: Option<String>,
     },
 }
 
@@ -301,44 +399,33 @@ async fn run_client(socket: Option<String>) -> Result<()> {
     let (tx_jobs, recv_job_updates): (_, watch::Receiver<JobsStateInner>) =
         watch::channel(Default::default());
     let maybe_jh = socket.map(|socket| {
-        tokio::task::Builder::new()
-            .name("listening for new connections")
-            .spawn(async move {
-                handle_daemon_info(
-                    socket.into(),
-                    0o660,
-                    local_is_shutdown2,
-                    tx_jobs,
-                )
-                .await;
-            })
-            .unwrap()
+        spawn_named("listening for new connections", async move {
+            handle_daemon_info(
+                socket.into(),
+                0o660,
+                local_is_shutdown2,
+                tx_jobs,
+            )
+            .await
+        })
     });
 
     // create app and run it
     let app = Box::new(App::default());
 
     let (tx, recv_proc_updates) = watch::channel(Default::default());
-    let t_handle = tokio::task::Builder::new()
-        .name("proc info handler")
-        .spawn(async move {
-            while !local_is_shutdown.load(std::sync::atomic::Ordering::Relaxed)
-            {
-                let user_map_new = get_active_users_and_pids();
-                // TODO should do some sort of error checking
-                let _ = tx.send(user_map_new);
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        })
-        .unwrap();
+    let t_handle = spawn_named("proc info handler", async move {
+        while !local_is_shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+            let user_map_new = get_active_users_and_pids();
+            // TODO should do some sort of error checking
+            let _ = tx.send(user_map_new);
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    });
 
-    let main_app_handle = tokio::task::Builder::new()
-        .name("tui drawer")
-        .spawn(async move {
-            event_loop(app, is_shutdown, recv_proc_updates, recv_job_updates)
-                .await;
-        })
-        .unwrap();
+    let main_app_handle = spawn_named("tui drawer", async move {
+        event_loop(app, is_shutdown, recv_proc_updates, recv_job_updates).await;
+    });
 
     let mut handles = vec![t_handle, main_app_handle];
 

@@ -27,7 +27,10 @@ use tokio::{
 };
 use tracing::error;
 
-use crate::derivation_tree::{DrvRelations, START_INSTANT};
+use crate::{
+    derivation_tree::{DrvRelations, START_INSTANT},
+    spawn_named,
+};
 
 #[repr(transparent)]
 #[derive(
@@ -306,7 +309,8 @@ pub async fn handle_daemon_info(
                                 }
                             }.boxed();
 
-                            let _handle = tokio::task::Builder::new().name(&format!("client-socket-handler-{rid:?}")).spawn(fut);
+                            spawn_named(&format!("client-socket-handler-{rid:?}"), fut);
+
                         }
                     Ok((_stream, _addr)) => {
                     }

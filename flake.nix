@@ -99,7 +99,7 @@
               env = {
                 # requires features: sync_unsafe_cell, unbounded_shifts, let_chains, ip
                 RUSTC_BOOTSTRAP = 1;
-                RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable";
+                RUSTFLAGS = "-C target-feature=+crt-static";
                 NIX_CFLAGS_COMPILE = "-Wno-error";
                 CARGO_BUILD_TARGET = target;
               };
@@ -145,8 +145,7 @@
 
           devShell = pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
             hardeningDisable = [ "fortify" ];
-            RUSTFLAGS =
-              "-C target-feature=+crt-static --cfg tokio_unstable " + maybe_hardcoded_hack + maybeWildFlag;
+            RUSTFLAGS = "-C target-feature=+crt-static" + maybe_hardcoded_hack + maybeWildFlag;
             CARGO_BUILD_TARGET = target;
             shellHook = ''
               export CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target_dirs/nix_rustc";

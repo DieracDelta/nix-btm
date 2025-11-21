@@ -11,6 +11,10 @@ clean:
 build:
     cargo build --workspace --profile dev
 
+[doc('doc')]
+doc:
+    cargo doc --workspace --profile dev --open
+
 [doc('test')]
 test:
     cargo test --workspace --profile dev -- --nocapture
