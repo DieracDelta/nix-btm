@@ -136,13 +136,10 @@ fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
 
     // Open the shared memory by name to verify raw ring bytes
     use psx_shm::Shm;
-    use rustix::shm::OFlags;
-    use rustix::fs::Mode;
-    let shm = Shm::open(
-        &ring_name,
-        OFlags::RDONLY,
-        Mode::from_bits_truncate(0o600),
-    ).expect("Failed to open shared memory");
+    use rustix::{fs::Mode, shm::OFlags};
+    let shm =
+        Shm::open(&ring_name, OFlags::RDONLY, Mode::from_bits_truncate(0o600))
+            .expect("Failed to open shared memory");
 
     let mmap = unsafe {
         MmapOptions::new()
@@ -184,7 +181,8 @@ fn ring_writer_wraparound_and_reader_validity() {
     let total_len = (size_of::<ShmHeader>() as u32 + ring_len) as usize;
 
     // Write enough updates to wrap around the ring multiple times
-    // Each heartbeat serializes to roughly 20-30 bytes, so we need ~20+ updates to wrap
+    // Each heartbeat serializes to roughly 20-30 bytes, so we need ~20+ updates
+    // to wrap
     let num_updates = 50;
     let mut all_seqs = Vec::new();
 
@@ -198,7 +196,8 @@ fn ring_writer_wraparound_and_reader_validity() {
         all_seqs.push(seq);
     }
 
-    // Create a reader AFTER all writes - it should start from the oldest valid data
+    // Create a reader AFTER all writes - it should start from the oldest valid
+    // data
     let mut reader = RingReader::from_name(&ring_name, total_len)
         .expect("RingReader::from_name should succeed");
 
@@ -215,8 +214,12 @@ fn ring_writer_wraparound_and_reader_validity() {
                 break;
             }
             ReadResult::Lost { from, to } => {
-                // After wraparound, reader may detect it missed some early updates
-                println!("Reader detected lost updates from {} to {}", from, to);
+                // After wraparound, reader may detect it missed some early
+                // updates
+                println!(
+                    "Reader detected lost updates from {} to {}",
+                    from, to
+                );
                 got_lost = true;
                 // Continue reading - there should still be valid data
             }
@@ -238,9 +241,15 @@ fn ring_writer_wraparound_and_reader_validity() {
     // 2. Immediately detect we need catchup if wraparound was severe
     // Both are valid outcomes - the key is that we detected the issue
     if read_updates.is_empty() {
-        println!("Heavy wraparound - reader needs immediate catchup (valid behavior)");
+        println!(
+            "Heavy wraparound - reader needs immediate catchup (valid \
+             behavior)"
+        );
     } else {
-        println!("Successfully read {} updates before needing catchup", read_updates.len());
+        println!(
+            "Successfully read {} updates before needing catchup",
+            read_updates.len()
+        );
     }
 
     // Verify all read updates are valid heartbeats with correct sequence
@@ -295,7 +304,8 @@ fn ring_reader_detects_being_lapped() {
         other => panic!("Expected Update, got {:?}", other),
     }
 
-    // Now write MANY more updates to wrap around and invalidate the reader's position
+    // Now write MANY more updates to wrap around and invalidate the reader's
+    // position
     for i in 3..60 {
         let upd = Update::Heartbeat { daemon_seq: i };
         writer.write_update(&upd).expect("write should succeed");

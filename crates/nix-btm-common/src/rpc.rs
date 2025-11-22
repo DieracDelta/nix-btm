@@ -15,10 +15,7 @@ pub enum ClientRequest {
 pub enum DaemonResponse {
     /// Ring buffer is ready at the given shared memory name
     /// Client should open: /dev/shm/{ring_name}
-    RingReady {
-        ring_name: String,
-        total_len: u64,
-    },
+    RingReady { ring_name: String, total_len: u64 },
     /// Snapshot is ready in shared memory at the given name
     /// Client should open: /dev/shm/{snapshot_name}
     SnapshotReady {
@@ -35,7 +32,9 @@ pub enum DaemonResponse {
 pub const HEADER_SIZE: usize = std::mem::size_of::<u32>();
 
 /// Serialize a request/response into wire format
-pub fn serialize_message<T: Serialize>(msg: &T) -> Result<Vec<u8>, serde_cbor::Error> {
+pub fn serialize_message<T: Serialize>(
+    msg: &T,
+) -> Result<Vec<u8>, serde_cbor::Error> {
     let payload = serde_cbor::to_vec(msg)?;
     let len = payload.len() as u32;
     let mut buf = Vec::with_capacity(HEADER_SIZE + payload.len());

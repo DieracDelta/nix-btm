@@ -1,14 +1,20 @@
 use std::sync::Arc;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
-use tokio::sync::RwLock;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::UnixStream,
+    sync::RwLock,
+};
 
-use crate::daemon_side::create_shmem_and_write_snapshot;
-use crate::handle_internal_json::JobsStateInner;
-use crate::protocol_common::ProtocolError;
-use crate::ring_writer::RingWriter;
-use crate::rpc::{ClientRequest, DaemonResponse, deserialize_message, serialize_message};
+use crate::{
+    daemon_side::create_shmem_and_write_snapshot,
+    handle_internal_json::JobsStateInner,
+    protocol_common::ProtocolError,
+    ring_writer::RingWriter,
+    rpc::{
+        ClientRequest, DaemonResponse, deserialize_message, serialize_message,
+    },
+};
 
 /// Handle a single RPC connection from a client
 pub async fn handle_rpc_connection(
@@ -28,16 +34,19 @@ pub async fn handle_rpc_connection(
         }
 
         let request_buf = &buf[..n];
-        let (request, _) = match deserialize_message::<ClientRequest>(request_buf)? {
-            Some(r) => r,
-            None => continue, // Need more data
-        };
+        let (request, _) =
+            match deserialize_message::<ClientRequest>(request_buf)? {
+                Some(r) => r,
+                None => continue, // Need more data
+            };
 
         // Process request
         let response = match request {
             ClientRequest::RequestRing => {
                 let writer = ring_writer.read().await;
-                let total_len = std::mem::size_of::<crate::protocol_common::ShmHeader>() as u64
+                let total_len = std::mem::size_of::<
+                    crate::protocol_common::ShmHeader,
+                >() as u64
                     + writer.ring_len as u64;
 
                 DaemonResponse::RingReady {
@@ -46,7 +55,8 @@ pub async fn handle_rpc_connection(
                 }
             }
             ClientRequest::RequestSnapshot { client_pid } => {
-                // Drop old snapshot before creating new one to avoid name collision
+                // Drop old snapshot before creating new one to avoid name
+                // collision
                 drop(_snapshot_holder.take());
 
                 let state_guard = state.read().await;
@@ -57,9 +67,14 @@ pub async fn handle_rpc_connection(
                 let (snap_seq, _) = hv.read_seq_and_next_entry_offset();
 
                 // Create snapshot
-                match create_shmem_and_write_snapshot(&state_guard, snap_seq as u64, client_pid) {
+                match create_shmem_and_write_snapshot(
+                    &state_guard,
+                    snap_seq as u64,
+                    client_pid,
+                ) {
                     Ok(snapshot) => {
-                        let snapshot_name = format!("nix-btm-snapshot-p{}", client_pid);
+                        let snapshot_name =
+                            format!("nix-btm-snapshot-p{}", client_pid);
                         let response = DaemonResponse::SnapshotReady {
                             snapshot_name,
                             total_len: snapshot.total_len_bytes,
@@ -69,10 +84,8 @@ pub async fn handle_rpc_connection(
                         _snapshot_holder = Some(snapshot);
                         response
                     }
-                    Err(e) => {
-                        DaemonResponse::Error {
-                            message: format!("Failed to create snapshot: {:?}", e),
-                        }
+                    Err(e) => DaemonResponse::Error {
+                        message: format!("Failed to create snapshot: {:?}", e),
                     },
                 }
             }

@@ -2,10 +2,7 @@ use std::sync::atomic::Ordering;
 
 use bytemuck::{Pod, bytes_of};
 use psx_shm::Shm;
-use rustix::{
-    fs::Mode,
-    shm::OFlags,
-};
+use rustix::{fs::Mode, shm::OFlags};
 use snafu::ResultExt;
 
 // TODO should be able to specify this from cli
@@ -15,8 +12,7 @@ use crate::{
     daemon_side::align_up_pow2,
     notify::Notifier,
     protocol_common::{
-        CborSnafu, Kind, ProtocolError, ShmHeaderView,
-        ShmRecordHeader, Update,
+        CborSnafu, Kind, ProtocolError, ShmHeaderView, ShmRecordHeader, Update,
     },
 };
 
@@ -34,8 +30,9 @@ use crate::protocol_common::ShmHeader;
 
 // TODO some pieces of this may change depending on usage
 pub struct RingWriter {
-    notifier: Option<Notifier>, // Platform-specific notifier (io_uring on Linux, kqueue on macOS)
-    _shm: Shm, // Keep shm alive but don't use it directly
+    notifier: Option<Notifier>, /* Platform-specific notifier (io_uring on
+                                 * Linux, kqueue on macOS) */
+    _shm: Shm,         // Keep shm alive but don't use it directly
     base_ptr: *mut u8, // Base pointer to mapped memory
     hdr: *mut ShmHeader,
     pub ring_len: u32,
@@ -71,11 +68,13 @@ impl RingWriter {
         hv.write_seq_and_next_entry_offset(0, 0);
         hv.write_start_seq_and_offset(0, 0);
 
-        // Initialize platform-specific notifier (io_uring on Linux, kqueue on macOS)
+        // Initialize platform-specific notifier (io_uring on Linux, kqueue on
+        // macOS)
         let notifier = Notifier::new()?;
 
-        // SAFETY: We keep the shm alive and don't unlink it, so the mapping remains valid
-        // We leak the BorrowedMap to get a 'static lifetime since we manage the Shm lifetime ourselves
+        // SAFETY: We keep the shm alive and don't unlink it, so the mapping
+        // remains valid We leak the BorrowedMap to get a 'static
+        // lifetime since we manage the Shm lifetime ourselves
         let base_ptr = base;
         std::mem::forget(mapped);
 
@@ -113,7 +112,7 @@ impl RingWriter {
         unsafe {
             std::slice::from_raw_parts_mut(
                 self.base_ptr.add(hdr_sz as usize),
-                self.ring_len as usize
+                self.ring_len as usize,
             )
         }
     }

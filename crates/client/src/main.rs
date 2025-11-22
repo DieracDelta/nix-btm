@@ -201,41 +201,68 @@ use rustix::{
 };
 use tracing::error;
 
-enum ProcessType {
-    Child,
-    Parent,
-}
+/// Daemonize (advanced programming in the unix environment)
+pub(crate) fn daemon_double_fork() {
+    do_fork();
 
-// TODO better error if fail to fork
-// TODO check correctness
-pub(crate) fn daemon_double_fork(args: &Args) {
-    let _ = do_fork();
-    unsafe {
-        setsid();
-        chdir("/").unwrap();
-        umask(Mode::empty());
+    let sid = unsafe { setsid() };
+    if sid < 0 {
+        eprintln!("setsid failed");
+        exit(-1);
     }
-    let _ = do_fork();
+
+    // cannot be killed by parent
+    unsafe {
+        libc::signal(libc::SIGHUP, libc::SIG_IGN);
+    }
+
+    // really shake them off our tail
+    do_fork();
+
+    // no risk of unmounting
+    chdir("/").unwrap();
+
+    // clear umask
+    umask(Mode::empty());
+
+    // redirect the stds to dev null
+    redirect_std_fds_to_devnull();
 }
 
-pub fn do_fork() {
+fn redirect_std_fds_to_devnull() {
+    use std::{fs::OpenOptions, os::unix::io::AsRawFd};
+
+    let devnull = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/null")
+        .expect("failed to open /dev/null");
+
+    let fd = devnull.as_raw_fd();
+    unsafe {
+        libc::dup2(fd, 0);
+        libc::dup2(fd, 1);
+        libc::dup2(fd, 2);
+    }
+}
+
+fn do_fork() {
     let pid: pid_t = unsafe { libc::fork() };
 
     match pid {
         p if p < 0 => {
-            error!("unable to fork");
+            eprintln!("unable to fork");
             exit(-1);
         }
-        p if p == 0 => return,
-        p if p > 0 => exit(0),
-        _ => unreachable!(),
+        p if p == 0 => {} // child
+        _ => exit(0),     // parent
     }
 }
 
 pub(crate) fn init_async_runtime() {
     let args = Args::parse();
     if matches!(args, Args::Daemon { daemonize, ..} if daemonize) {
-        daemon_double_fork(&args);
+        daemon_double_fork();
     }
 
     init_tracing(&args);
@@ -244,8 +271,19 @@ pub(crate) fn init_async_runtime() {
     rt.block_on(async { unimplemented!() })
 }
 
-pub(crate) async fn run_daemon(_args: Args) {
-    unimplemented!()
+// MUST call this with daemon variant
+pub(crate) async fn run_daemon(args: Args) {
+    if let Args::Daemon {
+        daemonize,
+        nix_json_file_path,
+        daemon_socket_path,
+        daemon_log_path,
+    } = args
+    {
+        unimplemented!();
+    } else {
+        unreachable!();
+    }
 }
 
 pub(crate) async fn run_client(_args: Args) {

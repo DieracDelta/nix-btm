@@ -1,18 +1,22 @@
-use std::sync::Arc;
-use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
-use std::ffi::CString;
+use std::{
+    collections::hash_map::DefaultHasher,
+    ffi::CString,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use nix_btm_common::{
     handle_internal_json::JobsStateInner,
+    ring_reader::RingReader,
     ring_writer::RingWriter,
     rpc::{ClientRequest, DaemonResponse},
     rpc_client::send_rpc_request,
     rpc_daemon::handle_rpc_connection,
-    ring_reader::RingReader,
 };
-use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::RwLock;
+use tokio::{
+    net::{UnixListener, UnixStream},
+    sync::RwLock,
+};
 
 /// Unlink shared memory by name (works on both Linux and macOS)
 fn shm_cleanup(name: &str) {
@@ -29,8 +33,8 @@ async fn create_test_listener(test_name: &str) -> (UnixListener, String) {
     // Remove socket if it exists
     let _ = std::fs::remove_file(&socket_path);
 
-    let listener = UnixListener::bind(&socket_path)
-        .expect("Failed to bind Unix socket");
+    let listener =
+        UnixListener::bind(&socket_path).expect("Failed to bind Unix socket");
 
     (listener, socket_path)
 }
@@ -57,7 +61,8 @@ async fn test_rpc_request_ring_fd() {
     let state_clone = state.clone();
     tokio::spawn(async move {
         if let Ok((stream, _)) = listener.accept().await {
-            let _ = handle_rpc_connection(stream, writer_clone, state_clone).await;
+            let _ =
+                handle_rpc_connection(stream, writer_clone, state_clone).await;
         }
     });
 
@@ -65,17 +70,25 @@ async fn test_rpc_request_ring_fd() {
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     // Client: Connect and request ring
-    let mut client = UnixStream::connect(&socket_path).await
+    let mut client = UnixStream::connect(&socket_path)
+        .await
         .expect("Failed to connect to daemon");
 
     let request = ClientRequest::RequestRing;
-    let response = send_rpc_request(&mut client, request).await
+    let response = send_rpc_request(&mut client, request)
+        .await
         .expect("RPC request failed");
 
     // Verify response
     match response {
-        DaemonResponse::RingReady { ring_name, total_len } => {
-            println!("Received RingReady: name={}, total_len={}", ring_name, total_len);
+        DaemonResponse::RingReady {
+            ring_name,
+            total_len,
+        } => {
+            println!(
+                "Received RingReady: name={}, total_len={}",
+                ring_name, total_len
+            );
 
             // Verify we can create a RingReader from the shared memory name
             let reader = RingReader::from_name(&ring_name, total_len as usize)
@@ -121,7 +134,8 @@ async fn test_rpc_request_snapshot() {
     let state_clone = state.clone();
     tokio::spawn(async move {
         if let Ok((stream, _)) = listener.accept().await {
-            let _ = handle_rpc_connection(stream, writer_clone, state_clone).await;
+            let _ =
+                handle_rpc_connection(stream, writer_clone, state_clone).await;
         }
     });
 
@@ -129,11 +143,13 @@ async fn test_rpc_request_snapshot() {
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     // Client: Connect and request snapshot
-    let mut client = UnixStream::connect(&socket_path).await
+    let mut client = UnixStream::connect(&socket_path)
+        .await
         .expect("Failed to connect to daemon");
 
     let request = ClientRequest::RequestSnapshot { client_pid };
-    let response = send_rpc_request(&mut client, request).await
+    let response = send_rpc_request(&mut client, request)
+        .await
         .expect("RPC request failed");
 
     // Verify response
@@ -153,12 +169,17 @@ async fn test_rpc_request_snapshot() {
             assert_eq!(snapshot_name, expected_name);
 
             // Try to read the snapshot
-            let state = nix_btm_common::client_side::client_read_snapshot_into_state(
-                &snapshot_name,
-                total_len,
-            ).expect("Failed to read snapshot");
+            let state =
+                nix_btm_common::client_side::client_read_snapshot_into_state(
+                    &snapshot_name,
+                    total_len,
+                )
+                .expect("Failed to read snapshot");
 
-            println!("Successfully read snapshot with {} jobs", state.jid_to_job.len());
+            println!(
+                "Successfully read snapshot with {} jobs",
+                state.jid_to_job.len()
+            );
         }
         DaemonResponse::Error { message } => {
             panic!("Got error response: {}", message);
@@ -197,18 +218,21 @@ async fn test_rpc_multiple_requests() {
     let state_clone = state.clone();
     tokio::spawn(async move {
         if let Ok((stream, _)) = listener.accept().await {
-            let _ = handle_rpc_connection(stream, writer_clone, state_clone).await;
+            let _ =
+                handle_rpc_connection(stream, writer_clone, state_clone).await;
         }
     });
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     // Client: Connect once
-    let mut client = UnixStream::connect(&socket_path).await
+    let mut client = UnixStream::connect(&socket_path)
+        .await
         .expect("Failed to connect to daemon");
 
     // Request 1: Ring
-    let response1 = send_rpc_request(&mut client, ClientRequest::RequestRing).await
+    let response1 = send_rpc_request(&mut client, ClientRequest::RequestRing)
+        .await
         .expect("First request failed");
 
     assert!(matches!(response1, DaemonResponse::RingReady { .. }));
@@ -218,8 +242,10 @@ async fn test_rpc_multiple_requests() {
     let client_pid = std::process::id() as i32;
     let response2 = send_rpc_request(
         &mut client,
-        ClientRequest::RequestSnapshot { client_pid }
-    ).await.expect("Second request failed");
+        ClientRequest::RequestSnapshot { client_pid },
+    )
+    .await
+    .expect("Second request failed");
 
     if !matches!(response2, DaemonResponse::SnapshotReady { .. }) {
         eprintln!("ERROR: Expected SnapshotReady, got: {:?}", response2);

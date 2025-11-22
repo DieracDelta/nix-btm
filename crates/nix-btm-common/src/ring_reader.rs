@@ -1,8 +1,4 @@
-use std::{
-    mem::size_of,
-    os::fd::AsRawFd,
-    sync::atomic::Ordering,
-};
+use std::{mem::size_of, os::fd::AsRawFd, sync::atomic::Ordering};
 
 use bytemuck::try_from_bytes;
 use memmap2::Mmap;
@@ -12,8 +8,7 @@ use crate::{
     daemon_side::align_up_pow2,
     notify::Waiter,
     protocol_common::{
-        Kind, ProtocolError,
-        ShmHeader, ShmHeaderView, ShmRecordHeader, Update,
+        Kind, ProtocolError, ShmHeader, ShmHeaderView, ShmRecordHeader, Update,
     },
     ring_writer::{RING_ALIGN_SHIFT, SHM_RECORD_HDR_SIZE},
 };
@@ -33,7 +28,8 @@ pub struct RingReader {
     off: u32,
     next_seq: u32,
     #[allow(dead_code)]
-    waiter: Option<Waiter>, // Platform-specific waiter (io_uring on Linux, kqueue on macOS)
+    waiter: Option<Waiter>, /* Platform-specific waiter (io_uring on Linux,
+                             * kqueue on macOS) */
 }
 
 impl RingReader {
@@ -42,21 +38,15 @@ impl RingReader {
         expected_shm_len: usize,
     ) -> Result<Self, ProtocolError> {
         use psx_shm::Shm;
-        use rustix::shm::OFlags;
-        use rustix::fs::Mode;
+        use rustix::{fs::Mode, shm::OFlags};
 
         // Open existing shared memory
-        let shm = Shm::open(
-            name,
-            OFlags::RDONLY,
-            Mode::from_bits_truncate(0o600),
-        )?;
+        let shm =
+            Shm::open(name, OFlags::RDONLY, Mode::from_bits_truncate(0o600))?;
 
         // Map using memmap2 directly on the file descriptor
         let fd = shm.as_fd();
-        let mmaped_region: Mmap = unsafe {
-            Mmap::map(fd.as_raw_fd())?
-        };
+        let mmaped_region: Mmap = unsafe { Mmap::map(fd.as_raw_fd())? };
 
         let hdr_ptr = mmaped_region.as_ptr() as *const ShmHeader;
         let (ring_len, off, next_seq) = {
@@ -94,7 +84,8 @@ impl RingReader {
             (ring_len, start_offset, next_seq)
         };
 
-        // Initialize platform-specific waiter (io_uring on Linux, kqueue on macOS)
+        // Initialize platform-specific waiter (io_uring on Linux, kqueue on
+        // macOS)
         let waiter = Waiter::new()?;
 
         Ok(Self {

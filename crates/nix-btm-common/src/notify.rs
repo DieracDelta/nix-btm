@@ -10,8 +10,8 @@ mod platform {
     use io_uring::{IoUring, Probe, opcode::FutexWake};
     use libc::FUTEX_BITSET_MATCH_ANY;
     use snafu::GenerateImplicitData;
-    use crate::protocol_common::ProtocolError;
-    use crate::ring_writer::MAX_NUM_CLIENTS;
+
+    use crate::{protocol_common::ProtocolError, ring_writer::MAX_NUM_CLIENTS};
 
     const FUTEX_MAGIC_NUMBER: u64 = 0xf00f00;
 
@@ -22,7 +22,10 @@ mod platform {
     impl Notifier {
         pub fn new() -> Result<Option<Self>, ProtocolError> {
             if std::env::var("DISABLE_IO_URING").is_ok() {
-                eprintln!("Info: io_uring disabled via DISABLE_IO_URING, using POSIX mode (polling only)");
+                eprintln!(
+                    "Info: io_uring disabled via DISABLE_IO_URING, using \
+                     POSIX mode (polling only)"
+                );
                 return Ok(None);
             }
 
@@ -33,12 +36,18 @@ mod platform {
                     if probe.is_supported(FutexWake::CODE) {
                         Ok(Some(Self { uring }))
                     } else {
-                        eprintln!("Warning: io_uring FutexWake not supported, falling back to POSIX mode (polling only)");
+                        eprintln!(
+                            "Warning: io_uring FutexWake not supported, \
+                             falling back to POSIX mode (polling only)"
+                        );
                         Ok(None)
                     }
                 }
                 Err(_) => {
-                    eprintln!("Warning: io_uring not available, falling back to POSIX mode (polling only)");
+                    eprintln!(
+                        "Warning: io_uring not available, falling back to \
+                         POSIX mode (polling only)"
+                    );
                     Ok(None)
                 }
             }
@@ -74,7 +83,10 @@ mod platform {
             use io_uring::opcode::FutexWait;
 
             if std::env::var("DISABLE_IO_URING").is_ok() {
-                eprintln!("Info: io_uring disabled via DISABLE_IO_URING, using POSIX mode (polling only)");
+                eprintln!(
+                    "Info: io_uring disabled via DISABLE_IO_URING, using \
+                     POSIX mode (polling only)"
+                );
                 return Ok(None);
             }
 
@@ -83,14 +95,22 @@ mod platform {
                     let mut probe = Probe::new();
                     let _ = uring.submitter().register_probe(&mut probe);
                     if probe.is_supported(FutexWait::CODE) {
-                        Ok(Some(Self { _uring: Some(uring) }))
+                        Ok(Some(Self {
+                            _uring: Some(uring),
+                        }))
                     } else {
-                        eprintln!("Warning: io_uring FutexWait not supported, falling back to POSIX mode (polling only)");
+                        eprintln!(
+                            "Warning: io_uring FutexWait not supported, \
+                             falling back to POSIX mode (polling only)"
+                        );
                         Ok(None)
                     }
                 }
                 Err(_) => {
-                    eprintln!("Warning: io_uring not available, falling back to POSIX mode (polling only)");
+                    eprintln!(
+                        "Warning: io_uring not available, falling back to \
+                         POSIX mode (polling only)"
+                    );
                     Ok(None)
                 }
             }
@@ -101,8 +121,10 @@ mod platform {
 #[cfg(target_os = "macos")]
 mod platform {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-    use crate::protocol_common::ProtocolError;
+
     use snafu::GenerateImplicitData;
+
+    use crate::protocol_common::ProtocolError;
 
     /// Notifier using kqueue's EVFILT_USER for macOS
     pub struct Notifier {
@@ -112,13 +134,19 @@ mod platform {
     impl Notifier {
         pub fn new() -> Result<Option<Self>, ProtocolError> {
             if std::env::var("DISABLE_KQUEUE").is_ok() {
-                eprintln!("Info: kqueue disabled via DISABLE_KQUEUE, using POSIX mode (polling only)");
+                eprintln!(
+                    "Info: kqueue disabled via DISABLE_KQUEUE, using POSIX \
+                     mode (polling only)"
+                );
                 return Ok(None);
             }
 
             let kq = unsafe { libc::kqueue() };
             if kq < 0 {
-                eprintln!("Warning: kqueue not available, falling back to POSIX mode (polling only)");
+                eprintln!(
+                    "Warning: kqueue not available, falling back to POSIX \
+                     mode (polling only)"
+                );
                 return Ok(None);
             }
 
@@ -146,7 +174,10 @@ mod platform {
             };
 
             if ret < 0 {
-                eprintln!("Warning: Failed to register kqueue event, falling back to POSIX mode");
+                eprintln!(
+                    "Warning: Failed to register kqueue event, falling back \
+                     to POSIX mode"
+                );
                 return Ok(None);
             }
 
@@ -195,13 +226,19 @@ mod platform {
     impl Waiter {
         pub fn new() -> Result<Option<Self>, ProtocolError> {
             if std::env::var("DISABLE_KQUEUE").is_ok() {
-                eprintln!("Info: kqueue disabled via DISABLE_KQUEUE, using POSIX mode (polling only)");
+                eprintln!(
+                    "Info: kqueue disabled via DISABLE_KQUEUE, using POSIX \
+                     mode (polling only)"
+                );
                 return Ok(None);
             }
 
             let kq = unsafe { libc::kqueue() };
             if kq < 0 {
-                eprintln!("Warning: kqueue not available, falling back to POSIX mode (polling only)");
+                eprintln!(
+                    "Warning: kqueue not available, falling back to POSIX \
+                     mode (polling only)"
+                );
                 return Ok(None);
             }
 
@@ -229,7 +266,10 @@ mod platform {
             };
 
             if ret < 0 {
-                eprintln!("Warning: Failed to register kqueue event, falling back to POSIX mode");
+                eprintln!(
+                    "Warning: Failed to register kqueue event, falling back \
+                     to POSIX mode"
+                );
                 return Ok(None);
             }
 

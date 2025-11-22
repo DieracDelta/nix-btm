@@ -64,11 +64,7 @@ fn get_pid(stream: &UnixStream) -> Option<i32> {
             )
         };
 
-        if ret == 0 {
-            Some(pid)
-        } else {
-            None
-        }
+        if ret == 0 { Some(pid) } else { None }
     }
 }
 

@@ -1,8 +1,14 @@
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::UnixStream,
+};
 
-use crate::protocol_common::ProtocolError;
-use crate::rpc::{ClientRequest, DaemonResponse, deserialize_message, serialize_message};
+use crate::{
+    protocol_common::ProtocolError,
+    rpc::{
+        ClientRequest, DaemonResponse, deserialize_message, serialize_message,
+    },
+};
 
 /// Send an RPC request to the daemon and receive the response
 pub async fn send_rpc_request(
