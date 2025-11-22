@@ -54,8 +54,9 @@ use crate::{
 static HELP_STR_SOCKET: &str = "
     The fully qualified path of the socket to read from. See the README for \
                                 more details. Without this flag, the Eagle \
-                                Eye view will not work. Example value: \
-                                \"/tmp/nixbtm.sock\"
+                                Eye view will not work because it will be \
+                                unable to view the nix daemon's state. \
+                                Example value: \"/tmp/nixbtm.sock\"
 ";
 
 #[global_allocator]
@@ -207,7 +208,7 @@ enum ProcessType {
 
 // TODO better error if fail to fork
 // TODO check correctness
-pub fn daemon_double_fork(args: Args) {
+pub(crate) fn daemon_double_fork(args: &Args) {
     let _ = do_fork();
     unsafe {
         setsid();
@@ -215,7 +216,6 @@ pub fn daemon_double_fork(args: Args) {
         umask(Mode::empty());
     }
     let _ = do_fork();
-    init_async_runtime(args);
 }
 
 pub fn do_fork() {
@@ -224,32 +224,32 @@ pub fn do_fork() {
     match pid {
         p if p < 0 => {
             error!("unable to fork");
-            unsafe {
-                exit(-1);
-            }
+            exit(-1);
         }
         p if p == 0 => return,
-        p if p > 0 => unsafe {
-            exit(0);
-        },
+        p if p > 0 => exit(0),
         _ => unreachable!(),
     }
 }
 
-pub fn init_async_runtime(args: Args) {
+pub(crate) fn init_async_runtime() {
+    let args = Args::parse();
     if matches!(args, Args::Daemon { daemonize, ..} if daemonize) {
-        // this is the only place where logging will be off
-        init_tracing(&args);
+        daemon_double_fork(&args);
     }
 
+    init_tracing(&args);
     let rt = Runtime::new().expect("unable to initialize tokio runtime");
 
-    rt.block_on(async {})
+    rt.block_on(async { unimplemented!() })
 }
 
-pub async fn run_daemon() {
-    let args = Args::parse();
-    todo!()
+pub(crate) async fn run_daemon(_args: Args) {
+    unimplemented!()
+}
+
+pub(crate) async fn run_client(_args: Args) {
+    unimplemented!()
 }
 
 pub fn main() {
@@ -257,29 +257,7 @@ pub fn main() {
         panic!("This OS is supported!");
     }
 
-    let args = Args::parse();
-    match args {
-        Args::Daemon { daemonize, .. } => {
-            if daemonize {
-                daemon_double_fork(args);
-                // TODO perform init on shmem based on config flag
-            } else {
-                init_tracing(&args);
-                init_async_runtime(args);
-            }
-        }
-        Args::Client { .. } => {
-            init_tracing(&args);
-            init_async_runtime(args);
-            // TODO initialize state based on flag
-            // connect to daemon
-            // locally maintained state
-            // errors based on this
-
-            //run_client(nix_json_file_path).unwrap();
-        }
-        Args::Standalone { .. } => unimplemented!(),
-    }
+    init_async_runtime();
 
     //let sets = get_active_users_and_pids();
     //let mut total_set = HashSet::new();
@@ -330,7 +308,7 @@ enum Args {
             help = HELP_STR_SOCKET,
             default_value = "/tmp/nixbtm.sock"
             )]
-        nix_json_file_path: String,
+        nix_json_file_path: Option<String>,
 
         #[arg(
             long,
@@ -378,7 +356,7 @@ enum Args {
             help = HELP_STR_SOCKET,
             default_value = "/tmp/nixbtm.sock"
             )]
-        nix_json_file_path: String,
+        nix_json_file_path: Option<String>,
         #[arg(
             long,
             short,
@@ -391,7 +369,7 @@ enum Args {
     },
 }
 
-async fn run_client(socket: Option<String>) -> Result<()> {
+async fn run_standalone(socket: Option<String>) -> Result<()> {
     let is_shutdown = Arc::new(AtomicBool::new(false));
     let local_is_shutdown = is_shutdown.clone();
     let local_is_shutdown2 = is_shutdown.clone();

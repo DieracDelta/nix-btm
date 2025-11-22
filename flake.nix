@@ -139,7 +139,6 @@
               ++ rust_tc
               ++ lib.optionals pkgs.stdenv.isDarwin [
                 pkgs.libiconv
-                pkgs.darwin.apple_sdk.frameworks.SystemConfiguration
               ];
           };
 
