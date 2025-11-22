@@ -1,7 +1,6 @@
 use std::fs::File;
 
 use rustix::process::getpid;
-use tracing::Instrument;
 use tracing_subscriber::{
     EnvFilter, layer::SubscriberExt, util::SubscriberInitExt,
 };
@@ -40,7 +39,7 @@ pub(crate) fn init_tracing(args: &Args) {
         },
     };
 
-    let file = File::create(&log_path).expect("Could not initialize log");
+    let file = File::create(log_path).expect("Could not initialize log");
 
     // TODO hide this behind cfg flag!
     // Tokio console layer (spawns a background task; must be called inside a

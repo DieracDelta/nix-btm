@@ -35,7 +35,7 @@ pub struct RingReader {
 impl RingReader {
     pub fn from_name(
         name: &str,
-        expected_shm_len: usize,
+        _expected_shm_len: usize,
     ) -> Result<Self, ProtocolError> {
         use psx_shm::Shm;
         use rustix::{fs::Mode, shm::OFlags};

@@ -1,4 +1,4 @@
-use std::{backtrace::Backtrace, os::fd::OwnedFd};
+use std::os::fd::OwnedFd;
 
 use bytemuck::from_bytes;
 use memmap2::MmapOptions;

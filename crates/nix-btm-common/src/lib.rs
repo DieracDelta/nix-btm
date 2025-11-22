@@ -34,6 +34,8 @@ pub mod rpc_client;
 pub mod rpc_daemon;
 
 use tracing::Instrument;
+
+#[allow(unexpected_cfgs)]
 pub fn spawn_named<F>(name: &str, fut: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,

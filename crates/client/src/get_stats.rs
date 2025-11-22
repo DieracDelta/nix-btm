@@ -448,6 +448,7 @@ pub fn strip_tf_outta_tree(
 // "/nix/var/log/nix/drvs/z4/ps207hnvyh0lsrlmgkqyyfj3bbf37l-helix-24.03.drv.bz2"
 // to string of form
 // "/nix/store/z4ps207hnvyh0lsrlmgkqyyfj3bbf37l-helix-24.03.drv"
+#[allow(dead_code)]
 fn bz2_to_drv(input: &str) -> String {
     let mut result = "/nix/store/".to_string();
     for ele in input.split('/') {
@@ -598,6 +599,7 @@ fn parse_drv(line: &str) -> Drv {
     }
 }
 
+#[allow(dead_code)]
 fn dump_dep_tree((nodes, root_id): &(HashMap<String, DrvNode>, String)) {
     let mut node_ids = VecDeque::new();
     let level = 0;

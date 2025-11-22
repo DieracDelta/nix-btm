@@ -1,18 +1,15 @@
-use std::{backtrace::Backtrace, fmt::Debug, os::fd::AsFd};
+use std::fmt::Debug;
 
-use bytemuck::{PodCastError, bytes_of};
+use bytemuck::bytes_of;
 use psx_shm::{Shm, UnlinkOnDrop};
 pub use rustix::*;
 use rustix::{fs::Mode, shm::OFlags};
 use serde_cbor as cbor;
-use snafu::Snafu;
 use tokio::net::UnixStream;
 
 use crate::{
     handle_internal_json::JobsStateInner,
-    protocol_common::{
-        JobsStateInnerWire, ProtocolError, ShmHeader, SnapshotHeader,
-    },
+    protocol_common::{JobsStateInnerWire, ProtocolError, SnapshotHeader},
 };
 
 /// Align `x` up to the next multiple of 2^`align_pow` bytes.

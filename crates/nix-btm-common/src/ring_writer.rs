@@ -103,7 +103,7 @@ impl RingWriter {
     }
 
     #[inline]
-    pub fn header_view(&self) -> ShmHeaderView<'_> {
+    pub(crate) fn header_view(&self) -> ShmHeaderView<'_> {
         unsafe { ShmHeaderView::new(&*self.hdr) }
     }
 
@@ -176,11 +176,11 @@ impl RingWriter {
             (seq, prev_offset)
         };
 
-        let remain: u32 = (ring_len as u32) - offset_to_new_update;
+        let remain: u32 = ring_len - offset_to_new_update;
 
         // if we can't fit the entire thing in, but we can fit the header, then
         // just fit the header
-        if space_required_for_payload as u32 > remain {
+        if space_required_for_payload > remain {
             if remain >= SHM_RECORD_HDR_SIZE {
                 let pad_hdr = ShmRecordHeader {
                     payload_kind: Kind::Padding.into(),

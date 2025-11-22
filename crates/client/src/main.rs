@@ -199,7 +199,6 @@ use rustix::{
     fs::Mode,
     process::{chdir, umask},
 };
-use tracing::error;
 
 /// Daemonize (advanced programming in the unix environment)
 pub(crate) fn daemon_double_fork() {
@@ -254,8 +253,8 @@ fn do_fork() {
             eprintln!("unable to fork");
             exit(-1);
         }
-        p if p == 0 => {} // child
-        _ => exit(0),     // parent
+        0 => {}       // child
+        _ => exit(0), // parent
     }
 }
 
@@ -272,12 +271,13 @@ pub(crate) fn init_async_runtime() {
 }
 
 // MUST call this with daemon variant
+#[allow(dead_code)]
 pub(crate) async fn run_daemon(args: Args) {
     if let Args::Daemon {
-        daemonize,
-        nix_json_file_path,
-        daemon_socket_path,
-        daemon_log_path,
+        daemonize: _,
+        nix_json_file_path: _,
+        daemon_socket_path: _,
+        daemon_log_path: _,
     } = args
     {
         unimplemented!();
@@ -286,6 +286,7 @@ pub(crate) async fn run_daemon(args: Args) {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) async fn run_client(_args: Args) {
     unimplemented!()
 }
@@ -407,6 +408,7 @@ enum Args {
     },
 }
 
+#[allow(dead_code)]
 async fn run_standalone(socket: Option<String>) -> Result<()> {
     let is_shutdown = Arc::new(AtomicBool::new(false));
     let local_is_shutdown = is_shutdown.clone();

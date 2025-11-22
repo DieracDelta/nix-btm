@@ -2,7 +2,6 @@
 mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet, HashMap},
-        os::fd::AsFd,
         sync::Once,
     };
 
@@ -26,7 +25,6 @@ mod tests {
     }
     use color_eyre::Section;
 
-    use super::*;
     use crate::{
         client_side::client_read_snapshot_into_state,
         daemon_side::create_shmem_and_write_snapshot,

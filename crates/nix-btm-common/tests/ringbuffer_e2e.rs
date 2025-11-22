@@ -1,8 +1,4 @@
-use std::{
-    ffi::CString,
-    mem::size_of,
-    os::fd::{AsRawFd, OwnedFd},
-};
+use std::{ffi::CString, mem::size_of, os::fd::AsRawFd};
 
 use bytemuck::try_from_bytes;
 use memmap2::MmapOptions;
@@ -12,7 +8,6 @@ use nix_btm_common::{
     ring_reader::RingReader,
     ring_writer::RingWriter,
 };
-use serde_cbor;
 
 /// Unlink shared memory by name (works on both Linux and macOS)
 fn shm_cleanup(name: &str) {
@@ -253,7 +248,7 @@ fn ring_writer_wraparound_and_reader_validity() {
     }
 
     // Verify all read updates are valid heartbeats with correct sequence
-    for (seq, upd) in read_updates.iter() {
+    for (_seq, upd) in read_updates.iter() {
         match upd {
             Update::Heartbeat { daemon_seq } => {
                 // The daemon_seq should match the index we wrote

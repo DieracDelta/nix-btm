@@ -3,8 +3,6 @@
 //! - Linux: Uses io_uring with FutexWake/FutexWait
 //! - macOS: Uses kqueue with EVFILT_USER
 
-use crate::protocol_common::ProtocolError;
-
 #[cfg(target_os = "linux")]
 mod platform {
     use io_uring::{IoUring, Probe, opcode::FutexWake};
@@ -120,7 +118,7 @@ mod platform {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
     use snafu::GenerateImplicitData;
 
@@ -187,7 +185,7 @@ mod platform {
         pub fn wake(&mut self, _addr: *const u32) -> Result<(), ProtocolError> {
             // For kqueue, we use EVFILT_USER to trigger a user event
             // The addr parameter is ignored on macOS - we use a fixed ident
-            let mut event = libc::kevent {
+            let event = libc::kevent {
                 ident: 1, // Fixed identifier for ring buffer notifications
                 filter: libc::EVFILT_USER,
                 flags: 0,

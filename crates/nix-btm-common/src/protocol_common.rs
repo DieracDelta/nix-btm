@@ -2,13 +2,13 @@ use std::{
     backtrace::Backtrace,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     marker::PhantomData,
-    sync::atomic::{AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
-use bytemuck::{Pod, PodCastError, Zeroable, try_from_bytes_mut};
+use bytemuck::{Pod, Zeroable};
 use rustix::fs::Mode;
 use serde::{Deserialize, Serialize};
-use snafu::{ResultExt, Snafu, ensure};
+use snafu::Snafu;
 
 use crate::{
     derivation_tree::{DrvNode, DrvRelations},
@@ -177,8 +177,6 @@ pub(crate) struct ShmHeaderView<'a> {
     _pd: PhantomData<&'a ShmHeader>,
 }
 
-const EXPECTED_SHM_SIZE: usize = size_of::<ShmHeader>();
-
 impl<'a> ShmHeaderView<'a> {
     pub(crate) fn new(hdr: *const ShmHeader) -> Self {
         Self {
@@ -246,25 +244,6 @@ impl<'a> ShmHeaderView<'a> {
         let start_seq = (encoded_val >> 32) as u32;
         let start_offset = encoded_val as u32;
         (start_seq, start_offset)
-    }
-
-    // for the futex on start offset
-    pub fn get_start_seq_ptr(&self) -> *const u32 {
-        unsafe {
-            std::ptr::addr_of!((*self.hdr).start_seq_and_offset) as *const u32
-        }
-    }
-
-    /// safe because this should never change
-    #[inline]
-    pub fn magic(&self) -> u64 {
-        unsafe { (*self.hdr).magic }
-    }
-
-    /// safe because this should never change
-    #[inline]
-    pub fn version(&self) -> u32 {
-        unsafe { (*self.hdr).version }
     }
 
     /// safe because this should never change
