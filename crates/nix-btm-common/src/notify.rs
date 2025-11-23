@@ -73,7 +73,7 @@ mod platform {
     }
 
     pub struct Waiter {
-        _uring: Option<IoUring>,
+        uring: IoUring,
     }
 
     impl Waiter {
@@ -93,9 +93,7 @@ mod platform {
                     let mut probe = Probe::new();
                     let _ = uring.submitter().register_probe(&mut probe);
                     if probe.is_supported(FutexWait::CODE) {
-                        Ok(Some(Self {
-                            _uring: Some(uring),
-                        }))
+                        Ok(Some(Self { uring }))
                     } else {
                         eprintln!(
                             "Warning: io_uring FutexWait not supported, \
@@ -112,6 +110,40 @@ mod platform {
                     Ok(None)
                 }
             }
+        }
+
+        /// Wait for the value at `addr` to change from `expected`.
+        /// Returns immediately if the value is already different.
+        pub fn wait(
+            &mut self,
+            addr: *const u32,
+            expected: u32,
+        ) -> Result<(), ProtocolError> {
+            use io_uring::opcode::FutexWait;
+
+            let flags: u32 = FUTEX_BITSET_MATCH_ANY as u32;
+            let mask: u64 = 0;
+
+            let sqe = FutexWait::new(addr, expected as u64, mask, flags)
+                .build()
+                .user_data(FUTEX_MAGIC_NUMBER);
+
+            unsafe {
+                self.uring.submission().push(&sqe).ok();
+            }
+            // TODO this does NOT integrate well with tokio. IMO it's a better
+            // choice to switch to a io uring first async runtime.
+            self.uring.submit_and_wait(1).map_err(|source| {
+                ProtocolError::Io {
+                    source,
+                    backtrace: snafu::Backtrace::generate(),
+                }
+            })?;
+
+            // Consume the completion
+            self.uring.completion().next();
+
+            Ok(())
         }
     }
 }
@@ -218,7 +250,7 @@ mod platform {
 
     /// Waiter using kqueue for macOS
     pub struct Waiter {
-        _kq: Option<OwnedFd>,
+        kq: OwnedFd,
     }
 
     impl Waiter {
@@ -271,7 +303,45 @@ mod platform {
                 return Ok(None);
             }
 
-            Ok(Some(Self { _kq: Some(kq) }))
+            Ok(Some(Self { kq }))
+        }
+
+        /// Wait for a notification from the daemon.
+        /// The `addr` and `expected` parameters are ignored on macOS since
+        /// we use EVFILT_USER instead of futex.
+        pub fn wait(
+            &mut self,
+            _addr: *const u32,
+            _expected: u32,
+        ) -> Result<(), ProtocolError> {
+            let mut event_out = libc::kevent {
+                ident: 0,
+                filter: 0,
+                flags: 0,
+                fflags: 0,
+                data: 0,
+                udata: std::ptr::null_mut(),
+            };
+
+            let ret = unsafe {
+                libc::kevent(
+                    self.kq.as_raw_fd(),
+                    std::ptr::null(),
+                    0,
+                    &mut event_out,
+                    1,
+                    std::ptr::null(), // No timeout - block indefinitely
+                )
+            };
+
+            if ret < 0 {
+                return Err(ProtocolError::Io {
+                    source: std::io::Error::last_os_error(),
+                    backtrace: snafu::Backtrace::generate(),
+                });
+            }
+
+            Ok(())
         }
     }
 }

@@ -21,8 +21,6 @@ test:
 
 [doc('run-client')]
 run-client:
-    -pkill -9 -f "nix-btm.*client" 2>/dev/null || true
-    rm -f /tmp/nixbtm-client-*.log
     cargo run --bin nix-btm --profile dev -- client -d /tmp/nix-daemon.sock
 
 [doc('run-daemon')]
@@ -35,6 +33,7 @@ run-daemon:
 [doc('run-standalone')]
 run-standalone:
     -pkill -9 -f "nix-btm.*standalone" 2>/dev/null || true
+    -pkill -9 -f "nix-btm.*daemon" 2>/dev/null || true
     rm -f /tmp/nixbtm.sock /tmp/nixbtm-standalone-*.log
     cargo run --bin nix-btm --profile dev -- standalone -n /tmp/nixbtm.sock
 

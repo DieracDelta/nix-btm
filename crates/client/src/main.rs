@@ -216,7 +216,8 @@ use rustix::{
 };
 
 // Global flag for signal handler
-static SHUTDOWN_SIGNALED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SHUTDOWN_SIGNALED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Daemonize (advanced programming in the unix environment)
 pub(crate) fn daemon_double_fork() {
@@ -281,11 +282,9 @@ pub(crate) fn init_async_runtime() {
     if matches!(args, Args::Daemon { daemonize, ..} if daemonize) {
         daemon_double_fork();
     }
-
     init_tracing(&args);
-    let rt = Runtime::new().expect("unable to initialize tokio runtime");
 
-    rt.block_on(async {
+    let body = async move {
         match args {
             Args::Daemon { .. } => {
                 run_daemon(args).await;
@@ -297,7 +296,13 @@ pub(crate) fn init_async_runtime() {
                 nix_json_file_path, ..
             } => run_standalone(nix_json_file_path).await.unwrap(),
         }
-    })
+    };
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("unable to initialize tokio runtime")
+        .block_on(body);
 }
 
 // MUST call this with daemon variant
@@ -369,7 +374,9 @@ pub(crate) async fn run_daemon(args: Args) {
         let rpc_shutdown = is_shutdown.clone();
         spawn_named("rpc-listener", async move {
             let mut ticker = tokio::time::interval(Duration::from_millis(100));
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.set_missed_tick_behavior(
+                tokio::time::MissedTickBehavior::Skip,
+            );
             loop {
                 let accept_fut = rpc_listener.accept();
                 tokio::pin!(accept_fut);
@@ -643,11 +650,11 @@ pub(crate) async fn run_client(args: Args) {
         // Create watch channel for job updates
         let (tx_jobs, recv_job_updates) = watch::channel(initial_state);
 
-        // Spawn ring buffer reader task using spawn_blocking since RingReader
-        // has raw pointers
+        // Spawn ring buffer reader in blocking thread pool since it uses
+        // blocking futex/kqueue waits
         let ring_shutdown = is_shutdown.clone();
         let tx_jobs_clone = tx_jobs.clone();
-        std::thread::spawn(move || {
+        tokio::task::spawn_blocking(move || {
             loop {
                 if ring_shutdown.load(Ordering::Relaxed) {
                     break;
@@ -669,8 +676,17 @@ pub(crate) async fn run_client(args: Args) {
                         // TODO: Request new snapshot
                     }
                     ReadResult::NoUpdate => {
-                        // No update available, sleep briefly
-                        std::thread::sleep(Duration::from_millis(10));
+                        // No update available, wait for notification
+                        if ring_reader.has_waiter() {
+                            // Use efficient futex/kqueue wait
+                            if let Err(e) = ring_reader.wait_for_update() {
+                                error!("Wait error: {e}");
+                                std::thread::sleep(Duration::from_millis(10));
+                            }
+                        } else {
+                            // Fallback to polling
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
                     }
                 }
             }
