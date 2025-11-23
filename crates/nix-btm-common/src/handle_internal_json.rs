@@ -280,54 +280,83 @@ pub async fn handle_daemon_info(
     let (listener, _guard) = setup_unix_socket(&socket_path, mode)
         .expect("setup_unix_socket failed");
 
-    let mut ticker = interval(Duration::from_secs(1));
+    let mut ticker = interval(Duration::from_millis(100));
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let cur_state: JobsState = Default::default();
     let mut next_rid: RequesterId = 0.into();
+    let mut ticks_without_connection: u32 = 0;
+    let mut warned_no_connection = false;
+    let mut last_state_send = std::time::Instant::now();
     loop {
-        tokio::select! {
-            res = listener.accept() => {
-                // it seems that a socket is opened per requester
-                match res {
-                    Ok((stream, _addr))
-                        if !is_shutdown.load(Ordering::Relaxed) =>
-                        {
-                            let rid = next_rid;
-                            error!("ACCEPTED SOCKET {next_rid:?}");
-                            next_rid = (*next_rid + 1).into();
-                            let is_shutdown_ = is_shutdown.clone();
-                            let cur_state_ = cur_state.clone();
-                            let fut = async move {
-                                if let Err(e)
-                                    = read_stream(
-                                        Box::new(stream),
-                                        cur_state_,
-                                        is_shutdown_,
-                                        rid
-                                        ).await {
-                                    error!("client connection error: {e}");
-                                }
-                            }.boxed();
+        let accept_fut = listener.accept();
+        tokio::pin!(accept_fut);
 
-                            spawn_named(&format!("client-socket-handler-{rid:?}"), fut);
+        loop {
+            tokio::select! {
+                biased;
 
+                res = &mut accept_fut => {
+                    // it seems that a socket is opened per requester
+                    match res {
+                        Ok((stream, _addr))
+                            if !is_shutdown.load(Ordering::Relaxed) =>
+                            {
+                                let rid = next_rid;
+                                error!("ACCEPTED SOCKET {next_rid:?}");
+                                next_rid = (*next_rid + 1).into();
+                                ticks_without_connection = 0;
+                                warned_no_connection = false;
+                                let is_shutdown_ = is_shutdown.clone();
+                                let cur_state_ = cur_state.clone();
+                                let fut = async move {
+                                    if let Err(e)
+                                        = read_stream(
+                                            Box::new(stream),
+                                            cur_state_,
+                                            is_shutdown_,
+                                            rid
+                                            ).await {
+                                        error!("client connection error: {e}");
+                                    }
+                                }.boxed();
+
+                                spawn_named(&format!("client-socket-handler-{rid:?}"), fut);
+
+                            }
+                        Ok((_stream, _addr)) => {
                         }
-                    Ok((_stream, _addr)) => {
+
+                        Err(e) => error!("accept error: {e}"),
+                    }
+                    break; // Break inner loop to create new accept future
+                }
+                _ = ticker.tick() => {
+                    // Check for shutdown
+                    if is_shutdown.load(Ordering::Relaxed) {
+                        return;
                     }
 
-                    Err(e) => error!("accept error: {e}"),
+                    // Send state update every second
+                    if last_state_send.elapsed() >= Duration::from_secs(1) {
+                        last_state_send = std::time::Instant::now();
+                        let tmp_state = cur_state.read().await;
+                        if info_builds.send(tmp_state.clone()).is_err() {
+                            error!("no active receivers for info_builds");
+                        }
+
+                        // Warn if no Nix connections have been received
+                        ticks_without_connection = ticks_without_connection.saturating_add(1);
+                        if !warned_no_connection && ticks_without_connection >= 5 {
+                            warned_no_connection = true;
+                            error!("No Nix log connections received after {} seconds", ticks_without_connection);
+                            error!("Make sure your nix.conf has: extra-experimental-features = nix-command");
+                            error!("And: json-log-path = {}", socket_path.display());
+                            error!("Then run your nix build with: nix build --log-format internal-json -vvv ...");
+                        }
+                    }
+                    // Continue inner loop, keeping accept_fut alive
                 }
             }
-            _ = ticker.tick() => {
-                    let tmp_state = cur_state.read().await;
-                    if info_builds.send(tmp_state.clone()).is_err() {
-                        error!("no active receivers for info_builds");
-                    }
-                }
-        }
-
-        if is_shutdown.load(Ordering::Relaxed) {
-            break;
         }
     }
 }

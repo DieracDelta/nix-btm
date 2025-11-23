@@ -71,11 +71,23 @@ const MAN_PAGE_BUILDER_VIEW: [&str; 12] = [
     "n - NEXT TAB",
 ];
 
-const MAN_PAGE_EAGLE_EYE_VIEW: [&str; 4] = [
+const MAN_PAGE_EAGLE_EYE_VIEW: [&str; 16] = [
     "q - QUIT",
     "M - TOGGLE MANUAL",
     "p - PREVIOUS TAB",
     "n - NEXT TAB",
+    "j - MOVE DOWN IN TREE",
+    "k - MOVE UP IN TREE",
+    "g - SELECT FIRST ITEM",
+    "G - SELECT LAST ITEM",
+    "SPACE - TOGGLE EXPAND/COLLAPSE NODE",
+    "O - TOGGLE ALL NODES OPEN/CLOSED",
+    "A - CYCLE PRUNE MODE (None -> Normal -> Aggressive)",
+    "y - YANK (COPY) SELECTED DRV NAME TO CLIPBOARD",
+    "Ctrl+d - SCROLL DOWN 10 ITEMS",
+    "Ctrl+u - SCROLL UP 10 ITEMS",
+    "",
+    "Prune modes filter the tree to show only active builds and their ancestors",
 ];
 
 const MAN_PAGE_BUILD_JOB_VIEW: [&str; 4] = [

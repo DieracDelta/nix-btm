@@ -41,6 +41,8 @@ tracing-subscriber.workspace = true
 console-subscriber.workspace = true
 libc.workspace = true
 rustix.workspace = true
+nix.workspace = true
+ctrlc.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = {workspace = true}

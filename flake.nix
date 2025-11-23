@@ -112,6 +112,37 @@
               };
             };
 
+          nix-btm-daemon =
+            with if os == "darwin" then pkgs else pkgs.pkgsMusl;
+            rustPlatform.buildRustPackage {
+              pname = "nix-btm-daemon";
+              version = "0.3.0";
+
+              src = ./.;
+              buildAndTestSubdir = "./crates/daemon";
+
+              doCheck = false;
+
+              cargoLock = {
+                lockFile = ./Cargo.lock;
+              };
+
+              env = {
+                # requires features: sync_unsafe_cell, unbounded_shifts, let_chains, ip
+                RUSTC_BOOTSTRAP = 1;
+                RUSTFLAGS = "-C target-feature=+crt-static";
+                NIX_CFLAGS_COMPILE = "-Wno-error";
+                CARGO_BUILD_TARGET = target;
+              };
+
+              meta = with lib; {
+                description = "Daemon for nix-btm to monitor nix processes";
+                homepage = "https://github.com/DieracDelta/nix-btm";
+                license = licenses.gpl3;
+                mainProgram = "nix-btm-daemon";
+              };
+            };
+
           consoleShell = pkgs.mkShell.override { } {
             hardeningDisable = [ "fortify" ];
             RUSTFLAGS = "-C target-feature=+crt-static --cfg tokio_unstable" + maybe_hardcoded_hack;
@@ -169,6 +200,7 @@
           packages = {
             default = nix-btm;
             nix-btm = nix-btm;
+            nix-btm-daemon = nix-btm-daemon;
           };
           devShells = {
             default = devShell;
@@ -184,5 +216,151 @@
       devShells = builtins.mapAttrs (_: v: v.devShells) all;
 
       defaultPackage = builtins.mapAttrs (_: v: v.packages.default) all;
+
+      nixosModules.default =
+        {
+          config,
+          lib,
+          pkgs,
+          ...
+        }:
+        let
+          cfg = config.services.nix-btm-daemon;
+        in
+        {
+          options.services.nix-btm-daemon = {
+            enable = lib.mkEnableOption "nix-btm daemon";
+
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.system}.nix-btm-daemon;
+              description = "The nix-btm-daemon package to use";
+            };
+
+            nixSocketPath = lib.mkOption {
+              type = lib.types.str;
+              default = "/tmp/nixbtm.sock";
+              description = "Path to the Nix JSON log socket (json-log-path setting)";
+            };
+
+            daemonSocketPath = lib.mkOption {
+              type = lib.types.str;
+              default = "/tmp/nix-daemon.sock";
+              description = "Path for the daemon RPC socket for client-daemon communication";
+            };
+
+            user = lib.mkOption {
+              type = lib.types.str;
+              default = "nix-btm";
+              description = "User to run the daemon as";
+            };
+
+            group = lib.mkOption {
+              type = lib.types.str;
+              default = "nix-btm";
+              description = "Group to run the daemon as";
+            };
+          };
+
+          config = lib.mkIf cfg.enable {
+            users.users.${cfg.user} = lib.mkIf (cfg.user == "nix-btm") {
+              isSystemUser = true;
+              group = cfg.group;
+              description = "nix-btm daemon user";
+            };
+
+            users.groups.${cfg.group} = lib.mkIf (cfg.group == "nix-btm") { };
+
+            systemd.services.nix-btm-daemon = {
+              description = "nix-btm daemon for monitoring Nix builds";
+              wantedBy = [ "multi-user.target" ];
+              before = [ "nix-daemon.service" ];
+              after = [ "network.target" ];
+
+              serviceConfig = {
+                Type = "simple";
+                ExecStart = "${cfg.package}/bin/nix-btm-daemon -n ${cfg.nixSocketPath} -d ${cfg.daemonSocketPath}";
+                ExecStartPre = "${pkgs.coreutils}/bin/rm -f ${cfg.nixSocketPath} ${cfg.daemonSocketPath}";
+                Restart = "on-failure";
+                RestartSec = "5s";
+                User = cfg.user;
+                Group = cfg.group;
+
+                # Hardening options
+                ProtectSystem = "strict";
+                ProtectHome = true;
+                PrivateDevices = true;
+                ProtectKernelTunables = true;
+                ProtectKernelModules = true;
+                ProtectControlGroups = true;
+                RestrictNamespaces = true;
+                RestrictRealtime = true;
+                RestrictSUIDSGID = true;
+                MemoryDenyWriteExecute = true;
+                LockPersonality = true;
+                # TODO it queries nix, so we need to add taht to the path
+                # TODO the user and group should be dynamic not static
+
+                # Allow access to /tmp for sockets and /nix/store for derivation info
+                ReadWritePaths = [ "/tmp" ];
+                ReadOnlyPaths = [ "/nix/store" ];
+              };
+            };
+          };
+        };
+
+      # nix-darwin module
+      darwinModules.default =
+        {
+          config,
+          lib,
+          pkgs,
+          ...
+        }:
+        let
+          cfg = config.services.nix-btm-daemon;
+        in
+        {
+          options.services.nix-btm-daemon = {
+            enable = lib.mkEnableOption "nix-btm daemon for monitoring Nix builds";
+
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.system}.nix-btm-daemon;
+              description = "The nix-btm-daemon package to use";
+            };
+
+            nixSocketPath = lib.mkOption {
+              type = lib.types.str;
+              default = "/tmp/nixbtm.sock";
+              description = "Path for the Nix JSON log socket";
+            };
+
+            daemonSocketPath = lib.mkOption {
+              type = lib.types.str;
+              default = "/tmp/nix-daemon.sock";
+              description = "Path for the daemon RPC socket";
+            };
+          };
+
+          config = lib.mkIf cfg.enable {
+            launchd.daemons.nix-btm-daemon = {
+              serviceConfig = {
+                Label = "com.github.dieracdelta.nix-btm-daemon";
+                ProgramArguments = [
+                  "${cfg.package}/bin/nix-btm-daemon"
+                  "-n"
+                  cfg.nixSocketPath
+                  "-d"
+                  cfg.daemonSocketPath
+                ];
+                RunAtLoad = true;
+                KeepAlive = true;
+                StandardErrorPath = "/tmp/nix-btm-daemon.err.log";
+                StandardOutPath = "/tmp/nix-btm-daemon.out.log";
+              };
+            };
+          };
+        };
     };
 }

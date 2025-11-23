@@ -215,6 +215,9 @@ use rustix::{
     process::{chdir, umask},
 };
 
+// Global flag for signal handler
+static SHUTDOWN_SIGNALED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Daemonize (advanced programming in the unix environment)
 pub(crate) fn daemon_double_fork() {
     do_fork();
@@ -318,51 +321,14 @@ pub(crate) async fn run_daemon(args: Args) {
 
         let is_shutdown = Arc::new(AtomicBool::new(false));
 
-        // Set up Ctrl-C handler only when not daemonized (foreground mode)
-        if !daemonize {
-            let shutdown_flag = is_shutdown.clone();
-            std::thread::spawn(move || {
-                // Use a pipe for signal notification
-                let (read_fd, write_fd) = unsafe {
-                    let mut fds = [0i32; 2];
-                    libc::pipe(fds.as_mut_ptr());
-                    (fds[0], fds[1])
-                };
-
-                unsafe {
-                    // Store write_fd in a static so the signal handler can
-                    // access it
-                    static mut SIGNAL_WRITE_FD: i32 = -1;
-                    SIGNAL_WRITE_FD = write_fd;
-
-                    extern "C" fn handler(_: i32) {
-                        unsafe {
-                            let _ = libc::write(
-                                SIGNAL_WRITE_FD,
-                                b"x".as_ptr() as *const libc::c_void,
-                                1,
-                            );
-                        }
-                    }
-                    libc::signal(libc::SIGINT, handler as usize);
-                    libc::signal(libc::SIGTERM, handler as usize);
-
-                    // Wait for signal by reading from pipe
-                    let mut buf = [0u8; 1];
-                    libc::read(
-                        read_fd,
-                        buf.as_mut_ptr() as *mut libc::c_void,
-                        1,
-                    );
-
-                    libc::close(read_fd);
-                    libc::close(write_fd);
-                }
-
-                error!("Received shutdown signal");
-                shutdown_flag.store(true, Ordering::Relaxed);
-            });
-        }
+        // Spawn signal handler task
+        let signal_shutdown = is_shutdown.clone();
+        spawn_named("signal-handler", async move {
+            let ctrl_c = tokio::signal::ctrl_c();
+            ctrl_c.await.expect("Failed to listen for Ctrl-C");
+            eprintln!("\nReceived Ctrl-C, shutting down...");
+            signal_shutdown.store(true, Ordering::Relaxed);
+        });
 
         // Create the shared state
         let state: Arc<RwLock<JobsStateInner>> =
@@ -402,35 +368,43 @@ pub(crate) async fn run_daemon(args: Args) {
         let rpc_state = state.clone();
         let rpc_shutdown = is_shutdown.clone();
         spawn_named("rpc-listener", async move {
+            let mut ticker = tokio::time::interval(Duration::from_millis(100));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                tokio::select! {
-                    res = rpc_listener.accept() => {
-                        match res {
-                            Ok((stream, _addr))
-                                if !rpc_shutdown.load(Ordering::Relaxed) =>
-                            {
-                                let writer = rpc_ring_writer.clone();
-                                let st = rpc_state.clone();
+                let accept_fut = rpc_listener.accept();
+                tokio::pin!(accept_fut);
 
-                                spawn_named("rpc-connection", async move {
-                                    let res = handle_rpc_connection(
-                                        stream, writer, st,
-                                    )
-                                    .await;
-                                    if let Err(e) = res {
-                                        error!("RPC connection error: {e}");
-                                    }
-                                });
+                loop {
+                    tokio::select! {
+                        biased;
+
+                        res = &mut accept_fut => {
+                            match res {
+                                Ok((stream, _addr)) => {
+                                    let writer = rpc_ring_writer.clone();
+                                    let st = rpc_state.clone();
+
+                                    spawn_named("rpc-connection", async move {
+                                        let res = handle_rpc_connection(
+                                            stream, writer, st,
+                                        )
+                                        .await;
+                                        if let Err(e) = res {
+                                            error!("RPC connection error: {e}");
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    error!("RPC accept error: {e}");
+                                }
                             }
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("RPC accept error: {e}");
-                            }
+                            break; // Break inner loop to create new accept future
                         }
-                    }
-                    _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                        if rpc_shutdown.load(Ordering::Relaxed) {
-                            break;
+                        _ = ticker.tick() => {
+                            if rpc_shutdown.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            // Continue inner loop, keeping accept_fut alive
                         }
                     }
                 }
@@ -764,16 +738,11 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
             };
 
             // Insert node into tree
-            state.dep_tree.nodes.insert(drv.clone(), node);
+            state.dep_tree.nodes.insert(drv.clone(), node.clone());
 
-            // Update tree_roots: drv is a root if no other node has it as a
-            // dependency First add it as a potential root
-            state.dep_tree.tree_roots.insert(drv.clone());
-
-            // Remove any deps from roots since they have a parent now
-            for dep in &deps {
-                state.dep_tree.tree_roots.remove(dep);
-            }
+            // Use insert_node which properly handles tree_roots
+            // by checking if this node is a child of existing roots
+            state.dep_tree.insert_node(node);
         }
         Update::Heartbeat { daemon_seq: _ } => {
             // Heartbeat received, daemon is alive
