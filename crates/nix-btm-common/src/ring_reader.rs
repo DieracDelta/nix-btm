@@ -32,6 +32,10 @@ pub struct RingReader {
                              * kqueue on macOS) */
 }
 
+// SAFETY: The raw pointer points to memory-mapped shared memory that remains
+// valid for the lifetime of RingReader. The Mmap keeps the mapping alive.
+unsafe impl Send for RingReader {}
+
 impl RingReader {
     pub fn from_name(
         name: &str,
@@ -49,51 +53,39 @@ impl RingReader {
         let mmaped_region: Mmap = unsafe { Mmap::map(fd.as_raw_fd())? };
 
         let hdr_ptr = mmaped_region.as_ptr() as *const ShmHeader;
-        let (ring_len, off, next_seq) = {
+        let ring_len = {
             std::sync::atomic::fence(Ordering::Acquire);
             let hv = ShmHeaderView::new(hdr_ptr);
-            //ensure!(
-            //    hv.magic() == ShmHeader::MAGIC,
-            //    UnexpectedRingSizeSnafu {
-            //        expected: ShmHeader::MAGIC,
-            //        got: hv.magic(),
-            //    }
-            //);
-            //ensure!(
-            //    hv.version() == ShmHeader::VERSION,
-            //    UnexpectedRingSizeSnafu {
-            //        expected: ShmHeader::VERSION,
-            //        got: hv.version(),
-            //    }
-            //);
-            // safe to do this read
-            let ring_len = hv.ring_len();
-
-            // Initialize reader to start from the beginning of valid data
-            let (start_seq, start_offset) = hv.read_start_seq_and_offset();
-            let (end_seq, _end_offset) = hv.read_seq_and_next_entry_offset();
-
-            // If start_seq is 0 (initial state) but there's data (end_seq > 0),
-            // the first record will have seq=1, so start from seq 1
-            let next_seq = if start_seq == 0 && end_seq > 0 {
-                1
-            } else {
-                start_seq
-            };
-
-            (ring_len, start_offset, next_seq)
+            hv.ring_len()
         };
 
         // Initialize platform-specific waiter (io_uring on Linux, kqueue on
         // macOS)
         let waiter = Waiter::new()?;
 
+        // Initialize reader to current buffer position
+        // This allows immediate reading if buffer has data, or waiting for new
+        // data
+        let hv = ShmHeaderView::new(hdr_ptr);
+        let (end_seq, end_offset) = hv.read_seq_and_next_entry_offset();
+
+        // If buffer is empty (end_seq=0), wait for seq 1
+        // If buffer has data, start from current end to wait for new data
+        let (init_seq, init_off) = if end_seq == 0 {
+            // Empty buffer - wait for first write which will be seq 1
+            (1, 0)
+        } else {
+            // Buffer has data - position at end to wait for new data
+            // Caller should use sync_to_snapshot for catchup scenarios
+            (end_seq.wrapping_add(1), end_offset)
+        };
+
         Ok(Self {
             map: mmaped_region,
             hdr_ptr: (hdr_ptr as *mut ShmHeader),
             ring_len,
-            off,
-            next_seq,
+            off: init_off,
+            next_seq: init_seq,
             waiter,
         })
     }
@@ -105,46 +97,54 @@ impl RingReader {
         &self.map[hdr_size..hdr_size + self.ring_len as usize]
     }
 
-    /// Try to read data immediately, then validate the read was safe.
-    /// Returns NeedCatchup if the reader has fallen too far behind or data is
-    /// invalid.
+    /// Sync reader to the current end of the ring buffer.
+    /// This should be called after loading a snapshot so the client waits for
+    /// new data. The snapshot already contains all state up to snap_seq, so
+    /// we start from the current end.
+    pub fn sync_to_snapshot(&mut self, _snap_seq: u64) {
+        std::sync::atomic::fence(Ordering::Acquire);
+        let hv = ShmHeaderView::new(self.hdr_ptr);
+        let (end_seq, end_offset) = hv.read_seq_and_next_entry_offset();
+        let (start_seq, start_offset) = hv.read_start_seq_and_offset();
+
+        tracing::error!(
+            "sync_to_snapshot: start=({}, {}), end=({}, {})",
+            start_seq,
+            start_offset,
+            end_seq,
+            end_offset
+        );
+
+        // Position at the current end of the buffer to wait for new data
+        // The snapshot already contains all historical state
+        // end_seq is the last written sequence, so we wait for end_seq + 1
+        self.next_seq = end_seq.wrapping_add(1);
+        self.off = end_offset;
+    }
+
+    /// Try to read the next update from the ring buffer.
+    /// Returns NeedCatchup if the reader has fallen too far behind.
     pub fn try_read(&mut self) -> ReadResult {
         std::sync::atomic::fence(Ordering::Acquire);
 
-        // Step 1: Save current position and read immediately (optimistic read)
-        let original_offset = self.off;
-        let original_next_seq = self.next_seq;
-        let parse_result = self.try_parse_current_record();
-
-        // Step 2: Check atomics to verify the read was valid
         let hv = ShmHeaderView::new(self.hdr_ptr);
-        let (start_seq, start_offset) = hv.read_start_seq_and_offset();
-        let (_end_seq, end_offset) = hv.read_seq_and_next_entry_offset();
+        let (start_seq, _start_offset) = hv.read_start_seq_and_offset();
+        let (end_seq, _end_offset) = hv.read_seq_and_next_entry_offset();
 
-        // Check 1: Are we out of sync (lapped)?
-        if original_next_seq < start_seq {
+        // Check if we're out of sync (lapped by writer)
+        if self.next_seq > 0 && self.next_seq < start_seq {
             return ReadResult::NeedCatchup;
         }
 
-        // Check 2: Was the original offset in valid range?
-        let was_offset_valid = if end_offset > start_offset {
-            // no wraparound
-            original_offset >= start_offset && original_offset < end_offset
-        } else if end_offset < start_offset {
-            // Wraparound case: valid range is [start_offset, ring_len) U [0,
-            // end_offset)
-            original_offset >= start_offset || original_offset < end_offset
-        } else {
-            // end_offset == start_offset: ring is empty
+        // Check if we're at the end waiting for new data
+        // end_seq is the last written sequence, so we can read up to and
+        // including it
+        if self.next_seq > end_seq {
             return ReadResult::NoUpdate;
-        };
-
-        if !was_offset_valid {
-            return ReadResult::NeedCatchup;
         }
 
-        // Step 3: Data was valid, return the parse result
-        match parse_result {
+        // Try to parse the next record
+        match self.try_parse_current_record() {
             Ok(Some(update)) => update,
             Ok(None) => ReadResult::NoUpdate,
             Err(_) => ReadResult::NeedCatchup,
@@ -181,7 +181,10 @@ impl RingReader {
             if rec_hdr.seq > self.next_seq {
                 let from = self.next_seq;
                 let to = rec_hdr.seq;
-                self.next_seq = rec_hdr.seq.wrapping_add(1);
+                // Update next_seq to current record's seq so next read will
+                // succeed Don't update offset - we'll read this
+                // record on next call
+                self.next_seq = rec_hdr.seq;
                 return Ok(Some(ReadResult::Lost { from, to }));
             } else {
                 // seq < next_seq shouldn't happen, data is stale/corrupted

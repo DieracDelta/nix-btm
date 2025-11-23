@@ -78,7 +78,11 @@ fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
     // total_len must match what RingWriter::create used
     let total_len = (size_of::<ShmHeader>() as u32 + ring_len) as usize;
 
-    // 2. Write some updates
+    // 2. Attach a reader BEFORE writes to track from the beginning
+    let mut reader = RingReader::from_name(&ring_name, total_len)
+        .expect("RingReader::from_name should succeed");
+
+    // 3. Write some updates
     let updates = vec![
         Update::Heartbeat { daemon_seq: 1 },
         Update::Heartbeat { daemon_seq: 2 },
@@ -92,10 +96,6 @@ fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
             .expect("write_update should succeed");
         seqs.push(seq);
     }
-
-    // 3. Attach a reader to the same shm (tests RingReader::from_name)
-    let mut reader = RingReader::from_name(&ring_name, total_len)
-        .expect("RingReader::from_name should succeed");
 
     // 4. Read updates via the reader
     use nix_btm_common::ring_reader::ReadResult;
@@ -282,15 +282,15 @@ fn ring_reader_detects_being_lapped() {
     let ring_name = writer.name.clone();
     let total_len = (size_of::<ShmHeader>() as u32 + ring_len) as usize;
 
+    // Create reader BEFORE writes - it will start at the beginning
+    let mut reader = RingReader::from_name(&ring_name, total_len)
+        .expect("RingReader::from_name should succeed");
+
     // Write a few updates
     for i in 0..3 {
         let upd = Update::Heartbeat { daemon_seq: i };
         writer.write_update(&upd).expect("write should succeed");
     }
-
-    // Create reader - it will start at the beginning
-    let mut reader = RingReader::from_name(&ring_name, total_len)
-        .expect("RingReader::from_name should succeed");
 
     // Read one update
     use nix_btm_common::ring_reader::ReadResult;

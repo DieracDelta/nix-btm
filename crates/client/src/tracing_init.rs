@@ -41,21 +41,36 @@ pub(crate) fn init_tracing(args: &Args) {
 
     let file = File::create(log_path).expect("Could not initialize log");
 
-    // TODO hide this behind cfg flag!
-    // Tokio console layer (spawns a background task; must be called inside a
-    // Tokio runtime)
-    let console_layer = console_subscriber::ConsoleLayer::builder()
-        .with_default_env() // honors TOKIO_CONSOLE_* env vars
-        .spawn();
     let env_filter = EnvFilter::from_default_env();
 
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(console_layer)
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(file)
-                .with_target(false),
-        )
-        .init();
+    #[cfg(tokio_unstable)]
+    {
+        // Tokio console layer (spawns a background task; must be called inside
+        // a Tokio runtime)
+        let console_layer = console_subscriber::ConsoleLayer::builder()
+            .with_default_env() // honors TOKIO_CONSOLE_* env vars
+            .spawn();
+
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(console_layer)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(file)
+                    .with_target(false),
+            )
+            .init();
+    }
+
+    #[cfg(not(tokio_unstable))]
+    {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(file)
+                    .with_target(false),
+            )
+            .init();
+    }
 }

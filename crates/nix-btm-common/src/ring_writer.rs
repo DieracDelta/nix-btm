@@ -46,6 +46,12 @@ impl RingWriter {
     pub fn create(name: &str, ring_len: u32) -> Result<Self, ProtocolError> {
         let total_len = SHM_HDR_SIZE + ring_len;
 
+        // Try to unlink any existing shared memory from a previous run
+        unsafe {
+            let c_name = std::ffi::CString::new(name).unwrap();
+            libc::shm_unlink(c_name.as_ptr());
+        }
+
         // Create named shared memory
         let mut shm = Shm::open(
             name,
@@ -67,6 +73,17 @@ impl RingWriter {
         let hv = ShmHeaderView::new(hdr);
         hv.write_seq_and_next_entry_offset(0, 0);
         hv.write_start_seq_and_offset(0, 0);
+
+        // Verify initialization
+        let (end_seq, end_off) = hv.read_seq_and_next_entry_offset();
+        let (start_seq, start_off) = hv.read_start_seq_and_offset();
+        tracing::error!(
+            "RingWriter initialized: start=({}, {}), end=({}, {})",
+            start_seq,
+            start_off,
+            end_seq,
+            end_off
+        );
 
         // Initialize platform-specific notifier (io_uring on Linux, kqueue on
         // macOS)

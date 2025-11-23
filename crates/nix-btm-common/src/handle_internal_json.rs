@@ -695,11 +695,24 @@ async fn read_stream(
         if is_shutdown.load(Ordering::Relaxed) {
             return Ok(());
         }
-        if let Ok(Some(line)) = lines.next_line().await {
-            handle_line(line, state.clone(), rid).await;
-        } else {
-            error!("stopped being able to read socket on {rid:?}");
-            return Ok(());
+
+        // Use timeout so we periodically check is_shutdown
+        let read_result =
+            tokio::time::timeout(Duration::from_millis(500), lines.next_line())
+                .await;
+
+        match read_result {
+            Ok(Ok(Some(line))) => {
+                handle_line(line, state.clone(), rid).await;
+            }
+            Ok(Ok(None)) | Ok(Err(_)) => {
+                error!("stopped being able to read socket on {rid:?}");
+                return Ok(());
+            }
+            Err(_) => {
+                // Timeout - just continue to check is_shutdown
+                continue;
+            }
         }
     }
 }

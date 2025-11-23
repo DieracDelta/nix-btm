@@ -3,7 +3,11 @@ use std::{
     error::Error,
     io::{self, Stdout},
     panic,
-    sync::{Arc, atomic::AtomicBool},
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -11,11 +15,22 @@ use clap::Parser;
 use futures::future::join_all;
 use mimalloc::MiMalloc;
 use nix_btm_common::{
-    handle_internal_json::{JobsStateInner, handle_daemon_info},
+    client_side::client_read_snapshot_into_state,
+    handle_internal_json::{
+        BuildJob, JobId, JobsStateInner, handle_daemon_info, setup_unix_socket,
+    },
+    protocol_common::Update,
+    ring_reader::{ReadResult, RingReader},
+    ring_writer::RingWriter,
+    rpc::{ClientRequest, DaemonResponse},
+    rpc_client::send_rpc_request,
+    rpc_daemon::handle_rpc_connection,
     spawn_named,
 };
 use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
+use tokio::sync::RwLock;
+use tracing::{error, info};
 
 pub mod emojis;
 pub mod event_loop;
@@ -267,28 +282,503 @@ pub(crate) fn init_async_runtime() {
     init_tracing(&args);
     let rt = Runtime::new().expect("unable to initialize tokio runtime");
 
-    rt.block_on(async { unimplemented!() })
+    rt.block_on(async {
+        match args {
+            Args::Daemon { .. } => {
+                run_daemon(args).await;
+            }
+            Args::Client { .. } => {
+                run_client(args).await;
+            }
+            Args::Standalone {
+                nix_json_file_path, ..
+            } => run_standalone(nix_json_file_path).await.unwrap(),
+        }
+    })
 }
 
 // MUST call this with daemon variant
 #[allow(dead_code)]
 pub(crate) async fn run_daemon(args: Args) {
     if let Args::Daemon {
-        daemonize: _,
-        nix_json_file_path: _,
-        daemon_socket_path: _,
+        nix_json_file_path,
+        daemon_socket_path,
         daemon_log_path: _,
+        daemonize,
     } = args
     {
-        unimplemented!();
+        let nix_socket_path = nix_json_file_path
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/tmp/nixbtm.sock"));
+        let rpc_socket_path = PathBuf::from(&daemon_socket_path);
+
+        error!("Starting nix-btm daemon");
+        error!("  Nix log socket: {}", nix_socket_path.display());
+        error!("  RPC socket: {}", rpc_socket_path.display());
+
+        let is_shutdown = Arc::new(AtomicBool::new(false));
+
+        // Set up Ctrl-C handler only when not daemonized (foreground mode)
+        if !daemonize {
+            let shutdown_flag = is_shutdown.clone();
+            std::thread::spawn(move || {
+                // Use a pipe for signal notification
+                let (read_fd, write_fd) = unsafe {
+                    let mut fds = [0i32; 2];
+                    libc::pipe(fds.as_mut_ptr());
+                    (fds[0], fds[1])
+                };
+
+                unsafe {
+                    // Store write_fd in a static so the signal handler can
+                    // access it
+                    static mut SIGNAL_WRITE_FD: i32 = -1;
+                    SIGNAL_WRITE_FD = write_fd;
+
+                    extern "C" fn handler(_: i32) {
+                        unsafe {
+                            let _ = libc::write(
+                                SIGNAL_WRITE_FD,
+                                b"x".as_ptr() as *const libc::c_void,
+                                1,
+                            );
+                        }
+                    }
+                    libc::signal(libc::SIGINT, handler as usize);
+                    libc::signal(libc::SIGTERM, handler as usize);
+
+                    // Wait for signal by reading from pipe
+                    let mut buf = [0u8; 1];
+                    libc::read(
+                        read_fd,
+                        buf.as_mut_ptr() as *mut libc::c_void,
+                        1,
+                    );
+
+                    libc::close(read_fd);
+                    libc::close(write_fd);
+                }
+
+                error!("Received shutdown signal");
+                shutdown_flag.store(true, Ordering::Relaxed);
+            });
+        }
+
+        // Create the shared state
+        let state: Arc<RwLock<JobsStateInner>> =
+            Arc::new(RwLock::new(JobsStateInner::default()));
+
+        // Create watch channel for internal state updates
+        let (state_tx, mut state_rx) =
+            watch::channel(JobsStateInner::default());
+
+        // Create the ring buffer writer with unique name per daemon instance
+        let daemon_pid = std::process::id();
+        let shm_name = format!("nix-btm-ring-{}", daemon_pid);
+        let ring_size: u32 = 1024 * 1024; // 1MB
+        let ring_writer = match RingWriter::create(&shm_name, ring_size) {
+            Ok(w) => w,
+            Err(e) => {
+                error!("Failed to create ring buffer: {e}");
+                return;
+            }
+        };
+        let ring_writer = Arc::new(RwLock::new(ring_writer));
+        error!("Ring buffer created: {shm_name} ({ring_size} bytes)");
+
+        // Set up the RPC socket for client connections
+        let (rpc_listener, _rpc_guard) =
+            match setup_unix_socket(&rpc_socket_path, 0o666) {
+                Ok(l) => l,
+                Err(e) => {
+                    error!("Failed to set up RPC socket: {e}");
+                    return;
+                }
+            };
+        info!("RPC socket listening on {}", rpc_socket_path.display());
+
+        // Spawn RPC handler task
+        let rpc_ring_writer = ring_writer.clone();
+        let rpc_state = state.clone();
+        let rpc_shutdown = is_shutdown.clone();
+        spawn_named("rpc-listener", async move {
+            loop {
+                tokio::select! {
+                    res = rpc_listener.accept() => {
+                        match res {
+                            Ok((stream, _addr))
+                                if !rpc_shutdown.load(Ordering::Relaxed) =>
+                            {
+                                let writer = rpc_ring_writer.clone();
+                                let st = rpc_state.clone();
+
+                                spawn_named("rpc-connection", async move {
+                                    let res = handle_rpc_connection(
+                                        stream, writer, st,
+                                    )
+                                    .await;
+                                    if let Err(e) = res {
+                                        error!("RPC connection error: {e}");
+                                    }
+                                });
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!("RPC accept error: {e}");
+                            }
+                        }
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                        if rpc_shutdown.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        // Spawn the update streamer task - writes updates to ring buffer
+        let streamer_ring_writer = ring_writer.clone();
+        let mut streamer_state_rx = state_rx.clone();
+        let streamer_shutdown = is_shutdown.clone();
+        spawn_named("update-streamer", async move {
+            use std::collections::{BTreeSet, HashMap};
+
+            use nix_btm_common::handle_internal_json::Drv;
+
+            let mut last_jobs: HashMap<JobId, BuildJob> = HashMap::new();
+            let mut last_dep_nodes: BTreeSet<Drv> = BTreeSet::new();
+
+            loop {
+                // Wait for state changes
+                if streamer_state_rx.changed().await.is_err() {
+                    break;
+                }
+
+                if streamer_shutdown.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                let current_state = streamer_state_rx.borrow().clone();
+                let mut writer = streamer_ring_writer.write().await;
+
+                // Find new and updated jobs
+                for (jid, job) in &current_state.jid_to_job {
+                    match last_jobs.get(jid) {
+                        None => {
+                            // New job
+                            let update = Update::JobNew(job.clone());
+                            if let Err(e) = writer.write_update(&update) {
+                                error!("Failed to write JobNew: {e}");
+                            }
+                        }
+                        Some(old_job) if old_job != job => {
+                            // Updated job - send status change
+                            let update = Update::JobUpdate {
+                                jid: jid.0,
+                                status: format!("{:?}", job.status),
+                            };
+                            if let Err(e) = writer.write_update(&update) {
+                                error!("Failed to write JobUpdate: {e}");
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Check for finished jobs
+                for (jid, job) in &current_state.jid_to_job {
+                    if let Some(stop_time) = job.stop_time_ns
+                        && last_jobs
+                            .get(jid)
+                            .map(|j| j.stop_time_ns.is_none())
+                            .unwrap_or(false)
+                    {
+                        let update = Update::JobFinish {
+                            jid: jid.0,
+                            stop_time_ns: stop_time,
+                        };
+                        if let Err(e) = writer.write_update(&update) {
+                            error!("Failed to write JobFinish: {e}");
+                        }
+                    }
+                }
+
+                // Send dep graph updates for new nodes
+                for (drv, node) in &current_state.dep_tree.nodes {
+                    if !last_dep_nodes.contains(drv) {
+                        let update = Update::DepGraphUpdate {
+                            drv: drv.clone(),
+                            deps: node.deps.iter().cloned().collect(),
+                        };
+                        if let Err(e) = writer.write_update(&update) {
+                            error!("Failed to write DepGraphUpdate: {e}");
+                        }
+                    }
+                }
+
+                last_jobs = current_state.jid_to_job.clone();
+                last_dep_nodes =
+                    current_state.dep_tree.nodes.keys().cloned().collect();
+            }
+        });
+
+        // Spawn task to sync watch channel updates to shared state
+        let sync_state = state.clone();
+        spawn_named("state-sync", async move {
+            loop {
+                if state_rx.changed().await.is_err() {
+                    break;
+                }
+                let new_state = state_rx.borrow().clone();
+                *sync_state.write().await = new_state;
+            }
+        });
+
+        // Run the main Nix log handler (this takes over the current task)
+        handle_daemon_info(
+            nix_socket_path,
+            0o666,
+            is_shutdown.clone(),
+            state_tx,
+        )
+        .await;
+
+        info!("Daemon shutting down");
     } else {
         unreachable!();
     }
 }
 
 #[allow(dead_code)]
-pub(crate) async fn run_client(_args: Args) {
-    unimplemented!()
+pub(crate) async fn run_client(args: Args) {
+    if let Args::Client {
+        daemon_socket_path,
+        client_log_path: _,
+    } = args
+    {
+        let rpc_socket_path = daemon_socket_path
+            .unwrap_or_else(|| "/tmp/nix-daemon.sock".to_string());
+
+        info!("Connecting to daemon at {}", rpc_socket_path);
+
+        // Connect to daemon RPC socket
+        let mut stream = match tokio::net::UnixStream::connect(&rpc_socket_path)
+            .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to connect to daemon: {e}");
+                error!("Is the daemon running? Start it with: nix-btm daemon");
+                return;
+            }
+        };
+
+        // Request ring buffer info
+        let ring_response =
+            match send_rpc_request(&mut stream, ClientRequest::RequestRing)
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    error!("Failed to request ring buffer: {e}");
+                    return;
+                }
+            };
+
+        let (ring_name, ring_total_len) = match ring_response {
+            DaemonResponse::RingReady {
+                ring_name,
+                total_len,
+            } => (ring_name, total_len),
+            DaemonResponse::Error { message } => {
+                error!("Daemon error: {message}");
+                return;
+            }
+            _ => {
+                error!("Unexpected response from daemon");
+                return;
+            }
+        };
+
+        info!("Ring buffer: {} ({} bytes)", ring_name, ring_total_len);
+
+        // Request snapshot for initial state
+        let client_pid = std::process::id() as i32;
+        let snapshot_response = match send_rpc_request(
+            &mut stream,
+            ClientRequest::RequestSnapshot { client_pid },
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Failed to request snapshot: {e}");
+                return;
+            }
+        };
+
+        let (snapshot_name, snapshot_len, snap_seq) = match snapshot_response {
+            DaemonResponse::SnapshotReady {
+                snapshot_name,
+                total_len,
+                snap_seq,
+            } => (snapshot_name, total_len, snap_seq),
+            DaemonResponse::Error { message } => {
+                error!("Daemon error: {message}");
+                return;
+            }
+            _ => {
+                error!("Unexpected response from daemon");
+                return;
+            }
+        };
+
+        // Read initial state from snapshot
+        let initial_state =
+            match client_read_snapshot_into_state(&snapshot_name, snapshot_len)
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Failed to read snapshot: {e}");
+                    return;
+                }
+            };
+
+        info!(
+            "Loaded initial state with {} jobs",
+            initial_state.jid_to_job.len()
+        );
+
+        // Create ring reader
+        let mut ring_reader =
+            match RingReader::from_name(&ring_name, ring_total_len as usize) {
+                Ok(mut r) => {
+                    // Sync to start reading after the snapshot sequence
+                    r.sync_to_snapshot(snap_seq);
+                    r
+                }
+                Err(e) => {
+                    error!("Failed to create ring reader: {e}");
+                    return;
+                }
+            };
+
+        let is_shutdown = Arc::new(AtomicBool::new(false));
+
+        // Create watch channel for job updates
+        let (tx_jobs, recv_job_updates) = watch::channel(initial_state);
+
+        // Spawn ring buffer reader task using spawn_blocking since RingReader
+        // has raw pointers
+        let ring_shutdown = is_shutdown.clone();
+        let tx_jobs_clone = tx_jobs.clone();
+        std::thread::spawn(move || {
+            loop {
+                if ring_shutdown.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                match ring_reader.try_read() {
+                    ReadResult::Update { seq: _, update } => {
+                        // Apply update to state
+                        tx_jobs_clone.send_modify(|state| {
+                            apply_update(state, update);
+                        });
+                    }
+                    ReadResult::Lost { from, to } => {
+                        error!("Lost updates from seq {} to {}", from, to);
+                        // TODO: Request new snapshot
+                    }
+                    ReadResult::NeedCatchup => {
+                        error!("Need catchup - ring buffer overrun");
+                        // TODO: Request new snapshot
+                    }
+                    ReadResult::NoUpdate => {
+                        // No update available, sleep briefly
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            }
+        });
+
+        // Spawn process stats poller
+        let (tx_proc, recv_proc_updates) = watch::channel(Default::default());
+        let proc_shutdown = is_shutdown.clone();
+        spawn_named("proc-info-handler", async move {
+            while !proc_shutdown.load(Ordering::Relaxed) {
+                let user_map_new = get_active_users_and_pids();
+                let _ = tx_proc.send(user_map_new);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
+
+        // Create app and run TUI
+        let app = Box::new(App::default());
+
+        let main_app_handle = spawn_named("tui-drawer", async move {
+            event_loop(app, is_shutdown, recv_proc_updates, recv_job_updates)
+                .await;
+        });
+
+        main_app_handle.await.ok();
+
+        info!("Client shutting down");
+    } else {
+        unreachable!();
+    }
+}
+
+/// Apply an update from the ring buffer to the state
+fn apply_update(state: &mut JobsStateInner, update: Update) {
+    match update {
+        Update::JobNew(job) => {
+            let drv = job.drv.clone();
+            let jid = job.jid;
+            state.jid_to_job.insert(jid, job);
+            state.drv_to_jobs.entry(drv).or_default().insert(jid);
+        }
+        Update::JobUpdate { jid, status } => {
+            if let Some(job) = state.jid_to_job.get_mut(&jid.into()) {
+                // Parse status string back to JobStatus
+                // For now, just update as BuildPhaseType
+                use nix_btm_common::handle_internal_json::JobStatus;
+                job.status = JobStatus::BuildPhaseType(status);
+            }
+        }
+        Update::JobFinish { jid, stop_time_ns } => {
+            if let Some(job) = state.jid_to_job.get_mut(&jid.into()) {
+                job.stop_time_ns = Some(stop_time_ns);
+                job.status = job.status.mark_complete();
+            }
+        }
+        Update::DepGraphUpdate { drv, deps } => {
+            use std::collections::BTreeSet;
+
+            use nix_btm_common::derivation_tree::DrvNode;
+
+            // Create node with dependencies
+            let node = DrvNode {
+                root: drv.clone(),
+                deps: deps.iter().cloned().collect::<BTreeSet<_>>(),
+            };
+
+            // Insert node into tree
+            state.dep_tree.nodes.insert(drv.clone(), node);
+
+            // Update tree_roots: drv is a root if no other node has it as a
+            // dependency First add it as a potential root
+            state.dep_tree.tree_roots.insert(drv.clone());
+
+            // Remove any deps from roots since they have a parent now
+            for dep in &deps {
+                state.dep_tree.tree_roots.remove(dep);
+            }
+        }
+        Update::Heartbeat { daemon_seq: _ } => {
+            // Heartbeat received, daemon is alive
+        }
+    }
 }
 
 pub fn main() {
@@ -360,11 +850,10 @@ enum Args {
 
         #[arg(
             long,
-            short,
+            short = 'l',
             value_name = "LOG_PATH",
             help = "Optional log path value. If not provided, logs will \
-                    placed in /tmp/nixbtm-daemon-$PID.log",
-            default_value = "None"
+                    placed in /tmp/nixbtm-daemon-$PID.log"
         )]
         daemon_log_path: Option<String>,
     },
@@ -379,11 +868,10 @@ enum Args {
         daemon_socket_path: Option<String>,
         #[arg(
             long,
-            short,
+            short = 'l',
             value_name = "LOG_PATH",
             help = "Optional log path value. If not provided, logs will \
-                    placed in /tmp/nixbtm-client-$PID.log",
-            default_value = "None"
+                    placed in /tmp/nixbtm-client-$PID.log"
         )]
         client_log_path: Option<String>,
     },

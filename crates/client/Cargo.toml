@@ -44,3 +44,6 @@ rustix.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = {workspace = true}
+
+[lints]
+workspace = true
