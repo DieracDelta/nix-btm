@@ -12,7 +12,7 @@ use std::{
 };
 
 use clap::Parser;
-use futures::future::join_all;
+use futures::{FutureExt, future::join_all};
 use mimalloc::MiMalloc;
 use nix_btm_common::{
     client_side::client_read_snapshot_into_state,
@@ -30,7 +30,7 @@ use nix_btm_common::{
 use ratatui::text::Line;
 use strum::{Display, EnumCount, EnumIter, FromRepr};
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{error, info, info_span};
 
 pub mod emojis;
 pub mod event_loop;
@@ -284,17 +284,22 @@ pub(crate) fn init_async_runtime() {
     }
     init_tracing(&args);
 
+    let is_shutdown = Arc::new(AtomicBool::new(false));
+    let signal_shutdown = is_shutdown.clone();
+
     let body = async move {
         match args {
             Args::Daemon { .. } => {
-                run_daemon(args).await;
+                run_daemon(args, is_shutdown).await;
             }
             Args::Client { .. } => {
-                run_client(args).await;
+                run_client(args, is_shutdown).await;
             }
             Args::Standalone {
                 nix_json_file_path, ..
-            } => run_standalone(nix_json_file_path).await.unwrap(),
+            } => run_standalone(nix_json_file_path, is_shutdown)
+                .await
+                .unwrap(),
         }
     };
 
@@ -302,12 +307,28 @@ pub(crate) fn init_async_runtime() {
         .enable_all()
         .build()
         .expect("unable to initialize tokio runtime")
-        .block_on(body);
+        .block_on(
+            async move {
+                let fut1 = spawn_named("Root task", body);
+                let fut2 = async move {
+                    let ctrl_c = tokio::signal::ctrl_c();
+                    ctrl_c.await.expect("Failed to listen for Ctrl-C");
+                    eprintln!("\nReceived Ctrl-C, shutting down...");
+                    signal_shutdown.store(true, Ordering::Relaxed);
+                };
+                tokio::select!(
+                    _res = fut1 => { },
+                    _res2 = fut2 => { }
+
+                )
+            }
+            .boxed(),
+        )
 }
 
 // MUST call this with daemon variant
 #[allow(dead_code)]
-pub(crate) async fn run_daemon(args: Args) {
+pub(crate) async fn run_daemon(args: Args, is_shutdown: Arc<AtomicBool>) {
     if let Args::Daemon {
         nix_json_file_path,
         daemon_socket_path,
@@ -323,17 +344,6 @@ pub(crate) async fn run_daemon(args: Args) {
         error!("Starting nix-btm daemon");
         error!("  Nix log socket: {}", nix_socket_path.display());
         error!("  RPC socket: {}", rpc_socket_path.display());
-
-        let is_shutdown = Arc::new(AtomicBool::new(false));
-
-        // Spawn signal handler task
-        let signal_shutdown = is_shutdown.clone();
-        spawn_named("signal-handler", async move {
-            let ctrl_c = tokio::signal::ctrl_c();
-            ctrl_c.await.expect("Failed to listen for Ctrl-C");
-            eprintln!("\nReceived Ctrl-C, shutting down...");
-            signal_shutdown.store(true, Ordering::Relaxed);
-        });
 
         // Create the shared state
         let state: Arc<RwLock<JobsStateInner>> =
@@ -532,7 +542,7 @@ pub(crate) async fn run_daemon(args: Args) {
 }
 
 #[allow(dead_code)]
-pub(crate) async fn run_client(args: Args) {
+pub(crate) async fn run_client(args: Args, is_shutdown: Arc<AtomicBool>) {
     if let Args::Client {
         daemon_socket_path,
         client_log_path: _,
@@ -645,8 +655,6 @@ pub(crate) async fn run_client(args: Args) {
                 }
             };
 
-        let is_shutdown = Arc::new(AtomicBool::new(false));
-
         // Create watch channel for job updates
         let (tx_jobs, recv_job_updates) = watch::channel(initial_state);
 
@@ -751,7 +759,8 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
             let node = DrvNode {
                 root: drv.clone(),
                 deps: deps.iter().cloned().collect::<BTreeSet<_>>(),
-                required_outputs: BTreeSet::new(), // Outputs not tracked via Update protocol yet
+                required_outputs: BTreeSet::new(), /* Outputs not tracked via
+                                                    * Update protocol yet */
                 required_output_paths: BTreeSet::new(),
             };
 
@@ -884,8 +893,10 @@ enum Args {
 }
 
 #[allow(dead_code)]
-async fn run_standalone(socket: Option<String>) -> Result<()> {
-    let is_shutdown = Arc::new(AtomicBool::new(false));
+async fn run_standalone(
+    socket: Option<String>,
+    is_shutdown: Arc<AtomicBool>,
+) -> Result<()> {
     let local_is_shutdown = is_shutdown.clone();
     let local_is_shutdown2 = is_shutdown.clone();
 

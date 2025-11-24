@@ -44,17 +44,18 @@ where
     let span = tracing::info_span!("task", task_name = %name);
 
     let fut = fut.instrument(span);
+    use futures::FutureExt;
 
     #[cfg(tokio_unstable)]
     {
         tokio::task::Builder::new()
             .name(name)
-            .spawn(fut)
+            .spawn(fut.boxed())
             .expect("failed to spawn task")
     }
 
     #[cfg(not(tokio_unstable))]
     {
-        tokio::spawn(fut)
+        tokio::spawn(fut.boxed())
     }
 }

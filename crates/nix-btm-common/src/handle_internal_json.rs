@@ -1,7 +1,8 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet, hash_map::Entry},
     fmt::Display,
-    fs, io,
+    fs,
+    io::{self, Error},
     ops::Deref,
     os::unix::fs::{FileTypeExt, PermissionsExt},
     path::{Path, PathBuf},
@@ -22,8 +23,15 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
-    sync::{RwLock, watch},
-    time::{MissedTickBehavior, interval},
+    sync::{
+        RwLock,
+        mpsc::{
+            Receiver, Sender, UnboundedReceiver, UnboundedSender,
+            unbounded_channel,
+        },
+        watch,
+    },
+    time::{MissedTickBehavior, error::Elapsed, interval},
 };
 use tracing::error;
 
@@ -75,7 +83,8 @@ pub struct JobsStateInner {
     pub cancelled_drvs: HashSet<Drv>,
     /// Drvs that were already built (cached) - for status display
     pub already_built_drvs: HashSet<Drv>,
-    /// Map from drv to its flake/attribute reference (for display in eagle eye view)
+    /// Map from drv to its flake/attribute reference (for display in eagle eye
+    /// view)
     pub drv_to_target: HashMap<Drv, String>,
 }
 
@@ -89,7 +98,8 @@ impl JobsStateInner {
                 }
             }
         }
-        // Check if this drv was cancelled (no explicit job but in cancelled set)
+        // Check if this drv was cancelled (no explicit job but in cancelled
+        // set)
         if self.cancelled_drvs.contains(drv) {
             return JobStatus::Cancelled;
         }
@@ -112,13 +122,20 @@ impl JobsStateInner {
             if node.required_outputs.is_empty() {
                 String::new()
             } else {
-                let outputs: Vec<&str> = node.required_outputs.iter().map(|s| s.as_str()).collect();
+                let outputs: Vec<&str> =
+                    node.required_outputs.iter().map(|s| s.as_str()).collect();
                 format!(" [{}]", outputs.join(", "))
             }
         } else {
             String::new()
         };
-        format!("{} - {} - {}{}", drv.name.clone(), drv.hash.clone(), status, outputs_str)
+        format!(
+            "{} - {} - {}{}",
+            drv.name.clone(),
+            drv.hash.clone(),
+            status,
+            outputs_str
+        )
     }
 
     pub fn add_top_level_target(&mut self, target: String) {
@@ -142,8 +159,11 @@ async fn eval_flake_to_drv(flake_ref: &str) -> Option<Drv> {
         .ok()?;
 
     if !output.status.success() {
-        tracing::debug!("failed to eval {}: {:?}", flake_ref,
-            String::from_utf8_lossy(&output.stderr));
+        tracing::debug!(
+            "failed to eval {}: {:?}",
+            flake_ref,
+            String::from_utf8_lossy(&output.stderr)
+        );
         return None;
     }
 
@@ -154,7 +174,11 @@ async fn eval_flake_to_drv(flake_ref: &str) -> Option<Drv> {
             Some(drv)
         }
         Either::Right(_) => {
-            tracing::debug!("{} didn't evaluate to a .drv path: {}", flake_ref, drv_path);
+            tracing::debug!(
+                "{} didn't evaluate to a .drv path: {}",
+                flake_ref,
+                drv_path
+            );
             None
         }
     }
@@ -262,7 +286,12 @@ impl JobsState {
 
     /// Insert an idle drv and track which requester it belongs to
     /// Used for top-level drvs from flake evaluation
-    pub async fn insert_idle_drv_for_requester(&self, drv: Drv, rid: RequesterId, target: Option<String>) {
+    pub async fn insert_idle_drv_for_requester(
+        &self,
+        drv: Drv,
+        rid: RequesterId,
+        target: Option<String>,
+    ) {
         // Only process real derivations (32-char base32 hashes)
         if drv.hash.len() != 32 {
             return;
@@ -271,13 +300,18 @@ impl JobsState {
         // First insert into dep tree (this queries nix and populates deps)
         {
             let mut state = self.write().await;
-            // Remove from cancelled/already_built sets if it was previously in them
+            // Remove from cancelled/already_built sets if it was previously in
+            // them
             state.cancelled_drvs.remove(&drv);
             state.already_built_drvs.remove(&drv);
 
             state.dep_tree.insert(drv.clone()).await;
             // Track this drv for the requester
-            state.requester_drvs.entry(rid).or_default().insert(drv.clone());
+            state
+                .requester_drvs
+                .entry(rid)
+                .or_default()
+                .insert(drv.clone());
             // Track the target -> drv mapping for display
             if let Some(t) = target {
                 state.drv_to_target.insert(drv.clone(), t);
@@ -292,9 +326,10 @@ impl JobsState {
                 // Check if all required output paths exist
                 if !node.required_output_paths.is_empty() {
                     checked_count += 1;
-                    let all_exist = node.required_output_paths.iter().all(|path| {
-                        std::path::Path::new(path).exists()
-                    });
+                    let all_exist = node
+                        .required_output_paths
+                        .iter()
+                        .all(|path| std::path::Path::new(path).exists());
                     if all_exist {
                         built_drvs.insert(d.clone());
                     }
@@ -303,8 +338,14 @@ impl JobsState {
                 }
             }
 
-            tracing::error!("output check: {} nodes total, {} checked, {} with empty paths, {} built",
-                state.dep_tree.nodes.len(), checked_count, empty_paths_count, built_drvs.len());
+            tracing::error!(
+                "output check: {} nodes total, {} checked, {} with empty \
+                 paths, {} built",
+                state.dep_tree.nodes.len(),
+                checked_count,
+                empty_paths_count,
+                built_drvs.len()
+            );
 
             if !built_drvs.is_empty() {
                 for d in &built_drvs {
@@ -313,7 +354,10 @@ impl JobsState {
                 state.already_built_drvs.extend(built_drvs);
             }
 
-            tracing::error!("already_built_drvs now has {} entries", state.already_built_drvs.len());
+            tracing::error!(
+                "already_built_drvs now has {} entries",
+                state.already_built_drvs.len()
+            );
         }
     }
 
@@ -382,20 +426,24 @@ impl JobsState {
         let mut state = self.write().await;
 
         // Check if any jobs were created for this requester
-        let requester_had_jobs = state.jid_to_job.values().any(|j| j.rid == rid);
+        let requester_had_jobs =
+            state.jid_to_job.values().any(|j| j.rid == rid);
 
         // Check if any jobs are still active (not completed)
         let has_active_jobs = state.jid_to_job.values().any(|j| {
-            j.rid == rid && !matches!(j.status,
-                JobStatus::Cancelled |
-                JobStatus::CompletedBuild |
-                JobStatus::CompletedDownload |
-                JobStatus::CompletedSubstitute |
-                JobStatus::CompletedCopy |
-                JobStatus::CompletedQuery |
-                JobStatus::CompletedEvaluation |
-                JobStatus::CompletedSourceCopy |
-                JobStatus::AlreadyBuilt)
+            j.rid == rid
+                && !matches!(
+                    j.status,
+                    JobStatus::Cancelled
+                        | JobStatus::CompletedBuild
+                        | JobStatus::CompletedDownload
+                        | JobStatus::CompletedSubstitute
+                        | JobStatus::CompletedCopy
+                        | JobStatus::CompletedQuery
+                        | JobStatus::CompletedEvaluation
+                        | JobStatus::CompletedSourceCopy
+                        | JobStatus::AlreadyBuilt
+                )
         });
 
         // Mark any active/pending jobs as cancelled
@@ -403,18 +451,41 @@ impl JobsState {
         let mut cancelled_drvs: HashSet<Drv> = HashSet::new();
 
         for (_jid, job) in state.jid_to_job.iter_mut() {
-            if job.rid == rid && !matches!(job.status, JobStatus::Cancelled | JobStatus::CompletedBuild | JobStatus::CompletedDownload | JobStatus::CompletedSubstitute | JobStatus::CompletedCopy | JobStatus::CompletedQuery | JobStatus::CompletedEvaluation | JobStatus::CompletedSourceCopy | JobStatus::AlreadyBuilt) {
+            if job.rid == rid
+                && !matches!(
+                    job.status,
+                    JobStatus::Cancelled
+                        | JobStatus::CompletedBuild
+                        | JobStatus::CompletedDownload
+                        | JobStatus::CompletedSubstitute
+                        | JobStatus::CompletedCopy
+                        | JobStatus::CompletedQuery
+                        | JobStatus::CompletedEvaluation
+                        | JobStatus::CompletedSourceCopy
+                        | JobStatus::AlreadyBuilt
+                )
+            {
                 job.status = JobStatus::Cancelled;
-                job.stop_time_ns = Some(START_INSTANT.elapsed().as_nanos() as u64);
+                job.stop_time_ns =
+                    Some(START_INSTANT.elapsed().as_nanos() as u64);
                 cancelled_count += 1;
                 cancelled_drvs.insert(job.drv.clone());
             }
         }
 
         // Get top-level drvs for this requester
-        if let Some(requester_top_level_drvs) = state.requester_drvs.remove(&rid) {
+        if let Some(requester_top_level_drvs) =
+            state.requester_drvs.remove(&rid)
+        {
             // Collect all deps
-            fn collect_deps(drv: &Drv, nodes: &std::collections::BTreeMap<Drv, crate::derivation_tree::DrvNode>, collected: &mut HashSet<Drv>) {
+            fn collect_deps(
+                drv: &Drv,
+                nodes: &std::collections::BTreeMap<
+                    Drv,
+                    crate::derivation_tree::DrvNode,
+                >,
+                collected: &mut HashSet<Drv>,
+            ) {
                 if let Some(node) = nodes.get(drv) {
                     for dep in &node.deps {
                         if collected.insert(dep.clone()) {
@@ -429,11 +500,15 @@ impl JobsState {
                 collect_deps(&drv, &state.dep_tree.nodes, &mut all_drvs);
             }
 
-            // If no jobs were created OR no jobs are still active, the build succeeded from cache
-            // Mark all drvs as already built
+            // If no jobs were created OR no jobs are still active, the build
+            // succeeded from cache Mark all drvs as already built
             if !requester_had_jobs || !has_active_jobs {
-                tracing::info!("cleanup requester {:?}: build completed from cache, marking {} drvs as already built",
-                    rid, all_drvs.len());
+                tracing::info!(
+                    "cleanup requester {:?}: build completed from cache, \
+                     marking {} drvs as already built",
+                    rid,
+                    all_drvs.len()
+                );
                 for drv in all_drvs {
                     if !state.already_built_drvs.contains(&drv) {
                         state.already_built_drvs.insert(drv);
@@ -453,8 +528,13 @@ impl JobsState {
 
         state.cancelled_drvs.extend(cancelled_drvs.clone());
 
-        tracing::info!("cleanup requester {:?}: {} jobs cancelled, {} drvs marked cancelled",
-            rid, cancelled_count, cancelled_drvs.len());
+        tracing::info!(
+            "cleanup requester {:?}: {} jobs cancelled, {} drvs marked \
+             cancelled",
+            rid,
+            cancelled_count,
+            cancelled_drvs.len()
+        );
     }
 }
 
@@ -507,6 +587,12 @@ pub async fn handle_daemon_info(
     let mut ticks_without_connection: u32 = 0;
     let mut warned_no_connection = false;
     let mut last_state_send = std::time::Instant::now();
+    let (s, r) = unbounded_channel();
+    let cur_state__ = cur_state.clone();
+    let is_shutdown__ = is_shutdown.clone();
+    spawn_named(&format!("line-handler"), async move {
+        handle_lines(r, cur_state__, is_shutdown__)
+    });
     loop {
         let accept_fut = listener.accept();
         tokio::pin!(accept_fut);
@@ -514,7 +600,6 @@ pub async fn handle_daemon_info(
         loop {
             tokio::select! {
                 biased;
-
                 res = &mut accept_fut => {
                     // it seems that a socket is opened per requester
                     match res {
@@ -528,13 +613,15 @@ pub async fn handle_daemon_info(
                                 warned_no_connection = false;
                                 let is_shutdown_ = is_shutdown.clone();
                                 let cur_state_ = cur_state.clone();
+                                let s_ = s.clone();
                                 let fut = async move {
                                     if let Err(e)
                                         = read_stream(
                                             Box::new(stream),
                                             cur_state_,
                                             is_shutdown_,
-                                            rid
+                                            rid,
+                                            s_
                                             ).await {
                                         error!("client connection error: {e}");
                                     }
@@ -557,23 +644,23 @@ pub async fn handle_daemon_info(
                     }
 
                     // Send state update every second
-                    if last_state_send.elapsed() >= Duration::from_secs(1) {
-                        last_state_send = std::time::Instant::now();
-                        let tmp_state = cur_state.read().await;
-                        if info_builds.send(tmp_state.clone()).is_err() {
-                            error!("no active receivers for info_builds");
-                        }
-
-                        // Warn if no Nix connections have been received
-                        ticks_without_connection = ticks_without_connection.saturating_add(1);
-                        if !warned_no_connection && ticks_without_connection >= 5 {
-                            warned_no_connection = true;
-                            error!("No Nix log connections received after {} seconds", ticks_without_connection);
-                            error!("Make sure your nix.conf has: extra-experimental-features = nix-command");
-                            error!("And: json-log-path = {}", socket_path.display());
-                            error!("Then run your nix build with: nix build --log-format internal-json -vvv ...");
-                        }
-                    }
+                    //if last_state_send.elapsed() >= Duration::from_secs(1) {
+                    //    last_state_send = std::time::Instant::now();
+                    //    let tmp_state = cur_state.read().await;
+                    //    if info_builds.send(tmp_state.clone()).is_err() {
+                    //        error!("no active receivers for info_builds");
+                    //    }
+                    //
+                    //    // Warn if no Nix connections have been received
+                    //    ticks_without_connection = ticks_without_connection.saturating_add(1);
+                    //    if !warned_no_connection && ticks_without_connection >= 5 {
+                    //        warned_no_connection = true;
+                    //        error!("No Nix log connections received after {} seconds", ticks_without_connection);
+                    //        error!("Make sure your nix.conf has: extra-experimental-features = nix-command");
+                    //        error!("And: json-log-path = {}", socket_path.display());
+                    //        error!("Then run your nix build with: nix build --log-format internal-json -vvv ...");
+                    //    }
+                    //}
                     // Continue inner loop, keeping accept_fut alive
                 }
             }
@@ -740,12 +827,14 @@ impl JobStatus {
         )
     }
 
-    /// Returns true if this job is queued/pending (will be built but hasn't started)
+    /// Returns true if this job is queued/pending (will be built but hasn't
+    /// started)
     pub fn is_pending(&self) -> bool {
         matches!(self, JobStatus::Queued)
     }
 
-    /// Returns true if this job is active OR pending (i.e., not completed and not unknown)
+    /// Returns true if this job is active OR pending (i.e., not completed and
+    /// not unknown)
     pub fn is_in_progress(&self) -> bool {
         self.is_active() || self.is_pending()
     }
@@ -800,7 +889,8 @@ impl Display for JobStatus {
                 total_bytes,
             } => {
                 if *total_bytes > 0 {
-                    let pct = (*done_bytes as f64 / *total_bytes as f64) * 100.0;
+                    let pct =
+                        (*done_bytes as f64 / *total_bytes as f64) * 100.0;
                     write!(
                         f,
                         "Downloading {:.1}% ({}/{})",
@@ -809,7 +899,12 @@ impl Display for JobStatus {
                         format_bytes(*total_bytes)
                     )
                 } else {
-                    write!(f, "Downloading {} ({})", url, format_bytes(*done_bytes))
+                    write!(
+                        f,
+                        "Downloading {} ({})",
+                        url,
+                        format_bytes(*done_bytes)
+                    )
                 }
             }
             JobStatus::CompletedDownload => write!(f, "Downloaded"),
@@ -826,7 +921,8 @@ impl Display for JobStatus {
                 total_bytes,
             } => {
                 if *total_bytes > 0 {
-                    let pct = (*done_bytes as f64 / *total_bytes as f64) * 100.0;
+                    let pct =
+                        (*done_bytes as f64 / *total_bytes as f64) * 100.0;
                     write!(
                         f,
                         "Copying {:.1}% ({}/{})",
@@ -911,7 +1007,8 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                         // Type 0 is used for various activities, check text
                         let text_str = text.to_string();
                         if text_str.starts_with("evaluating derivation") {
-                            // Extract the target from "evaluating derivation 'target'"
+                            // Extract the target from "evaluating derivation
+                            // 'target'"
                             if let Some(target) = text_str
                                 .strip_prefix("evaluating derivation '")
                                 .and_then(|s| s.strip_suffix("'"))
@@ -921,16 +1018,33 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                     .await
                                     .add_top_level_target(target.to_string());
 
-                                // Evaluate the flake reference to get the .drv path
-                                // This gives us the top-level derivation for the dependency tree
+                                // Evaluate the flake reference to get the .drv
+                                // path
+                                // This gives us the top-level derivation for
+                                // the dependency tree
                                 let state_clone = state.clone();
                                 let target_owned = target.to_string();
-                                tokio::spawn(async move {
-                                    if let Some(drv) = eval_flake_to_drv(&target_owned).await {
-                                        tracing::info!("inserting top-level drv: {}", drv.name);
-                                        state_clone.insert_idle_drv_for_requester(drv, rid, Some(target_owned)).await;
-                                    }
-                                });
+                                spawn_named(
+                                    &format!("evaluating {target_owned:?}"),
+                                    async move {
+                                        if let Some(drv) =
+                                            eval_flake_to_drv(&target_owned)
+                                                .await
+                                        {
+                                            tracing::info!(
+                                                "inserting top-level drv: {}",
+                                                drv.name
+                                            );
+                                            state_clone
+                                                .insert_idle_drv_for_requester(
+                                                    drv,
+                                                    rid,
+                                                    Some(target_owned),
+                                                )
+                                                .await;
+                                        }
+                                    },
+                                );
                             }
 
                             // Evaluation activity - create a job to track it
@@ -945,13 +1059,17 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                             state.replace_build_job(new_job).await;
                         } else if text_str.starts_with("copying") {
                             // Copying source files to store
-                            // Extract filename from text like "copying '...' to the store"
+                            // Extract filename from text like "copying '...' to
+                            // the store"
                             let name = text_str
                                 .strip_prefix("copying '")
                                 .and_then(|s| s.split('\'').next())
                                 .map(|s| {
                                     // Get just the filename
-                                    s.rsplit('/').next().unwrap_or(s).to_string()
+                                    s.rsplit('/')
+                                        .next()
+                                        .unwrap_or(s)
+                                        .to_string()
                                 })
                                 .unwrap_or_else(|| "source".to_string());
 
@@ -1135,9 +1253,8 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                     json_parsing_nix::ResultType::UntrustedPath => (),
                     json_parsing_nix::ResultType::CorruptedPath => (),
                     json_parsing_nix::ResultType::SetPhase => {
-                        if let Some(phase_name) = fields
-                            .first()
-                            .and_then(|f| match f {
+                        if let Some(phase_name) =
+                            fields.first().and_then(|f| match f {
                                 Field::String(cow) => Some(
                                     cow.as_ref().to_str_lossy().into_owned(),
                                 ),
@@ -1161,7 +1278,8 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
 
                             state
                                 .mutate_build_job(id.into(), move |job| {
-                                    // Update progress based on current status type
+                                    // Update progress based on current status
+                                    // type
                                     match &mut job.status {
                                         JobStatus::Downloading {
                                             done_bytes,
@@ -1180,10 +1298,12 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                             *total_bytes = expected;
                                         }
                                         JobStatus::Substituting { .. } => {
-                                            // Could track substitution progress if needed
+                                            // Could track substitution progress
+                                            // if needed
                                         }
                                         _ => {
-                                            // For other types, we could track generic progress
+                                            // For other types, we could track
+                                            // generic progress
                                         }
                                     }
                                 })
@@ -1194,9 +1314,8 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                     json_parsing_nix::ResultType::PostBuildLogLine => (),
                     json_parsing_nix::ResultType::FetchStatus => {
                         // FetchStatus can provide URL status updates
-                        if let Some(status_str) = fields
-                            .first()
-                            .and_then(|f| match f {
+                        if let Some(status_str) =
+                            fields.first().and_then(|f| match f {
                                 Field::String(cow) => Some(
                                     cow.as_ref().to_str_lossy().into_owned(),
                                 ),
@@ -1205,8 +1324,9 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                         {
                             state
                                 .mutate_build_job(id.into(), move |job| {
-                                    if let JobStatus::Downloading { url, .. } =
-                                        &job.status
+                                    if let JobStatus::Downloading {
+                                        url, ..
+                                    } = &job.status
                                     {
                                         // Could update with status info
                                         let _ = (url, status_str);
@@ -1222,19 +1342,28 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                             MsgParseResult::PlannedBuilds(drvs) => {
                                 // We have all the planned builds in one message
                                 // The LAST one is the top-level target
-                                // Insert only the last one - it will pull in all deps via --recursive
+                                // Insert only the last one - it will pull in
+                                // all deps via --recursive
                                 if let Some(top_level) = drvs.last().cloned() {
-                                    tracing::info!("top-level target: {} ({} total planned builds)",
-                                        top_level.name, drvs.len());
+                                    tracing::info!(
+                                        "top-level target: {} ({} total \
+                                         planned builds)",
+                                        top_level.name,
+                                        drvs.len()
+                                    );
                                     state.insert_idle_drv(top_level).await;
                                 }
                             }
                             MsgParseResult::Other => {
-                                tracing::trace!("rid: {rid:?}, unhandled info msg: {msg}");
+                                tracing::trace!(
+                                    "rid: {rid:?}, unhandled info msg: {msg}"
+                                );
                             }
                         }
                     } else {
-                        tracing::trace!("verbositylvl {level:?} received msg {msg}");
+                        tracing::trace!(
+                            "verbositylvl {level:?} received msg {msg}"
+                        );
                     }
                 }
                 LogMessage::SetPhase { .. } => {}
@@ -1265,9 +1394,11 @@ fn parse_msg_info_sync(msg: &str) -> MsgParseResult {
     }
 
     // Extract all .drv paths from the message
-    let re_drv = Regex::new(r"/nix/store/([a-z0-9]{32})-([^\s]+)\.drv").unwrap();
+    let re_drv =
+        Regex::new(r"/nix/store/([a-z0-9]{32})-([^\s]+)\.drv").unwrap();
 
-    let drvs: Vec<Drv> = re_drv.captures_iter(msg)
+    let drvs: Vec<Drv> = re_drv
+        .captures_iter(msg)
         .map(|caps| {
             let hash = caps[1].to_string();
             let name = caps[2].to_string();
@@ -1279,9 +1410,11 @@ fn parse_msg_info_sync(msg: &str) -> MsgParseResult {
         return MsgParseResult::Other;
     }
 
-    tracing::debug!("parsed {} planned builds, last (top-level): {}",
+    tracing::debug!(
+        "parsed {} planned builds, last (top-level): {}",
         drvs.len(),
-        drvs.last().map(|d| d.name.as_str()).unwrap_or("?"));
+        drvs.last().map(|d| d.name.as_str()).unwrap_or("?")
+    );
 
     MsgParseResult::PlannedBuilds(drvs)
 }
@@ -1319,22 +1452,35 @@ async fn read_stream(
     //info_builds: watch::Sender<HashMap<u64, BuildJob>>,
     is_shutdown: Arc<AtomicBool>,
     rid: RequesterId,
+    chan: UnboundedSender<(
+        RequesterId,
+        Result<Result<Option<String>, Error>, Elapsed>,
+    )>,
 ) -> io::Result<()> {
     let reader = BufReader::new(stream);
     let mut lines = reader.lines();
 
     loop {
-        if is_shutdown.load(Ordering::Relaxed) {
-            // Clean up jobs for this requester on shutdown
-            state.cleanup_requester(rid).await;
-            return Ok(());
-        }
-
         // Use timeout so we periodically check is_shutdown
         let read_result =
             tokio::time::timeout(Duration::from_millis(500), lines.next_line())
                 .await;
+        let err = chan.send((rid, read_result));
+        if err.is_err() {
+            error!("Error sending read stream {err:?}")
+        }
+    }
+}
 
+async fn handle_lines(
+    mut chan: UnboundedReceiver<(
+        RequesterId,
+        Result<Result<Option<String>, Error>, Elapsed>,
+    )>,
+    state: JobsState,
+    is_shutdown: Arc<AtomicBool>,
+) {
+    while let Some((rid, read_result)) = chan.recv().await {
         match read_result {
             Ok(Ok(Some(line))) => {
                 handle_line(line, state.clone(), rid).await;
@@ -1343,7 +1489,7 @@ async fn read_stream(
                 error!("stopped being able to read socket on {rid:?}");
                 // Clean up jobs for this requester on connection close
                 state.cleanup_requester(rid).await;
-                return Ok(());
+                continue;
             }
             Err(_) => {
                 // Timeout - just continue to check is_shutdown
@@ -1351,14 +1497,22 @@ async fn read_stream(
             }
         }
     }
+    //if is_shutdown.load(Ordering::Relaxed) {
+    //    // Clean up jobs for this requester on shutdown
+    //    //state.cleanup_requester(rid).await;
+    //    return Ok(());
+    //}
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_msg_info_single_build() {
-        let msg = "this derivation will be built:\n  /nix/store/31xvpflz5asihsmyl088cgxyxwflzrz3-coreutils-9.7.drv";
+        let msg = "this derivation will be built:\n  \
+                   /nix/store/31xvpflz5asihsmyl088cgxyxwflzrz3-coreutils-9.7.\
+                   drv";
         let result = parse_msg_info_sync(msg);
         match result {
             MsgParseResult::PlannedBuilds(drvs) => {
@@ -1371,7 +1525,11 @@ mod tests {
 
     #[test]
     fn test_parse_msg_info_multiple_builds() {
-        let msg = "these 3 derivations will be built:\n  /nix/store/abc123def456abc123def456abc12345-bison-3.8.2.drv\n  /nix/store/def456abc123def456abc123def45678-bash-5.3.drv\n  /nix/store/789012abc123def456abc123def45678-bat-0.24.0.drv";
+        let msg = "these 3 derivations will be built:\n  \
+                   /nix/store/abc123def456abc123def456abc12345-bison-3.8.2.\
+                   drv\n  /nix/store/def456abc123def456abc123def45678-bash-5.\
+                   3.drv\n  /nix/store/789012abc123def456abc123def45678-bat-0.\
+                   24.0.drv";
         let result = parse_msg_info_sync(msg);
         match result {
             MsgParseResult::PlannedBuilds(drvs) => {
