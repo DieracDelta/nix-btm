@@ -110,6 +110,11 @@ fn make_test_state() -> JobsStateInner {
             nodes,
             tree_roots: roots,
         },
+        top_level_targets: vec![],
+        requester_drvs: Default::default(),
+        cancelled_drvs: Default::default(),
+        already_built_drvs: Default::default(),
+        drv_to_target: Default::default(),
     }
 }
 

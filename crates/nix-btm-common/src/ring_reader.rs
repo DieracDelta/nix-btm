@@ -154,7 +154,9 @@ impl RingReader {
     /// Wait for new data using platform-specific notification (futex/kqueue).
     /// Falls back to returning immediately if no waiter is available.
     /// Returns the current end sequence number after waking.
-    pub fn wait_for_update(&mut self) -> Result<(), crate::protocol_common::ProtocolError> {
+    pub fn wait_for_update(
+        &mut self,
+    ) -> Result<(), crate::protocol_common::ProtocolError> {
         if let Some(ref mut waiter) = self.waiter {
             // Get the address of the end_seq field in shared memory header
             // The ShmHeader has seq_and_offset at offset 0 (u64)

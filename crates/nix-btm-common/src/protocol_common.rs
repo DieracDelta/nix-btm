@@ -391,6 +391,11 @@ impl From<JobsStateInnerWire> for JobsStateInner {
             jid_to_job,
             drv_to_jobs,
             dep_tree,
+            top_level_targets: vec![],
+            requester_drvs: HashMap::new(),
+            cancelled_drvs: HashSet::new(),
+            already_built_drvs: HashSet::new(),
+            drv_to_target: HashMap::new(),
         }
     }
 }

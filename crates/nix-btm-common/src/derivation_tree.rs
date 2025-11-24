@@ -35,6 +35,14 @@ pub static START_INSTANT: LazyLock<Instant> = LazyLock::new(Instant::now);
 pub struct DrvNode {
     pub root: Drv,
     pub deps: BTreeSet<Drv>,
+    /// Which output names of this drv are required by dependents
+    /// e.g., {"out", "dev"} if something needs both outputs
+    #[serde(default)]
+    pub required_outputs: BTreeSet<String>,
+    /// The actual store paths for the required outputs
+    /// These can be checked directly to see if outputs exist
+    #[serde(default)]
+    pub required_output_paths: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -53,19 +61,89 @@ pub struct DrvRelations {
 }
 
 impl DrvRelations {
-    // only updates the nodes
+    // Updates nodes and marks the queried drv as a potential root
     pub async fn insert(&mut self, drv: Drv) {
         if let Some(map) = drv.query_nix_about_drv().await {
-            for (drv, derivation) in map.into_iter() {
+            // First pass: collect which outputs each drv needs
+            // Map from drv -> set of required output names
+            let mut required_outputs_map: BTreeMap<Drv, BTreeSet<String>> = BTreeMap::new();
+
+            for (_d, derivation) in &map {
+                for (dep_drv, input_drv) in &derivation.input_drvs {
+                    required_outputs_map
+                        .entry(dep_drv.clone())
+                        .or_default()
+                        .extend(input_drv.outputs.iter().cloned());
+                }
+            }
+
+            // Add all nodes to the graph
+            for (d, derivation) in map.into_iter() {
+                // Get required outputs for this drv, default to "out" for root
+                let required_outputs = required_outputs_map
+                    .get(&d)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        // For root drv, default to "out" output
+                        let mut set = BTreeSet::new();
+                        set.insert("out".to_string());
+                        set
+                    });
+
+                // Get the actual output paths for the required outputs
+                // Note: nix derivation show returns paths without /nix/store/ prefix
+                let mut required_output_paths: BTreeSet<String> = required_outputs
+                    .iter()
+                    .filter_map(|output_name| {
+                        derivation.outputs.get(output_name).map(|o| {
+                            if o.path.starts_with("/nix/store/") {
+                                o.path.clone()
+                            } else if !o.path.is_empty() {
+                                format!("/nix/store/{}", o.path)
+                            } else {
+                                String::new()
+                            }
+                        })
+                    })
+                    .filter(|p| !p.is_empty())
+                    .collect();
+
+                // For FODs (fixed-output derivations), paths are empty in nix derivation show
+                // Query nix-store directly to get output paths
+                if required_output_paths.is_empty() && !required_outputs.is_empty() {
+                    let drv_path = format!("/nix/store/{}-{}.drv", d.hash, d.name);
+                    if let Ok(output) = Command::new("nix-store")
+                        .arg("-q")
+                        .arg("--outputs")
+                        .arg(&drv_path)
+                        .output()
+                        .await
+                    {
+                        if output.status.success() {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            for line in stdout.lines() {
+                                let path = line.trim();
+                                if !path.is_empty() {
+                                    required_output_paths.insert(path.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let node = DrvNode {
-                    root: drv.clone(),
+                    root: d.clone(),
                     deps: derivation
                         .input_drvs
                         .into_keys()
                         .collect::<BTreeSet<_>>(),
+                    required_outputs,
+                    required_output_paths,
                 };
-                self.nodes.insert(drv, node);
+                self.nodes.insert(d, node);
             }
+            // Recalculate all roots based on the updated graph
+            self.recalculate_roots();
         } else {
             error!("COULD NOT FIND DRV {} IN NIX STORE??", drv);
         }
@@ -94,37 +172,77 @@ impl DrvRelations {
         false
     }
 
-    // right now does not care for efficiency. That comes later
-    // only updates roots
+    // Updates roots when a new node is added
+    // A node is a root if it has no parents (nothing depends on it)
     pub fn insert_node(&mut self, node: DrvNode) {
-        let mut is_root = true;
+        let node_name = node.root.name.clone();
 
-        // node already is a root
-        if self.tree_roots.contains(&node.root) {
-            return;
+        // Remove any of node's dependencies from roots
+        // (they now have a parent - this node)
+        self.tree_roots.retain(|r| !node.deps.contains(r));
+
+        // Check if this node has any parents (is a dependency of any existing node)
+        let has_parent = self.nodes.iter().any(|(drv, n)| {
+            drv != &node.root && n.deps.contains(&node.root)
+        });
+
+        // If no parent found, this is a root
+        if !has_parent && !self.tree_roots.contains(&node.root) {
+            self.tree_roots.insert(node.root);
+            tracing::debug!("insert_node: added {} as root", node_name);
+        } else {
+            tracing::debug!("insert_node: {} NOT added as root (has_parent={})", node_name, has_parent);
         }
+    }
 
-        // iterate through tree_roots, recursively searching for a dependency
-        for a_root in &self.tree_roots {
-            // check if in tree (recursive)
-            if self.is_child_of(a_root, &node.root) {
-                is_root = false;
+    /// Recalculate all roots from scratch based on current graph
+    /// A root is any node that no other node depends on
+    pub fn recalculate_roots(&mut self) {
+        // Collect all nodes that are dependencies of something
+        let mut has_parent: BTreeSet<Drv> = BTreeSet::new();
+        for (_drv, node) in &self.nodes {
+            for dep in &node.deps {
+                has_parent.insert(dep.clone());
             }
         }
 
-        if is_root {
-            // second: remove any children of node
-            let mut new_nodes: BTreeSet<_> = self
-                .tree_roots
-                .clone()
-                .into_iter()
-                .filter(|r| !self.is_child_of(&node.root, r))
-                .collect();
+        // Roots are nodes that have no parent
+        self.tree_roots = self.nodes.keys()
+            .filter(|d| !has_parent.contains(*d))
+            .cloned()
+            .collect();
 
-            // insert it as a root
-            new_nodes.insert(node.root);
-            self.tree_roots = new_nodes;
+        tracing::debug!("recalculate_roots: {} roots from {} nodes: {:?}",
+            self.tree_roots.len(), self.nodes.len(),
+            self.tree_roots.iter().map(|r| &r.name).collect::<Vec<_>>());
+
+        // Log nodes that have parents for debugging
+        let with_parents: Vec<_> = self.nodes.keys()
+            .filter(|d| has_parent.contains(*d))
+            .map(|d| &d.name)
+            .collect();
+        if !with_parents.is_empty() {
+            tracing::debug!("nodes with parents (not roots): {:?}", with_parents);
         }
+    }
+
+    // Check if child_drv is a dependency of parent_drv (directly or recursively)
+    fn is_child_of_direct_or_recursive(
+        &self,
+        parent_drv: &Drv,
+        child_drv: &Drv,
+    ) -> bool {
+        if let Some(parent_node) = self.nodes.get(parent_drv) {
+            if parent_node.deps.contains(child_drv) {
+                return true;
+            }
+            for dep in &parent_node.deps {
+                if self.is_child_of_direct_or_recursive(dep, child_drv) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -180,7 +298,7 @@ pub fn drv_tree_of_derivation(
 ) -> Option<DrvNode> {
     if let Left(drv) = parse_store_path(&name) {
         let deps = value.input_drvs.into_keys().collect::<BTreeSet<_>>();
-        Some(DrvNode { root: drv, deps })
+        Some(DrvNode { root: drv, deps, required_outputs: BTreeSet::new(), required_output_paths: BTreeSet::new() })
     } else {
         error!("{name} wasn't a drv");
         None
@@ -209,8 +327,7 @@ pub struct InputDrv {
 #[derive(Debug, Deserialize)]
 pub struct Output {
     #[serde(default)]
-    #[allow(dead_code)]
-    path: String,
+    pub path: String,
 }
 
 #[cfg(test)]

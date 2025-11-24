@@ -751,6 +751,8 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
             let node = DrvNode {
                 root: drv.clone(),
                 deps: deps.iter().cloned().collect::<BTreeSet<_>>(),
+                required_outputs: BTreeSet::new(), // Outputs not tracked via Update protocol yet
+                required_output_paths: BTreeSet::new(),
             };
 
             // Insert node into tree

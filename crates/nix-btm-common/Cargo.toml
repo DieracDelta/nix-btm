@@ -38,3 +38,4 @@ io-uring.workspace = true
 [dev-dependencies]
 color-eyre.workspace = true
 tracing-subscriber.workspace = true
+tempfile = "3"
