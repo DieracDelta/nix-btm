@@ -590,8 +590,8 @@ pub async fn handle_daemon_info(
     let (s, r) = unbounded_channel();
     let cur_state__ = cur_state.clone();
     let is_shutdown__ = is_shutdown.clone();
-    spawn_named(&format!("line-handler"), async move {
-        handle_lines(r, cur_state__, is_shutdown__)
+    spawn_named("line-handler", async move {
+        handle_lines(r, cur_state__, is_shutdown__).await
     });
     loop {
         let accept_fut = listener.accept();
@@ -644,23 +644,23 @@ pub async fn handle_daemon_info(
                     }
 
                     // Send state update every second
-                    //if last_state_send.elapsed() >= Duration::from_secs(1) {
-                    //    last_state_send = std::time::Instant::now();
-                    //    let tmp_state = cur_state.read().await;
-                    //    if info_builds.send(tmp_state.clone()).is_err() {
-                    //        error!("no active receivers for info_builds");
-                    //    }
-                    //
-                    //    // Warn if no Nix connections have been received
-                    //    ticks_without_connection = ticks_without_connection.saturating_add(1);
-                    //    if !warned_no_connection && ticks_without_connection >= 5 {
-                    //        warned_no_connection = true;
-                    //        error!("No Nix log connections received after {} seconds", ticks_without_connection);
-                    //        error!("Make sure your nix.conf has: extra-experimental-features = nix-command");
-                    //        error!("And: json-log-path = {}", socket_path.display());
-                    //        error!("Then run your nix build with: nix build --log-format internal-json -vvv ...");
-                    //    }
-                    //}
+                    if last_state_send.elapsed() >= Duration::from_secs(1) {
+                        last_state_send = std::time::Instant::now();
+                        let tmp_state = cur_state.read().await;
+                        if info_builds.send(tmp_state.clone()).is_err() {
+                            error!("no active receivers for info_builds");
+                        }
+
+                        // Warn if no Nix connections have been received
+                        ticks_without_connection = ticks_without_connection.saturating_add(1);
+                        if !warned_no_connection && ticks_without_connection >= 5 {
+                            warned_no_connection = true;
+                            error!("No Nix log connections received after {} seconds", ticks_without_connection);
+                            error!("Make sure your nix.conf has: extra-experimental-features = nix-command");
+                            error!("And: json-log-path = {}", socket_path.display());
+                            error!("Then run your nix build with: nix build --log-format internal-json -vvv ...");
+                        }
+                    }
                     // Continue inner loop, keeping accept_fut alive
                 }
             }
