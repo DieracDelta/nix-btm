@@ -911,7 +911,8 @@ async fn run_standalone(
                 local_is_shutdown2,
                 tx_jobs,
             )
-            .await
+            .await;
+            error!("main loop returned!");
         })
     });
 
@@ -926,10 +927,12 @@ async fn run_standalone(
             let _ = tx.send(user_map_new);
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
+        error!("proc info task returned!");
     });
 
     let main_app_handle = spawn_named("tui drawer", async move {
         event_loop(app, is_shutdown, recv_proc_updates, recv_job_updates).await;
+        error!("main loop returned!");
     });
 
     let mut handles = vec![t_handle, main_app_handle];
@@ -938,6 +941,7 @@ async fn run_standalone(
         handles.push(jh);
     }
 
+    error!("waiting for all handles to return");
     join_all(handles).await;
 
     Ok(())

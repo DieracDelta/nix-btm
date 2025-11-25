@@ -26,12 +26,11 @@ use tokio::{
     sync::{
         RwLock,
         mpsc::{
-            Receiver, Sender, UnboundedReceiver, UnboundedSender,
-            unbounded_channel,
+            Receiver, Sender, UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel
         },
         watch,
     },
-    time::{MissedTickBehavior, error::Elapsed, interval},
+    time::{self, MissedTickBehavior, error::Elapsed, interval, sleep},
 };
 use tracing::error;
 
@@ -638,17 +637,22 @@ pub async fn handle_daemon_info(
                     break; // Break inner loop to create new accept future
                 }
                 _ = ticker.tick() => {
-                    // Check for shutdown
                     if is_shutdown.load(Ordering::Relaxed) {
                         return;
                     }
 
-                    // Send state update every second
+                    // Send state update every second - use try_read to never block accept
                     if last_state_send.elapsed() >= Duration::from_secs(1) {
                         last_state_send = std::time::Instant::now();
-                        let tmp_state = cur_state.read().await;
-                        if info_builds.send(tmp_state.clone()).is_err() {
-                            error!("no active receivers for info_builds");
+
+                        // CRITICAL: Use try_read() to never block socket accepts
+                        if let Ok(tmp_state) = cur_state.try_read() {
+                            error!("SENDING A STATE UPDATE!!!");
+                            if info_builds.send(tmp_state.clone()).is_err() {
+                                error!("no active receivers for info_builds");
+                            }
+                        } else {
+                            // State is locked - skip this update to keep accept fast
                         }
 
                         // Warn if no Nix connections have been received
@@ -661,7 +665,6 @@ pub async fn handle_daemon_info(
                             error!("Then run your nix build with: nix build --log-format internal-json -vvv ...");
                         }
                     }
-                    // Continue inner loop, keeping accept_fut alive
                 }
             }
         }
@@ -1454,55 +1457,86 @@ async fn read_stream(
     rid: RequesterId,
     chan: UnboundedSender<(
         RequesterId,
-        Result<Result<Option<String>, Error>, Elapsed>,
+        Either<String, ()>
     )>,
 ) -> io::Result<()> {
     let reader = BufReader::new(stream);
     let mut lines = reader.lines();
 
+    let mut tick = time::interval(Duration::from_millis(500));
+
     loop {
-        // Use timeout so we periodically check is_shutdown
-        let read_result =
-            tokio::time::timeout(Duration::from_millis(500), lines.next_line())
-                .await;
-        let err = chan.send((rid, read_result));
-        if err.is_err() {
-            error!("Error sending read stream {err:?}")
+        if is_shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+
+        tokio::select! {
+            _ = tick.tick() => {
+                if is_shutdown.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+
+            result = lines.next_line() => {
+                match result {
+                    Ok(Some(line)) => {
+                        if chan.send((rid, Either::Left(line))).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = chan.send((rid, Either::Right(())));
+                        break;
+                    }
+                    Err(e) => {
+                        error!("error reading from unix stream for {rid:?}: {e}");
+
+                        let _ = chan.send((rid, Either::Right(())));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+pub async fn handle_lines(
+    mut chan: UnboundedReceiver<(RequesterId, Either<String, ()>)>,
+    state: JobsState,
+    is_shutdown: Arc<AtomicBool>,
+) {
+    loop {
+        if is_shutdown.load(Ordering::Relaxed) {
+            error!("handle_lines shutting down");
+            return;
+        }
+
+        match chan.try_recv() {
+            Ok((rid, msg)) => {
+                match msg {
+                    Either::Left(line) => {
+                        handle_line(line, state.clone(), rid).await;
+                    }
+                    // Stream closed or error on that UnixStream
+                    Either::Right(()) => {
+                        error!("stopped being able to read socket on {rid:?}");
+                        // Clean up jobs for this requester on connection close
+                        state.cleanup_requester(rid).await;
+                    }
+                }
+            }
+            Err(TryRecvError::Empty) => {
+                sleep(Duration::from_millis(10)).await;
+            }
+            Err(TryRecvError::Disconnected) => {
+                error!("handle_lines channel closed");
+                return;
+            }
         }
     }
 }
 
-async fn handle_lines(
-    mut chan: UnboundedReceiver<(
-        RequesterId,
-        Result<Result<Option<String>, Error>, Elapsed>,
-    )>,
-    state: JobsState,
-    is_shutdown: Arc<AtomicBool>,
-) {
-    while let Some((rid, read_result)) = chan.recv().await {
-        match read_result {
-            Ok(Ok(Some(line))) => {
-                handle_line(line, state.clone(), rid).await;
-            }
-            Ok(Ok(None)) | Ok(Err(_)) => {
-                error!("stopped being able to read socket on {rid:?}");
-                // Clean up jobs for this requester on connection close
-                state.cleanup_requester(rid).await;
-                continue;
-            }
-            Err(_) => {
-                // Timeout - just continue to check is_shutdown
-                continue;
-            }
-        }
-    }
-    //if is_shutdown.load(Ordering::Relaxed) {
-    //    // Clean up jobs for this requester on shutdown
-    //    //state.cleanup_requester(rid).await;
-    //    return Ok(());
-    //}
-}
 
 #[cfg(test)]
 mod tests {
