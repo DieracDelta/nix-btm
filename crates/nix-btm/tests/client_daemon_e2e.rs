@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use nix_btm_common::{
+use nix_btm::{
     client_side::client_read_snapshot_into_state,
     derivation_tree::{DrvNode, DrvRelations},
     handle_internal_json::{
@@ -250,7 +250,7 @@ fn test_ring_buffer_job_updates_flow() {
 
     let ring_name = writer.name.clone();
     let total_len = std::mem::size_of::<
-        nix_btm_common::protocol_common::ShmHeader,
+        nix_btm::protocol_common::ShmHeader,
     >() as u32
         + ring_len;
 
@@ -448,7 +448,7 @@ async fn test_multiple_clients_read_ring() {
 
     let ring_name = writer.name.clone();
     let total_len = std::mem::size_of::<
-        nix_btm_common::protocol_common::ShmHeader,
+        nix_btm::protocol_common::ShmHeader,
     >() as u32
         + ring_len;
 

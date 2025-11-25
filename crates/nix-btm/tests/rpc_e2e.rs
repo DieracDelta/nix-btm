@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use nix_btm_common::{
+use nix_btm::{
     handle_internal_json::JobsStateInner,
     ring_reader::RingReader,
     ring_writer::RingWriter,
@@ -170,7 +170,7 @@ async fn test_rpc_request_snapshot() {
 
             // Try to read the snapshot
             let state =
-                nix_btm_common::client_side::client_read_snapshot_into_state(
+                nix_btm::client_side::client_read_snapshot_into_state(
                     &snapshot_name,
                     total_len,
                 )

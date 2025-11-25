@@ -2,7 +2,7 @@ use std::{ffi::CString, mem::size_of, os::fd::AsRawFd};
 
 use bytemuck::try_from_bytes;
 use memmap2::MmapOptions;
-use nix_btm_common::{
+use nix_btm::{
     daemon_side::align_up_pow2,
     protocol_common::{Kind, ShmHeader, ShmRecordHeader, Update},
     ring_reader::RingReader,
@@ -98,7 +98,7 @@ fn ring_writer_and_reader_e2e_roundtrip_heartbeat() {
     }
 
     // 4. Read updates via the reader
-    use nix_btm_common::ring_reader::ReadResult;
+    use nix_btm::ring_reader::ReadResult;
     let mut read_updates = Vec::new();
     for _ in 0..updates.len() {
         match reader.try_read() {
@@ -197,7 +197,7 @@ fn ring_writer_wraparound_and_reader_validity() {
         .expect("RingReader::from_name should succeed");
 
     // Read all available updates
-    use nix_btm_common::ring_reader::ReadResult;
+    use nix_btm::ring_reader::ReadResult;
     let mut read_updates = Vec::new();
     let mut got_lost = false;
     loop {
@@ -293,7 +293,7 @@ fn ring_reader_detects_being_lapped() {
     }
 
     // Read one update
-    use nix_btm_common::ring_reader::ReadResult;
+    use nix_btm::ring_reader::ReadResult;
     match reader.try_read() {
         ReadResult::Update { .. } => {}
         other => panic!("Expected Update, got {:?}", other),

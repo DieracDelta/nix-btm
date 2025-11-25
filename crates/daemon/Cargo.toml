@@ -13,7 +13,7 @@ exclude =  { workspace = true }
 
 [dependencies]
 json-parsing-nix =  {path = "../json_parser"}
-nix-btm-common =  {path = "../nix-btm-common"}
+nix-btm =  {path = "../nix-btm"}
 clap = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }

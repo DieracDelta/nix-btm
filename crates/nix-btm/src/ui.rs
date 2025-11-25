@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use lazy_static::lazy_static;
-use nix_btm_common::handle_internal_json::{
+use nix_btm::handle_internal_json::{
     Drv, JobStatus, JobsStateInner, format_duration, format_secs,
 };
 use ratatui::{

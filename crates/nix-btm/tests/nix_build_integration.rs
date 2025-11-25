@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use nix_btm_common::handle_internal_json::{handle_daemon_info, JobsStateInner};
+use nix_btm::handle_internal_json::{handle_daemon_info, JobsStateInner};
 use tempfile::TempDir;
 use tokio::sync::watch;
 
@@ -317,8 +317,8 @@ async fn test_tdf_is_root() {
 /// Simpler test that doesn't require network - just tests tree insertion logic
 #[tokio::test]
 async fn test_drv_relations_root_detection() {
-    use nix_btm_common::derivation_tree::{DrvNode, DrvRelations};
-    use nix_btm_common::handle_internal_json::Drv;
+    use nix_btm::derivation_tree::{DrvNode, DrvRelations};
+    use nix_btm::handle_internal_json::Drv;
     use std::collections::BTreeSet;
 
     let mut relations = DrvRelations::default();

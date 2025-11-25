@@ -31,7 +31,6 @@ thiserror.workspace = true
 serde_bytes.workspace = true
 bstr.workspace = true
 json-parsing-nix =  { path = "../json_parser" }
-nix-btm-common =  { path = "../nix-btm-common" }
 tui-clipboard =  {path = "../clipboard", features = ["async-io"]}
 futures.workspace = true
 tokio-stream.workspace = true
@@ -43,9 +42,20 @@ libc.workspace = true
 rustix.workspace = true
 nix.workspace = true
 ctrlc.workspace = true
+bytemuck.workspace = true
+serde_cbor.workspace = true
+memmap2.workspace = true
+snafu.workspace = true
+eyre.workspace = true
+psx-shm.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = {workspace = true}
+io-uring.workspace = true
+
+[dev-dependencies]
+color-eyre.workspace = true
+tempfile = "3"
 
 [lints]
 workspace = true

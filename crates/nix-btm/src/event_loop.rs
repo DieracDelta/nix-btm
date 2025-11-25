@@ -11,7 +11,7 @@ use futures::{
     StreamExt,
     stream::{BoxStream, SelectAll},
 };
-use nix_btm_common::handle_internal_json::JobsStateInner;
+use nix_btm::handle_internal_json::JobsStateInner;
 use ratatui::crossterm::{
     event::DisableMouseCapture, execute, terminal::disable_raw_mode,
 };

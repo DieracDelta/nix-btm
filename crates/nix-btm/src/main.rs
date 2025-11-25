@@ -14,7 +14,7 @@ use std::{
 use clap::Parser;
 use futures::{FutureExt, future::join_all};
 use mimalloc::MiMalloc;
-use nix_btm_common::{
+use nix_btm::{
     client_side::client_read_snapshot_into_state,
     handle_internal_json::{
         BuildJob, JobId, JobsStateInner, handle_daemon_info, setup_unix_socket,
@@ -435,7 +435,7 @@ pub(crate) async fn run_daemon(args: Args, is_shutdown: Arc<AtomicBool>) {
         spawn_named("update-streamer", async move {
             use std::collections::{BTreeSet, HashMap};
 
-            use nix_btm_common::handle_internal_json::Drv;
+            use nix_btm::handle_internal_json::Drv;
 
             let mut last_jobs: HashMap<JobId, BuildJob> = HashMap::new();
             let mut last_dep_nodes: BTreeSet<Drv> = BTreeSet::new();
@@ -740,7 +740,7 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
             if let Some(job) = state.jid_to_job.get_mut(&jid.into()) {
                 // Parse status string back to JobStatus
                 // For now, just update as BuildPhaseType
-                use nix_btm_common::handle_internal_json::JobStatus;
+                use nix_btm::handle_internal_json::JobStatus;
                 job.status = JobStatus::BuildPhaseType(status);
             }
         }
@@ -753,7 +753,7 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
         Update::DepGraphUpdate { drv, deps } => {
             use std::collections::BTreeSet;
 
-            use nix_btm_common::derivation_tree::DrvNode;
+            use nix_btm::derivation_tree::DrvNode;
 
             // Create node with dependencies
             let node = DrvNode {

@@ -1340,30 +1340,38 @@ name = "nix-btm"
 version = "0.5.0"
 dependencies = [
  "bstr",
+ "bytemuck",
  "clap",
+ "color-eyre",
  "console-subscriber",
  "crossterm 0.29.0",
  "ctrlc",
  "either",
+ "eyre",
  "futures",
+ "io-uring",
  "json-parsing-nix",
  "lazy_static",
  "libc",
+ "memmap2",
  "mimalloc",
  "nix",
- "nix-btm-common",
  "num_enum",
  "procfs",
+ "psx-shm",
  "rand",
  "ratatui",
  "regex",
  "rustix 1.1.2",
  "serde",
  "serde_bytes",
+ "serde_cbor",
  "serde_json",
+ "snafu",
  "strip-ansi-escapes",
  "strum 0.27.2",
  "sysinfo",
+ "tempfile",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -1374,43 +1382,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix-btm-common"
-version = "0.5.0"
-dependencies = [
- "bstr",
- "bytemuck",
- "color-eyre",
- "either",
- "eyre",
- "futures",
- "io-uring",
- "json-parsing-nix",
- "libc",
- "memmap2",
- "nix",
- "psx-shm",
- "regex",
- "rustix 1.1.2",
- "serde",
- "serde_bytes",
- "serde_cbor",
- "serde_json",
- "snafu",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "nix-btm-daemon"
 version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
  "json-parsing-nix",
- "nix-btm-common",
+ "nix-btm",
  "tokio",
 ]
 
