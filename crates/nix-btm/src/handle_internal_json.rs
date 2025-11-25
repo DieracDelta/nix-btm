@@ -1,20 +1,15 @@
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, hash_map::Entry},
+    collections::{HashMap, HashSet, hash_map::Entry},
     fmt::Display,
     fs,
-    io::{self, Error},
+    io::{self},
     ops::Deref,
     os::unix::fs::{FileTypeExt, PermissionsExt},
     path::{Path, PathBuf},
     str::FromStr,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::Duration,
 };
-
-use crate::shutdown::Shutdown;
 
 use bstr::ByteSlice as _;
 use either::Either;
@@ -26,16 +21,17 @@ use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
     sync::{
-        Notify, RwLock, mpsc::{
-            Receiver, Sender, UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel
-        }, watch
+        RwLock,
+        mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+        watch,
     },
-    time::{self, MissedTickBehavior, error::Elapsed, interval, sleep},
+    time::{MissedTickBehavior, interval},
 };
 use tracing::error;
 
 use crate::{
     derivation_tree::{DrvRelations, START_INSTANT},
+    shutdown::Shutdown,
     spawn_named,
 };
 
@@ -654,8 +650,10 @@ pub async fn handle_daemon_info(
                         }
 
                         // Warn if no Nix connections have been received
-                        ticks_without_connection = ticks_without_connection.saturating_add(1);
-                        if !warned_no_connection && ticks_without_connection >= 5 {
+                        ticks_without_connection =
+                            ticks_without_connection.saturating_add(1);
+                        if !warned_no_connection
+                            && ticks_without_connection >= 5 {
                             warned_no_connection = true;
                             error!("No Nix log connections received after {} seconds", ticks_without_connection);
                             error!("Make sure your nix.conf has: extra-experimental-features = nix-command");
@@ -1454,10 +1452,7 @@ async fn read_stream(
     //info_builds: watch::Sender<HashMap<u64, BuildJob>>,
     shutdown: Shutdown,
     rid: RequesterId,
-    chan: UnboundedSender<(
-        RequesterId,
-        Either<String, ()>
-    )>,
+    chan: UnboundedSender<(RequesterId, Either<String, ()>)>,
 ) -> io::Result<()> {
     let reader = BufReader::new(stream);
     let mut lines = reader.lines();
@@ -1465,10 +1460,12 @@ async fn read_stream(
     let shutdown_fut = shutdown.wait().boxed();
     tokio::pin!(shutdown_fut);
 
-
     loop {
         tokio::select! {
-            _ = &mut shutdown_fut => { break }
+            _ = &mut shutdown_fut => {
+                break;
+
+            }
             result = lines.next_line() => {
                 match result {
                     Ok(Some(line)) => {
@@ -1531,7 +1528,6 @@ pub async fn handle_lines(
         );
     }
 }
-
 
 #[cfg(test)]
 mod tests {

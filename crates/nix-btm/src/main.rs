@@ -1,130 +1,36 @@
-use std::{
-    collections::{BTreeSet, HashMap},
-    error::Error,
-    io::{self, Stdout},
-    panic,
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{panic, path::PathBuf, sync::Arc, time::Duration};
 
 use clap::Parser;
 use futures::{FutureExt, future::join_all};
 use mimalloc::MiMalloc;
 use nix_btm::{
-    app::App, cli::Args, client_side::client_read_snapshot_into_state, handle_internal_json::{
+    app::App,
+    cli::Args,
+    client_side::client_read_snapshot_into_state,
+    double_fork::daemon_double_fork,
+    event_loop::event_loop,
+    get_stats::get_active_users_and_pids,
+    handle_internal_json::{
         BuildJob, JobId, JobsStateInner, handle_daemon_info, setup_unix_socket,
-    }, protocol_common::Update, ring_reader::{ReadResult, RingReader}, ring_writer::RingWriter, rpc::{ClientRequest, DaemonResponse}, rpc_client::send_rpc_request, rpc_daemon::handle_rpc_connection, spawn_named
+    },
+    protocol_common::Update,
+    ring_reader::{ReadResult, RingReader},
+    ring_writer::RingWriter,
+    rpc::{ClientRequest, DaemonResponse},
+    rpc_client::send_rpc_request,
+    rpc_daemon::handle_rpc_connection,
+    shutdown::Shutdown,
+    spawn_named,
+    tracing_init::init_tracing,
 };
-use ratatui::text::Line;
 use tokio::{
-    sync::{Notify, RwLock},
+    sync::{RwLock, watch},
     time::interval,
 };
-use tracing::{error, info, info_span};
-
-
-use crossterm::{
-    event::DisableMouseCapture,
-    execute,
-    terminal::{
-        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-        enable_raw_mode,
-    },
-};
-use nix_btm::event_loop::event_loop;
-use ratatui::{
-    backend::CrosstermBackend, style::Style, widgets::ScrollbarState,
-};
-use tokio::{runtime::Runtime, sync::watch};
-use tui_tree_widget::TreeState;
-use nix_btm::ui::{
-    BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED,
-    TITLE_STYLE_UNSELECTED,
-};
-
-use nix_btm::{
-    get_stats::{ProcMetadata, get_active_users_and_pids},
-    shutdown::Shutdown,
-    tracing_init::init_tracing,
-    tree_generation::PruneType,
-};
+use tracing::{error, info};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
-
-use std::process::exit;
-
-use libc::{pid_t, setsid};
-use rustix::{
-    fs::Mode,
-    process::{chdir, umask},
-};
-
-// Global flag for signal handler
-static SHUTDOWN_SIGNALED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-/// Daemonize (advanced programming in the unix environment)
-pub(crate) fn daemon_double_fork() {
-    do_fork();
-
-    let sid = unsafe { setsid() };
-    if sid < 0 {
-        eprintln!("setsid failed");
-        exit(-1);
-    }
-
-    // cannot be killed by parent
-    unsafe {
-        libc::signal(libc::SIGHUP, libc::SIG_IGN);
-    }
-
-    // really shake them off our tail
-    do_fork();
-
-    // no risk of unmounting
-    chdir("/").unwrap();
-
-    // clear umask
-    umask(Mode::empty());
-
-    // redirect the stds to dev null
-    redirect_std_fds_to_devnull();
-}
-
-fn redirect_std_fds_to_devnull() {
-    use std::{fs::OpenOptions, os::unix::io::AsRawFd};
-
-    let devnull = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open("/dev/null")
-        .expect("failed to open /dev/null");
-
-    let fd = devnull.as_raw_fd();
-    unsafe {
-        libc::dup2(fd, 0);
-        libc::dup2(fd, 1);
-        libc::dup2(fd, 2);
-    }
-}
-
-fn do_fork() {
-    let pid: pid_t = unsafe { libc::fork() };
-
-    match pid {
-        p if p < 0 => {
-            eprintln!("unable to fork");
-            exit(-1);
-        }
-        0 => {}       // child
-        _ => exit(0), // parent
-    }
-}
 
 pub(crate) fn init_async_runtime() {
     let args = Args::parse();
@@ -141,7 +47,6 @@ pub(crate) fn init_async_runtime() {
             async move {
                 let shutdown = Shutdown::new();
                 let shutdown_ = shutdown.clone();
-                let shutdown__ = shutdown.clone();
                 let fut1 = spawn_named("Root task", async move {
                     match args {
                         Args::Daemon { .. } => {
@@ -179,8 +84,7 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
     if let Args::Daemon {
         nix_json_file_path,
         daemon_socket_path,
-        daemon_log_path: _,
-        daemonize,
+        ..
     } = args
     {
         let nix_socket_path = nix_json_file_path
@@ -259,7 +163,6 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
                                 error!("RPC accept error: {e}");
                             }
                         }
-                        break; // Break inner loop to create new accept future
                     }
                     _ = &mut rpc_shutdown_fut => {
                         error!("rpc listener shut down!");
@@ -300,7 +203,8 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
                                 None => {
                                     // New job
                                     let update = Update::JobNew(job.clone());
-                                    if let Err(e) = writer.write_update(&update) {
+                                    if let Err(e) = writer.write_update(&update)
+                                    {
                                         error!("Failed to write JobNew: {e}");
                                     }
                                 }
@@ -310,7 +214,8 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
                                         jid: jid.0,
                                         status: format!("{:?}", job.status),
                                     };
-                                    if let Err(e) = writer.write_update(&update) {
+                                    if let Err(e) = writer.write_update(&update)
+                                    {
                                         error!("Failed to write JobUpdate: {e}");
                                     }
                                 }
@@ -351,9 +256,10 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
 
                         last_jobs = current_state.jid_to_job.clone();
                         last_dep_nodes =
-                            current_state.dep_tree.nodes.keys().cloned().collect();
+                            current_state.dep_tree.nodes.keys().cloned()
+                                .collect();
 
-                            }
+                    }
 
                 );
             }
@@ -373,13 +279,8 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
         });
 
         // Run the main Nix log handler (this takes over the current task)
-        handle_daemon_info(
-            nix_socket_path,
-            0o666,
-            shutdown.clone(),
-            state_tx,
-        )
-        .await;
+        handle_daemon_info(nix_socket_path, 0o666, shutdown.clone(), state_tx)
+            .await;
 
         info!("Daemon shutting down");
     } else {
@@ -568,7 +469,8 @@ pub(crate) async fn run_client(args: Args, is_shutdown: Shutdown) {
                         }
                     }
                 }
-        }});
+            }
+        });
 
         // Create app and run TUI
         let app = Box::new(App::default());
@@ -724,4 +626,3 @@ async fn run_standalone(
 
     Ok(())
 }
-

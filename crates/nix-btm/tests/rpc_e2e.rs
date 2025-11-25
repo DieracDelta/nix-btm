@@ -169,12 +169,11 @@ async fn test_rpc_request_snapshot() {
             assert_eq!(snapshot_name, expected_name);
 
             // Try to read the snapshot
-            let state =
-                nix_btm::client_side::client_read_snapshot_into_state(
-                    &snapshot_name,
-                    total_len,
-                )
-                .expect("Failed to read snapshot");
+            let state = nix_btm::client_side::client_read_snapshot_into_state(
+                &snapshot_name,
+                total_len,
+            )
+            .expect("Failed to read snapshot");
 
             println!(
                 "Successfully read snapshot with {} jobs",

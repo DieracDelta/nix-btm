@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use bytemuck::bytes_of;
 use psx_shm::{Shm, UnlinkOnDrop};
 pub use rustix::*;
-use rustix::{fd::AsFd, fs::Mode, shm::OFlags};
+use rustix::{fs::Mode, shm::OFlags};
 use serde_cbor as cbor;
 use tokio::net::UnixStream;
 

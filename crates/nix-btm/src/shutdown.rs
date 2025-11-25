@@ -15,6 +15,12 @@ struct Inner {
     is_shutdown: AtomicBool,
 }
 
+impl Default for Shutdown {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Shutdown {
     pub fn new() -> Self {
         Self {

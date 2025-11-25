@@ -6,7 +6,6 @@ static HELP_STR_SOCKET: &str = "
                                 Example value: \"/tmp/nixbtm.sock\"
 ";
 
-
 #[derive(clap::Parser)]
 #[command(
     name = "nix-btm",
@@ -92,4 +91,3 @@ pub enum Args {
         standalone_log_path: Option<String>,
     },
 }
-

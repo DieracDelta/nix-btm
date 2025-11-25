@@ -1,24 +1,9 @@
 use std::{
     collections::{BTreeSet, HashMap},
     error::Error,
-    io::{self, Stdout},
-    panic,
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
+    io::Stdout,
 };
 
-use crossterm::{
-    event::DisableMouseCapture,
-    execute,
-    terminal::{
-        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-        enable_raw_mode,
-    },
-};
 use ratatui::{
     backend::CrosstermBackend, style::Style, text::Line,
     widgets::ScrollbarState,

@@ -249,9 +249,8 @@ fn test_ring_buffer_job_updates_flow() {
         .expect("Failed to create ring writer");
 
     let ring_name = writer.name.clone();
-    let total_len = std::mem::size_of::<
-        nix_btm::protocol_common::ShmHeader,
-    >() as u32
+    let total_len = std::mem::size_of::<nix_btm::protocol_common::ShmHeader>()
+        as u32
         + ring_len;
 
     // Create reader BEFORE writes so it can track from the beginning
@@ -447,9 +446,8 @@ async fn test_multiple_clients_read_ring() {
         .expect("Failed to create ring writer");
 
     let ring_name = writer.name.clone();
-    let total_len = std::mem::size_of::<
-        nix_btm::protocol_common::ShmHeader,
-    >() as u32
+    let total_len = std::mem::size_of::<nix_btm::protocol_common::ShmHeader>()
+        as u32
         + ring_len;
 
     // Create multiple readers BEFORE writes

@@ -13,10 +13,12 @@ pub mod ring_reader;
 
 pub mod app;
 pub mod cli;
+pub mod double_fork;
 pub mod emojis;
 pub mod event_loop;
 pub mod get_stats;
 pub mod gruvbox;
+
 #[cfg(target_os = "linux")]
 pub mod listen_to_output;
 

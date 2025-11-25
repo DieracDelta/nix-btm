@@ -293,7 +293,7 @@ pub fn gen_drv_tree_leaves_from_state(
     // For Aggressive mode: flat list of only active items
     if do_prune == PruneType::Aggressive {
         let mut items = vec![];
-        for (drv, _node) in &state.dep_tree.nodes {
+        for drv in state.dep_tree.nodes.keys() {
             if state.get_status(drv).is_active() {
                 let item = TreeItem::new(
                     drv.to_string(),
@@ -305,7 +305,7 @@ pub fn gen_drv_tree_leaves_from_state(
             }
         }
         // Also include jobs that might not be in dep_tree (synthetic drvs)
-        for (_jid, job) in &state.jid_to_job {
+        for job in state.jid_to_job.values() {
             if job.status.is_active()
                 && !state.dep_tree.nodes.contains_key(&job.drv)
             {
@@ -384,12 +384,11 @@ pub fn gen_drv_tree_leaves_from_state(
 
             // For Normal pruning, only include if root has children or is
             // itself active
-            if do_prune == PruneType::Normal {
-                if drv_node.children().is_empty()
-                    && !state.get_status(a_root).is_active()
-                {
-                    continue;
-                }
+            if do_prune == PruneType::Normal
+                && drv_node.children().is_empty()
+                && !state.get_status(a_root).is_active()
+            {
+                continue;
             }
 
             children.push(drv_node);
@@ -426,12 +425,11 @@ pub fn gen_drv_tree_leaves_from_state(
 
         // For Normal pruning, only include if root has children or is itself
         // active
-        if do_prune == PruneType::Normal {
-            if new_root.children().is_empty()
-                && !state.get_status(a_root).is_active()
-            {
-                continue;
-            }
+        if do_prune == PruneType::Normal
+            && new_root.children().is_empty()
+            && !state.get_status(a_root).is_active()
+        {
+            continue;
         }
 
         roots.push(new_root);

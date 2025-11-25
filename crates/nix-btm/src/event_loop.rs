@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeSet, HashMap},
     ops::Deref,
     panic,
-    sync::{Arc, atomic::AtomicBool},
 };
 
 use crossterm::event::{
@@ -58,7 +57,7 @@ fn setup_terminal() -> crate::app::Result<crate::app::Terminal> {
 }
 
 pub enum Events {
-    TickBJ(JobsStateInner),
+    TickBJ(Box<JobsStateInner>),
     TickProcMD(HashMap<String, BTreeSet<ProcMetadata>>),
     InputEvent(Event),
 }
@@ -286,7 +285,7 @@ pub async fn event_loop(
 
     let update_job_stream: BoxStream<'static, Events> =
         WatchStream::new(recv_job_updates)
-            .map(Events::TickBJ)
+            .map(|x| Events::TickBJ(Box::new(x)))
             .boxed();
 
     let mut merged: SelectAll<BoxStream<'static, Events>> =
@@ -301,7 +300,7 @@ pub async fn event_loop(
 
         match merged.next().await {
             Some(Events::TickBJ(new_info_builds)) => {
-                app.cur_info_builds = new_info_builds;
+                app.cur_info_builds = *new_info_builds;
             }
             Some(Events::TickProcMD(new_info)) => {
                 app.cur_info = new_info;

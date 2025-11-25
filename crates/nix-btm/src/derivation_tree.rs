@@ -66,9 +66,10 @@ impl DrvRelations {
         if let Some(map) = drv.query_nix_about_drv().await {
             // First pass: collect which outputs each drv needs
             // Map from drv -> set of required output names
-            let mut required_outputs_map: BTreeMap<Drv, BTreeSet<String>> = BTreeMap::new();
+            let mut required_outputs_map: BTreeMap<Drv, BTreeSet<String>> =
+                BTreeMap::new();
 
-            for (_d, derivation) in &map {
+            for derivation in map.values() {
                 for (dep_drv, input_drv) in &derivation.input_drvs {
                     required_outputs_map
                         .entry(dep_drv.clone())
@@ -91,41 +92,46 @@ impl DrvRelations {
                     });
 
                 // Get the actual output paths for the required outputs
-                // Note: nix derivation show returns paths without /nix/store/ prefix
-                let mut required_output_paths: BTreeSet<String> = required_outputs
-                    .iter()
-                    .filter_map(|output_name| {
-                        derivation.outputs.get(output_name).map(|o| {
-                            if o.path.starts_with("/nix/store/") {
-                                o.path.clone()
-                            } else if !o.path.is_empty() {
-                                format!("/nix/store/{}", o.path)
-                            } else {
-                                String::new()
-                            }
+                // Note: nix derivation show returns paths without /nix/store/
+                // prefix
+                let mut required_output_paths: BTreeSet<String> =
+                    required_outputs
+                        .iter()
+                        .filter_map(|output_name| {
+                            derivation.outputs.get(output_name).map(|o| {
+                                if o.path.starts_with("/nix/store/") {
+                                    o.path.clone()
+                                } else if !o.path.is_empty() {
+                                    format!("/nix/store/{}", o.path)
+                                } else {
+                                    String::new()
+                                }
+                            })
                         })
-                    })
-                    .filter(|p| !p.is_empty())
-                    .collect();
+                        .filter(|p| !p.is_empty())
+                        .collect();
 
-                // For FODs (fixed-output derivations), paths are empty in nix derivation show
-                // Query nix-store directly to get output paths
-                if required_output_paths.is_empty() && !required_outputs.is_empty() {
-                    let drv_path = format!("/nix/store/{}-{}.drv", d.hash, d.name);
+                // For FODs (fixed-output derivations), paths are empty in nix
+                // derivation show Query nix-store directly to
+                // get output paths
+                if required_output_paths.is_empty()
+                    && !required_outputs.is_empty()
+                {
+                    let drv_path =
+                        format!("/nix/store/{}-{}.drv", d.hash, d.name);
                     if let Ok(output) = Command::new("nix-store")
                         .arg("-q")
                         .arg("--outputs")
                         .arg(&drv_path)
                         .output()
                         .await
+                        && output.status.success()
                     {
-                        if output.status.success() {
-                            let stdout = String::from_utf8_lossy(&output.stdout);
-                            for line in stdout.lines() {
-                                let path = line.trim();
-                                if !path.is_empty() {
-                                    required_output_paths.insert(path.to_string());
-                                }
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        for line in stdout.lines() {
+                            let path = line.trim();
+                            if !path.is_empty() {
+                                required_output_paths.insert(path.to_string());
                             }
                         }
                     }
@@ -181,17 +187,23 @@ impl DrvRelations {
         // (they now have a parent - this node)
         self.tree_roots.retain(|r| !node.deps.contains(r));
 
-        // Check if this node has any parents (is a dependency of any existing node)
-        let has_parent = self.nodes.iter().any(|(drv, n)| {
-            drv != &node.root && n.deps.contains(&node.root)
-        });
+        // Check if this node has any parents (is a dependency of any existing
+        // node)
+        let has_parent = self
+            .nodes
+            .iter()
+            .any(|(drv, n)| drv != &node.root && n.deps.contains(&node.root));
 
         // If no parent found, this is a root
         if !has_parent && !self.tree_roots.contains(&node.root) {
             self.tree_roots.insert(node.root);
             tracing::debug!("insert_node: added {} as root", node_name);
         } else {
-            tracing::debug!("insert_node: {} NOT added as root (has_parent={})", node_name, has_parent);
+            tracing::debug!(
+                "insert_node: {} NOT added as root (has_parent={})",
+                node_name,
+                has_parent
+            );
         }
     }
 
@@ -200,33 +212,44 @@ impl DrvRelations {
     pub fn recalculate_roots(&mut self) {
         // Collect all nodes that are dependencies of something
         let mut has_parent: BTreeSet<Drv> = BTreeSet::new();
-        for (_drv, node) in &self.nodes {
+        for node in self.nodes.values() {
             for dep in &node.deps {
                 has_parent.insert(dep.clone());
             }
         }
 
         // Roots are nodes that have no parent
-        self.tree_roots = self.nodes.keys()
+        self.tree_roots = self
+            .nodes
+            .keys()
             .filter(|d| !has_parent.contains(*d))
             .cloned()
             .collect();
 
-        tracing::debug!("recalculate_roots: {} roots from {} nodes: {:?}",
-            self.tree_roots.len(), self.nodes.len(),
-            self.tree_roots.iter().map(|r| &r.name).collect::<Vec<_>>());
+        tracing::debug!(
+            "recalculate_roots: {} roots from {} nodes: {:?}",
+            self.tree_roots.len(),
+            self.nodes.len(),
+            self.tree_roots.iter().map(|r| &r.name).collect::<Vec<_>>()
+        );
 
         // Log nodes that have parents for debugging
-        let with_parents: Vec<_> = self.nodes.keys()
+        let with_parents: Vec<_> = self
+            .nodes
+            .keys()
             .filter(|d| has_parent.contains(*d))
             .map(|d| &d.name)
             .collect();
         if !with_parents.is_empty() {
-            tracing::debug!("nodes with parents (not roots): {:?}", with_parents);
+            tracing::debug!(
+                "nodes with parents (not roots): {:?}",
+                with_parents
+            );
         }
     }
 
-    // Check if child_drv is a dependency of parent_drv (directly or recursively)
+    // Check if child_drv is a dependency of parent_drv (directly or
+    // recursively)
     fn is_child_of_direct_or_recursive(
         &self,
         parent_drv: &Drv,
@@ -298,7 +321,12 @@ pub fn drv_tree_of_derivation(
 ) -> Option<DrvNode> {
     if let Left(drv) = parse_store_path(&name) {
         let deps = value.input_drvs.into_keys().collect::<BTreeSet<_>>();
-        Some(DrvNode { root: drv, deps, required_outputs: BTreeSet::new(), required_output_paths: BTreeSet::new() })
+        Some(DrvNode {
+            root: drv,
+            deps,
+            required_outputs: BTreeSet::new(),
+            required_output_paths: BTreeSet::new(),
+        })
     } else {
         error!("{name} wasn't a drv");
         None
