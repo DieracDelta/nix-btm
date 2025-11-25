@@ -65,25 +65,185 @@ impl Deref for JobId {
     }
 }
 
+/// Unique identifier for a build target
+#[repr(transparent)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    Default,
+)]
+#[serde(transparent)]
+pub struct BuildTargetId(pub u64);
+
+impl From<u64> for BuildTargetId {
+    fn from(value: u64) -> Self {
+        BuildTargetId(value)
+    }
+}
+
+impl Deref for BuildTargetId {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Status of a build target (high-level view of all jobs for a target)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TargetStatus {
+    /// Evaluation in progress (parsing flake, computing dependencies)
+    Evaluating,
+    /// Queued to build (dep tree known, but no active jobs yet)
+    Queued,
+    /// At least one job is actively building/downloading
+    Active,
+    /// All jobs completed successfully
+    Completed,
+    /// All drvs were already built (from cache, no actual work needed)
+    Cached,
+    /// Build was cancelled by user
+    Cancelled,
+}
+
+impl Display for TargetStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TargetStatus::Evaluating => write!(f, "Evaluating"),
+            TargetStatus::Queued => write!(f, "Queued"),
+            TargetStatus::Active => write!(f, "Active"),
+            TargetStatus::Completed => write!(f, "Completed"),
+            TargetStatus::Cached => write!(f, "Cached"),
+            TargetStatus::Cancelled => write!(f, "Cancelled"),
+        }
+    }
+}
+
+/// A build target represents a user's build request (e.g., "nix build nixpkgs#bat")
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BuildTarget {
+    /// Unique identifier for this target
+    pub id: BuildTargetId,
+
+    /// Human-readable flake reference (e.g., "github:nixos/nixpkgs#bat")
+    pub reference: String,
+
+    /// The top-level drv for this target (from `nix eval 'target.drvPath'`)
+    pub root_drv: Drv,
+
+    /// All drvs in the transitive dependency closure
+    /// Computed once when target is discovered via `nix derivation show`
+    pub transitive_closure: HashSet<Drv>,
+
+    /// Which requester (build session) owns this target
+    pub requester_id: RequesterId,
+
+    /// Current status of the target
+    pub status: TargetStatus,
+}
+
+impl BuildTarget {
+    /// Compute the target's status from the jobs in state
+    /// This should be called whenever jobs change
+    pub fn compute_status(
+        &self,
+        jid_to_job: &HashMap<JobId, BuildJob>,
+        drv_to_jobs: &HashMap<Drv, HashSet<JobId>>,
+        already_built_drvs: &HashSet<Drv>,
+    ) -> TargetStatus {
+        // Collect all jobs for drvs in this target's closure
+        let mut all_jobs = Vec::new();
+        for drv in &self.transitive_closure {
+            if let Some(jobs) = drv_to_jobs.get(drv) {
+                for jid in jobs {
+                    if let Some(job) = jid_to_job.get(jid) {
+                        // Only consider jobs from this requester
+                        if job.rid == self.requester_id {
+                            all_jobs.push(job);
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no jobs exist yet, check if everything is already built
+        if all_jobs.is_empty() {
+            let all_already_built = self
+                .transitive_closure
+                .iter()
+                .all(|drv| already_built_drvs.contains(drv));
+
+            if all_already_built && !self.transitive_closure.is_empty() {
+                return TargetStatus::Cached;
+            } else {
+                return TargetStatus::Queued;
+            }
+        }
+
+        // Check for evaluation/fetching activities
+        if all_jobs
+            .iter()
+            .any(|j| matches!(j.status, JobStatus::Evaluating | JobStatus::FetchingTree(_)))
+        {
+            return TargetStatus::Evaluating;
+        }
+
+        // Check if any jobs are actively running
+        if all_jobs.iter().any(|j| j.status.is_active()) {
+            return TargetStatus::Active;
+        }
+
+        // Check if cancelled
+        if all_jobs.iter().any(|j| j.status == JobStatus::Cancelled) {
+            return TargetStatus::Cancelled;
+        }
+
+        // Check if all completed
+        if all_jobs.iter().all(|j| j.status.is_completed()) {
+            return TargetStatus::Completed;
+        }
+
+        // Default to queued
+        TargetStatus::Queued
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct JobsStateInner {
+    /// All known build targets, indexed by unique ID
+    pub targets: HashMap<BuildTargetId, BuildTarget>,
+
+    /// Reverse index: which targets contain each drv
+    /// Multiple targets can share drvs (common dependencies)
+    pub drv_to_targets: HashMap<Drv, HashSet<BuildTargetId>>,
+
+    /// Next target ID to assign (monotonically increasing)
+    pub next_target_id: BuildTargetId,
+
+    /// All jobs, indexed by job ID
     pub jid_to_job: HashMap<JobId, BuildJob>,
+
+    /// Reverse index: which jobs are building each drv
     pub drv_to_jobs: HashMap<Drv, HashSet<JobId>>,
+
+    /// Dependency tree of all known derivations
     pub dep_tree: DrvRelations,
-    /// The top-level target(s) being built (e.g., "github:nixos/nixpkgs#bat")
-    pub top_level_targets: Vec<String>,
-    /// Map from requester to their top-level drvs (for cleanup)
-    pub requester_drvs: HashMap<RequesterId, HashSet<Drv>>,
-    /// Drvs that have been cancelled (for status display)
-    pub cancelled_drvs: HashSet<Drv>,
+
     /// Drvs that were already built (cached) - for status display
     pub already_built_drvs: HashSet<Drv>,
-    /// Map from drv to its flake/attribute reference (for display in eagle eye
-    /// view)
-    pub drv_to_target: HashMap<Drv, String>,
 }
 
 impl JobsStateInner {
+    /// Get global status of a drv (not target-specific)
+    /// For target-specific status, use get_drv_status_for_target instead
     pub fn get_status(&self, drv: &Drv) -> JobStatus {
         // Check if this drv has explicit jobs
         if let Some(jobs) = self.drv_to_jobs.get(drv) {
@@ -93,15 +253,12 @@ impl JobsStateInner {
                 }
             }
         }
-        // Check if this drv was cancelled (no explicit job but in cancelled
-        // set)
-        if self.cancelled_drvs.contains(drv) {
-            return JobStatus::Cancelled;
-        }
+
         // Check if this drv was already built (cached)
         if self.already_built_drvs.contains(drv) {
             return JobStatus::AlreadyBuilt;
         }
+
         // If drv is in the dependency tree, it's queued to be built
         if self.dep_tree.nodes.contains_key(drv) {
             JobStatus::Queued
@@ -133,10 +290,117 @@ impl JobsStateInner {
         )
     }
 
-    pub fn add_top_level_target(&mut self, target: String) {
-        if !self.top_level_targets.contains(&target) {
-            self.top_level_targets.push(target);
+    /// Create a new build target and return its ID
+    pub fn create_target(
+        &mut self,
+        reference: String,
+        root_drv: Drv,
+        requester_id: RequesterId,
+    ) -> BuildTargetId {
+        let target_id = self.next_target_id;
+        self.next_target_id = (*self.next_target_id + 1).into();
+
+        // Compute transitive closure from dep_tree
+        let transitive_closure = self.compute_transitive_closure(&root_drv);
+
+        let target = BuildTarget {
+            id: target_id,
+            reference,
+            root_drv,
+            transitive_closure,
+            requester_id,
+            status: TargetStatus::Evaluating,
+        };
+
+        // Update reverse index: map each drv to this target
+        for drv in &target.transitive_closure {
+            self.drv_to_targets
+                .entry(drv.clone())
+                .or_default()
+                .insert(target_id);
         }
+
+        self.targets.insert(target_id, target);
+        target_id
+    }
+
+    /// Compute transitive closure of a drv from the dep_tree
+    fn compute_transitive_closure(&self, root: &Drv) -> HashSet<Drv> {
+        let mut closure = HashSet::new();
+        let mut stack = vec![root.clone()];
+
+        while let Some(drv) = stack.pop() {
+            if closure.insert(drv.clone()) {
+                if let Some(node) = self.dep_tree.nodes.get(&drv) {
+                    for dep in &node.deps {
+                        stack.push(dep.clone());
+                    }
+                }
+            }
+        }
+
+        closure
+    }
+
+    /// Update the status of a target based on current job state
+    pub fn update_target_status(&mut self, target_id: BuildTargetId) {
+        if let Some(target) = self.targets.get_mut(&target_id) {
+            let new_status = target.compute_status(
+                &self.jid_to_job,
+                &self.drv_to_jobs,
+                &self.already_built_drvs,
+            );
+            target.status = new_status;
+        }
+    }
+
+    /// Get the status of a drv within a specific target's context
+    /// This allows different targets to have different views of the same drv
+    pub fn get_drv_status_for_target(
+        &self,
+        drv: &Drv,
+        target_id: BuildTargetId,
+    ) -> JobStatus {
+        // Get the target to find which requester owns it
+        let Some(target) = self.targets.get(&target_id) else {
+            return JobStatus::NotEnoughInfo;
+        };
+
+        // Check if this drv has jobs from this target's requester
+        if let Some(jobs) = self.drv_to_jobs.get(drv) {
+            for job in jobs {
+                if let Some(bj) = self.jid_to_job.get(job) {
+                    if bj.rid == target.requester_id {
+                        return bj.status.clone();
+                    }
+                }
+            }
+        }
+
+        // Check if this drv was already built (cached)
+        if self.already_built_drvs.contains(drv) {
+            return JobStatus::AlreadyBuilt;
+        }
+
+        // Check target status for cancelled
+        if target.status == TargetStatus::Cancelled {
+            return JobStatus::Cancelled;
+        }
+
+        // If drv is in the dependency tree, it's queued to be built
+        if self.dep_tree.nodes.contains_key(drv) {
+            JobStatus::Queued
+        } else {
+            JobStatus::NotEnoughInfo
+        }
+    }
+
+    /// Get all targets for a given requester
+    pub fn get_targets_for_requester(&self, rid: RequesterId) -> Vec<&BuildTarget> {
+        self.targets
+            .values()
+            .filter(|t| t.requester_id == rid)
+            .collect()
     }
 }
 
@@ -295,21 +559,27 @@ impl JobsState {
         // First insert into dep tree (this queries nix and populates deps)
         {
             let mut state = self.write().await;
-            // Remove from cancelled/already_built sets if it was previously in
-            // them
-            state.cancelled_drvs.remove(&drv);
             state.already_built_drvs.remove(&drv);
 
+            // Insert into dep_tree (queries Nix for dependencies)
             state.dep_tree.insert(drv.clone()).await;
-            // Track this drv for the requester
-            state
-                .requester_drvs
-                .entry(rid)
-                .or_default()
-                .insert(drv.clone());
-            // Track the target -> drv mapping for display
-            if let Some(t) = target {
-                state.drv_to_target.insert(drv.clone(), t);
+
+            // Create BuildTarget with transitive closure
+            if let Some(target_ref) = target {
+                let target_id = state.create_target(
+                    target_ref.clone(),
+                    drv.clone(),
+                    rid,
+                );
+                tracing::info!(
+                    "Created target {:?} for '{}' (drv: {})",
+                    target_id,
+                    target_ref,
+                    drv.name
+                );
+
+                // Update target status after creation
+                state.update_target_status(target_id);
             }
 
             // Check which drvs already have their required outputs in the store
@@ -370,9 +640,8 @@ impl JobsState {
 
         let mut state = self.write().await;
 
-        // Remove from cancelled/already_built sets if it was previously in them
+        // Remove from already_built set if it was previously in there
         // (this is a new job for this drv)
-        state.cancelled_drvs.remove(&drv);
         state.already_built_drvs.remove(&drv);
 
         match state.jid_to_job.entry(id) {
@@ -420,6 +689,25 @@ impl JobsState {
     pub async fn cleanup_requester(&self, rid: RequesterId) {
         let mut state = self.write().await;
 
+        // Find all targets for this requester
+        let target_ids: Vec<BuildTargetId> = state
+            .targets
+            .values()
+            .filter(|t| t.requester_id == rid)
+            .map(|t| t.id)
+            .collect();
+
+        if target_ids.is_empty() {
+            tracing::info!("cleanup requester {:?}: no targets found", rid);
+            return;
+        }
+
+        tracing::info!(
+            "cleanup requester {:?}: cleaning up {} targets",
+            rid,
+            target_ids.len()
+        );
+
         // Check if any jobs were created for this requester
         let requester_had_jobs =
             state.jid_to_job.values().any(|j| j.rid == rid);
@@ -443,7 +731,6 @@ impl JobsState {
 
         // Mark any active/pending jobs as cancelled
         let mut cancelled_count = 0;
-        let mut cancelled_drvs: HashSet<Drv> = HashSet::new();
 
         for (_jid, job) in state.jid_to_job.iter_mut() {
             if job.rid == rid
@@ -464,71 +751,53 @@ impl JobsState {
                 job.stop_time_ns =
                     Some(START_INSTANT.elapsed().as_nanos() as u64);
                 cancelled_count += 1;
-                cancelled_drvs.insert(job.drv.clone());
             }
         }
 
-        // Get top-level drvs for this requester
-        if let Some(requester_top_level_drvs) =
-            state.requester_drvs.remove(&rid)
-        {
-            // Collect all deps
-            fn collect_deps(
-                drv: &Drv,
-                nodes: &std::collections::BTreeMap<
-                    Drv,
-                    crate::derivation_tree::DrvNode,
-                >,
-                collected: &mut HashSet<Drv>,
-            ) {
-                if let Some(node) = nodes.get(drv) {
-                    for dep in &node.deps {
-                        if collected.insert(dep.clone()) {
-                            collect_deps(dep, nodes, collected);
-                        }
-                    }
-                }
-            }
+        // Update status for each target
+        for target_id in &target_ids {
+            // Clone data we need before mutating state
+            let (target_ref, transitive_closure) = if let Some(target) = state.targets.get(target_id) {
+                (target.reference.clone(), target.transitive_closure.clone())
+            } else {
+                continue;
+            };
 
-            let mut all_drvs = requester_top_level_drvs.clone();
-            for drv in requester_top_level_drvs {
-                collect_deps(&drv, &state.dep_tree.nodes, &mut all_drvs);
-            }
+            // Check if all drvs in target's closure are already built
+            let all_already_built = transitive_closure
+                .iter()
+                .all(|drv| state.already_built_drvs.contains(drv));
 
-            // If no jobs were created OR no jobs are still active, the build
-            // succeeded from cache Mark all drvs as already built
-            if !requester_had_jobs || !has_active_jobs {
+            if !requester_had_jobs || !has_active_jobs || all_already_built {
+                // Build completed from cache - mark all drvs as already built
                 tracing::info!(
-                    "cleanup requester {:?}: build completed from cache, \
-                     marking {} drvs as already built",
-                    rid,
-                    all_drvs.len()
+                    "Target '{}' completed from cache ({} drvs)",
+                    target_ref,
+                    transitive_closure.len()
                 );
-                for drv in all_drvs {
-                    if !state.already_built_drvs.contains(&drv) {
-                        state.already_built_drvs.insert(drv);
+
+                for drv in &transitive_closure {
+                    if !state.already_built_drvs.contains(drv) {
+                        state.already_built_drvs.insert(drv.clone());
                     }
                 }
-                // Don't mark anything as cancelled
-                return;
+            } else {
+                // Target was cancelled
+                tracing::info!(
+                    "Target '{}' cancelled ({} drvs)",
+                    target_ref,
+                    transitive_closure.len()
+                );
             }
 
-            // Otherwise, mark drvs that aren't already built as cancelled
-            for drv in all_drvs {
-                if !state.already_built_drvs.contains(&drv) {
-                    cancelled_drvs.insert(drv);
-                }
-            }
+            // Update the target's status based on jobs
+            state.update_target_status(*target_id);
         }
-
-        state.cancelled_drvs.extend(cancelled_drvs.clone());
 
         tracing::info!(
-            "cleanup requester {:?}: {} jobs cancelled, {} drvs marked \
-             cancelled",
+            "cleanup requester {:?}: {} jobs cancelled",
             rid,
-            cancelled_count,
-            cancelled_drvs.len()
+            cancelled_count
         );
     }
 }
@@ -1013,11 +1282,6 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                 .strip_prefix("evaluating derivation '")
                                 .and_then(|s| s.strip_suffix("'"))
                             {
-                                state
-                                    .write()
-                                    .await
-                                    .add_top_level_target(target.to_string());
-
                                 // Evaluate the flake reference to get the .drv
                                 // path
                                 // This gives us the top-level derivation for

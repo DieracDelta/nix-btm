@@ -9,7 +9,7 @@ use nix_btm::{
     client_side::client_read_snapshot_into_state,
     derivation_tree::{DrvNode, DrvRelations},
     handle_internal_json::{
-        BuildJob, Drv, JobId, JobStatus, JobsStateInner, RequesterId,
+        BuildJob, BuildTargetId, Drv, JobId, JobStatus, JobsStateInner, RequesterId,
     },
     protocol_common::Update,
     ring_reader::{ReadResult, RingReader},
@@ -104,17 +104,16 @@ fn make_test_state() -> JobsStateInner {
     roots.insert(drv);
 
     JobsStateInner {
+        targets: Default::default(),
+        drv_to_targets: Default::default(),
+        next_target_id: BuildTargetId(0),
         jid_to_job,
         drv_to_jobs,
         dep_tree: DrvRelations {
             nodes,
             tree_roots: roots,
         },
-        top_level_targets: vec![],
-        requester_drvs: Default::default(),
-        cancelled_drvs: Default::default(),
         already_built_drvs: Default::default(),
-        drv_to_target: Default::default(),
     }
 }
 

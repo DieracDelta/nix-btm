@@ -29,7 +29,7 @@ mod tests {
         client_side::client_read_snapshot_into_state,
         daemon_side::create_shmem_and_write_snapshot,
         derivation_tree::{DrvNode, DrvRelations},
-        handle_internal_json::{BuildJob, Drv, JobId, JobsStateInner},
+        handle_internal_json::{BuildJob, BuildTargetId, Drv, JobId, JobsStateInner},
         protocol_common::{JobsStateInnerWire, SnapshotHeader},
     };
     fn to_eyre_with_origin_bt<
@@ -73,17 +73,16 @@ mod tests {
         roots.insert(drv);
 
         JobsStateInner {
+            targets: Default::default(),
+            drv_to_targets: Default::default(),
+            next_target_id: BuildTargetId(0),
             jid_to_job,
             drv_to_jobs: Default::default(),
             dep_tree: DrvRelations {
                 nodes,
                 tree_roots: roots,
             },
-            top_level_targets: vec![],
-            requester_drvs: Default::default(),
-            cancelled_drvs: Default::default(),
             already_built_drvs: Default::default(),
-            drv_to_target: Default::default(),
         }
     }
 

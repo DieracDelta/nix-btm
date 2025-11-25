@@ -308,16 +308,159 @@ Tests are in `crates/nix-btm/tests/`:
 - **Dev profile**: incremental builds, panic=abort
 - **Release profile**: LTO=fat, single codegen unit, opt-level=3, stripped binaries
 
+## Design Analysis and Decisions
+
+### Build Target Model
+
+**What is a "target"?**
+A target is a user's build request, extracted from Nix logs like:
+```
+"evaluating derivation 'github:nixos/nixpkgs/master#haskellPackages.hoogle'"
+```
+
+**Target → Drv relationship:**
+- One target maps to one root drv (obtained via `nix eval 'target.drvPath'`)
+- The root drv has a transitive closure of dependency drvs (obtained via `nix derivation show`)
+- Each drv in the closure specifies which outputs it needs from dependencies (.out, .lib, etc.)
+
+**Cancellation semantics:**
+- When a build is cancelled (user Ctrl-C), the entire target is cancelled
+- This means the root drv + entire transitive closure should be marked cancelled
+- Exception: if a drv is shared with another active build, it should remain active
+
+**Target display:**
+- Targets appear at the top level of the Eagle Eye view
+- Each target node shows its drvs as children
+- Lookup direction should be: target → drvs (not drv → target)
+
+### Data Structure Issues (Current Implementation)
+
+**Problem 1: `top_level_targets: Vec<String>`**
+- Vec allows duplicates, O(n) lookup with `.contains()`
+- Should be deduplicated or part of a richer data structure
+- Not clear what this is used for except tracking what targets were seen
+
+**Problem 2: `drv_to_target: HashMap<Drv, String>`**
+- Backwards direction! Tree generation needs target → drvs
+- Current code (tree_generation.rs:355) iterates all roots and looks up each drv's target
+- Should be `target_to_drv: HashMap<String, Drv>` or better yet `targets: HashMap<String, BuildTarget>`
+
+**Problem 3: `cancelled_drvs: HashSet<Drv>`**
+- Tracks individual drvs, but cancellation happens at target level
+- When requester is cleaned up (handle_internal_json.rs:444-524), code computes transitive closure to find all drvs to cancel
+- This transitive closure computation should be cached in BuildTarget
+
+**Problem 4: No BuildTarget abstraction**
+- Target reference, root drv, transitive closure, required outputs, and status are scattered
+- Hard to answer "is this target cancelled?" or "what's the status of this target?"
+
+### Proposed Data Structure
+
+```rust
+pub struct BuildTarget {
+    /// Human-readable flake reference (e.g., "github:nixos/nixpkgs#bat")
+    pub reference: String,
+
+    /// The top-level drv for this target (from nix eval)
+    pub root_drv: Drv,
+
+    /// All drvs in the transitive dependency closure
+    /// Computed once when target is discovered via nix derivation show
+    pub transitive_closure: HashSet<Drv>,
+
+    /// Which requester (build session) owns this target
+    pub requester_id: RequesterId,
+
+    /// Status of the target (derived from job statuses)
+    /// Active, Cancelled, Completed, or Cached
+    pub status: TargetStatus,
+}
+
+pub struct JobsStateInner {
+    /// All known build targets, indexed by flake reference
+    pub targets: HashMap<String, BuildTarget>,
+
+    /// Reverse index: which target does each drv belong to?
+    /// Multiple targets can share drvs (common dependencies)
+    pub drv_to_targets: HashMap<Drv, HashSet<String>>,
+
+    pub jid_to_job: HashMap<JobId, BuildJob>,
+    pub drv_to_jobs: HashMap<Drv, HashSet<JobId>>,
+    pub dep_tree: DrvRelations,
+
+    /// Drvs that were already built (cached) - for status display
+    pub already_built_drvs: HashSet<Drv>,
+}
+```
+
+### Pruning Logic Issues (Current Implementation)
+
+The `explore_root` function (tree_generation.rs:72-256) is spaghetti:
+
+**Problem 1: Deeply nested conditionals**
+- Multiple match on `(prune, active)` with overlapping cases
+- Normal and Aggressive modes have different behavior mixed together
+- Hard to understand what each mode does
+
+**Problem 2: Mixed concerns**
+- Graph traversal (DFS with stack)
+- Filtering (which nodes to show)
+- Tree construction (building TreeItem hierarchy)
+- Deduplication (printed_leaves, added_ids, seen_parents)
+- Path tracking (for UI tree structure)
+
+**Problem 3: Unclear memoization**
+- `reachable_active_leaves` is memoized but recomputed in multiple places
+- `active_closure` is computed once at top level but unclear what it represents
+
+### Prune Mode Semantics
+
+Based on user requirements:
+
+**PruneType::None**
+- Show complete dependency tree from roots
+- Deduplicate: if A→B→C→D and A→C→D both exist, only show one path to each node
+- No filtering based on active status
+
+**PruneType::Normal**
+- Show only paths from root to downloading/building nodes
+- Keep tree structure (show intermediate nodes on paths)
+- Filter out branches with no active descendants
+
+**PruneType::Aggressive**
+- Flat list of only building/downloading items
+- No tree structure, just active leaf nodes
+
+### Proposed Pruning Refactor
+
+Separate concerns into modular functions:
+
+```rust
+// 1. Compute which nodes to include (filtering)
+fn compute_visible_nodes(state: &JobsStateInner, prune: PruneType) -> HashSet<Drv>;
+
+// 2. Deduplicate paths (handle shared dependencies)
+fn deduplicate_tree_paths(roots: &[Drv], dep_tree: &DrvRelations) -> TreeStructure;
+
+// 3. Build UI tree from structure
+fn build_tree_items(structure: &TreeStructure, state: &JobsStateInner) -> Vec<TreeItem>;
+```
+
 ## Current Development Status
 
 Based on recent commits:
 - Architecture refactored: merged daemon, client, and common crates into single nix-btm crate
-- Clean shutdown mechanism implemented using Arc<Notify> + AtomicBool
+- Clean shutdown mechanism implemented using Shutdown struct
 - Concurrency improved: sockets never block, each log line processed in parallel
 - Tree generation logic separated into tree_generation.rs
 - Ring buffer and RPC protocol working on Linux
 - Attribute detection improved (displays human-readable flake refs)
 - Build status detection enhanced
+
+**Known issues requiring refactor:**
+- JobsStateInner data structure is confusing and inefficient
+- Pruning logic in tree_generation.rs is spaghetti
+- No BuildTarget abstraction for target-level operations
 
 ## Troubleshooting
 

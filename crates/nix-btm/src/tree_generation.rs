@@ -335,6 +335,14 @@ pub fn gen_drv_tree_leaves_from_state(
 
     let mut roots = vec![];
 
+    // Build mapping from drv to target using the new targets HashMap
+    let mut drv_to_target_map: HashMap<&Drv, String> = HashMap::new();
+    for target in state.targets.values() {
+        drv_to_target_map.insert(&target.root_drv, target.reference.clone());
+        error!("Target: '{}' with root drv: {}", target.reference, target.root_drv.name);
+    }
+    error!("Total targets: {}, Total dep_tree roots: {}", state.targets.len(), state.dep_tree.tree_roots.len());
+
     // Group roots by their target (flake reference)
     // Roots with a target get wrapped in a parent node showing the target
     // Roots without a target are shown directly
@@ -352,7 +360,7 @@ pub fn gen_drv_tree_leaves_from_state(
             error!("  KEEPING root {} - in closure", a_root.name);
         }
 
-        if let Some(target) = state.drv_to_target.get(a_root) {
+        if let Some(target) = drv_to_target_map.get(a_root) {
             target_to_roots
                 .entry(target.clone())
                 .or_default()
@@ -383,11 +391,15 @@ pub fn gen_drv_tree_leaves_from_state(
             );
 
             // For Normal pruning, only include if root has children or is
-            // itself active
+            // itself active or completed
+            let status = state.get_status(a_root);
             if do_prune == PruneType::Normal
                 && drv_node.children().is_empty()
-                && !state.get_status(a_root).is_active()
+                && !status.is_active()
+                && !status.is_completed()
+                && !matches!(status, JobStatus::AlreadyBuilt)
             {
+                error!("FILTERING OUT root {} - no children, not active, not completed", a_root.name);
                 continue;
             }
 
@@ -424,11 +436,15 @@ pub fn gen_drv_tree_leaves_from_state(
         explore_root(&mut new_root, state, a_root, do_prune, active.as_ref());
 
         // For Normal pruning, only include if root has children or is itself
-        // active
+        // active or completed
+        let status = state.get_status(a_root);
         if do_prune == PruneType::Normal
             && new_root.children().is_empty()
-            && !state.get_status(a_root).is_active()
+            && !status.is_active()
+            && !status.is_completed()
+            && !matches!(status, JobStatus::AlreadyBuilt)
         {
+            error!("FILTERING OUT orphan root {} - no children, not active, not completed", a_root.name);
             continue;
         }
 

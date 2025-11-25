@@ -13,7 +13,7 @@ use snafu::Snafu;
 use crate::{
     derivation_tree::{DrvNode, DrvRelations},
     handle_internal_json::{
-        BuildJob, Drv, DrvParseError, JobId, JobsStateInner,
+        BuildJob, BuildTargetId, Drv, DrvParseError, JobId, JobsStateInner,
     },
 };
 #[derive(Snafu, Debug)]
@@ -388,14 +388,13 @@ impl From<JobsStateInnerWire> for JobsStateInner {
         };
 
         JobsStateInner {
+            targets: HashMap::new(),
+            drv_to_targets: HashMap::new(),
+            next_target_id: BuildTargetId(0),
             jid_to_job,
             drv_to_jobs,
             dep_tree,
-            top_level_targets: vec![],
-            requester_drvs: HashMap::new(),
-            cancelled_drvs: HashSet::new(),
             already_built_drvs: HashSet::new(),
-            drv_to_target: HashMap::new(),
         }
     }
 }
