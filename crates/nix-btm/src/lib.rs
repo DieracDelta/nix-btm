@@ -22,8 +22,6 @@ pub mod protocol_common;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod protocol_testing;
 
-pub mod double_fork;
-
 // RPC control plane for client-daemon communication
 pub mod rpc;
 
