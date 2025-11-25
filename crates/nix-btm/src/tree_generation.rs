@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use nix_btm::handle_internal_json::{Drv, JobStatus, JobsStateInner};
 use tracing::{error, info};
 use tui_tree_widget::{TreeItem, TreeState};
+
+use crate::handle_internal_json::{Drv, JobStatus, JobsStateInner};
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum PruneType {

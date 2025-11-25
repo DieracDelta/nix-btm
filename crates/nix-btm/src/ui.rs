@@ -1,5 +1,4 @@
 use lazy_static::lazy_static;
-use nix_btm::handle_internal_json::{format_duration, format_secs};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
@@ -12,11 +11,12 @@ use tracing::error;
 use tui_tree_widget::{Tree, TreeItem};
 
 use crate::{
-    App, Pane, SelectedTab, TreeToggle,
+    app::{App, Pane, SelectedTab, TreeToggle},
     get_stats::{ProcMetadata, gen_ui_by_nix_builder},
     gruvbox::Gruvbox::{
         self, Dark0, OrangeBright, OrangeDim, YellowBright, YellowDim,
     },
+    handle_internal_json::{format_duration, format_secs},
     tree_generation::{expand_all, gen_drv_tree_leaves_from_state},
 };
 
@@ -164,11 +164,11 @@ pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
 
     if !items.is_empty() && app.eagle_eye_view.perform_toggle {
         match app.eagle_eye_view.last_toggle {
-            crate::TreeToggle::Open => {
+            TreeToggle::Open => {
                 app.eagle_eye_view.state.close_all();
                 app.eagle_eye_view.last_toggle = TreeToggle::Closed;
             }
-            crate::TreeToggle::Closed | crate::TreeToggle::Never => {
+            TreeToggle::Closed | TreeToggle::Never => {
                 expand_all(&mut app.eagle_eye_view.state, &items);
                 app.eagle_eye_view.last_toggle = TreeToggle::Open;
             }

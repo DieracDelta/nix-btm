@@ -1,13 +1,16 @@
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 
-use nix_btm::handle_internal_json::{handle_daemon_info, JobsStateInner};
+use nix_btm::{
+    handle_internal_json::{JobsStateInner, handle_daemon_info},
+    shutdown::Shutdown,
+};
 use tempfile::TempDir;
 use tokio::sync::watch;
 
@@ -26,13 +29,14 @@ async fn test_nix_build_produces_correct_tree_roots() {
     let socket_path = PathBuf::from("/tmp/nixbtm-test.sock");
     let _ = std::fs::remove_file(&socket_path);
 
-    let is_shutdown = Arc::new(AtomicBool::new(false));
+    let is_shutdown = Shutdown::new();
     let (tx, mut rx) = watch::channel(JobsStateInner::default());
 
     let socket_path_clone = socket_path.clone();
     let is_shutdown_clone = is_shutdown.clone();
     let daemon_handle = tokio::spawn(async move {
-        handle_daemon_info(socket_path_clone, 0o600, is_shutdown_clone, tx).await;
+        handle_daemon_info(socket_path_clone, 0o600, is_shutdown_clone, tx)
+            .await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -59,7 +63,7 @@ async fn test_nix_build_produces_correct_tree_roots() {
     // Give daemon time to process remaining messages
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    is_shutdown.store(true, Ordering::SeqCst);
+    is_shutdown.trigger();
 
     rx.changed().await.ok();
     let final_state = rx.borrow().clone();
@@ -92,7 +96,11 @@ async fn test_nix_build_produces_correct_tree_roots() {
             .iter()
             .any(|r| r.name.contains("hello"));
 
-        if final_state.jid_to_job.values().any(|j| j.drv.name.contains("hello")) {
+        if final_state
+            .jid_to_job
+            .values()
+            .any(|j| j.drv.name.contains("hello"))
+        {
             assert!(
                 hello_is_root,
                 "Expected 'hello' to be a root, but roots are: {:?}",
@@ -122,13 +130,14 @@ async fn test_nix_build_complex_derivation_roots() {
     let socket_path = PathBuf::from("/tmp/nixbtm-test-complex.sock");
     let _ = std::fs::remove_file(&socket_path);
 
-    let is_shutdown = Arc::new(AtomicBool::new(false));
+    let is_shutdown = Shutdown::new();
     let (tx, mut rx) = watch::channel(JobsStateInner::default());
 
     let socket_path_clone = socket_path.clone();
     let is_shutdown_clone = is_shutdown.clone();
     let daemon_handle = tokio::spawn(async move {
-        handle_daemon_info(socket_path_clone, 0o600, is_shutdown_clone, tx).await;
+        handle_daemon_info(socket_path_clone, 0o600, is_shutdown_clone, tx)
+            .await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -157,7 +166,7 @@ async fn test_nix_build_complex_derivation_roots() {
     // Allow time for processing remaining messages
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    is_shutdown.store(true, Ordering::SeqCst);
+    is_shutdown.trigger();
 
     // Get final state
     rx.changed().await.ok();
@@ -173,7 +182,8 @@ async fn test_nix_build_complex_derivation_roots() {
     }
 
     // Key assertion: intermediate dependencies should NOT be roots
-    // Things like boehm-gc, boost-build should not be roots if nix is being built
+    // Things like boehm-gc, boost-build should not be roots if nix is being
+    // built
     if final_state.dep_tree.nodes.len() > 10 {
         let intermediate_as_roots: Vec<_> = final_state
             .dep_tree
@@ -196,17 +206,20 @@ async fn test_nix_build_complex_derivation_roots() {
         if has_nix && !intermediate_as_roots.is_empty() {
             eprintln!(
                 "WARNING: Intermediate dependencies found as roots: {:?}",
-                intermediate_as_roots.iter().map(|r| &r.name).collect::<Vec<_>>()
+                intermediate_as_roots
+                    .iter()
+                    .map(|r| &r.name)
+                    .collect::<Vec<_>>()
             );
             // This would be the bug we're trying to fix
         }
 
         // The top-level nix derivation should be a root
-        let nix_is_root = final_state
-            .dep_tree
-            .tree_roots
-            .iter()
-            .any(|r| r.name.starts_with("nix-") && !r.name.contains("util") && !r.name.contains("flake"));
+        let nix_is_root = final_state.dep_tree.tree_roots.iter().any(|r| {
+            r.name.starts_with("nix-")
+                && !r.name.contains("util")
+                && !r.name.contains("flake")
+        });
 
         if has_nix {
             assert!(
@@ -236,13 +249,14 @@ async fn test_tdf_is_root() {
     let socket_path = PathBuf::from("/tmp/nixbtm-test-tdf.sock");
     let _ = std::fs::remove_file(&socket_path);
 
-    let is_shutdown = Arc::new(AtomicBool::new(false));
+    let is_shutdown = Shutdown::new();
     let (tx, mut rx) = watch::channel(JobsStateInner::default());
 
     let socket_path_clone = socket_path.clone();
     let is_shutdown_clone = is_shutdown.clone();
     let daemon_handle = tokio::spawn(async move {
-        handle_daemon_info(socket_path_clone, 0o600, is_shutdown_clone, tx).await;
+        handle_daemon_info(socket_path_clone, 0o600, is_shutdown_clone, tx)
+            .await;
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -267,7 +281,7 @@ async fn test_tdf_is_root() {
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    is_shutdown.store(true, Ordering::SeqCst);
+    is_shutdown.trigger();
 
     rx.changed().await.ok();
     let final_state = rx.borrow().clone();
@@ -317,9 +331,12 @@ async fn test_tdf_is_root() {
 /// Simpler test that doesn't require network - just tests tree insertion logic
 #[tokio::test]
 async fn test_drv_relations_root_detection() {
-    use nix_btm::derivation_tree::{DrvNode, DrvRelations};
-    use nix_btm::handle_internal_json::Drv;
     use std::collections::BTreeSet;
+
+    use nix_btm::{
+        derivation_tree::{DrvNode, DrvRelations},
+        handle_internal_json::Drv,
+    };
 
     let mut relations = DrvRelations::default();
 

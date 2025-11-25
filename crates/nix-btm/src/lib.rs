@@ -2,6 +2,7 @@ use tokio::task::JoinHandle;
 
 pub mod derivation_tree;
 pub mod handle_internal_json;
+pub mod shutdown;
 
 // Platform-specific notification system (io_uring on Linux, kqueue on macOS)
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -9,6 +10,19 @@ pub mod notify;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod ring_reader;
+
+pub mod app;
+pub mod cli;
+pub mod emojis;
+pub mod event_loop;
+pub mod get_stats;
+pub mod gruvbox;
+#[cfg(target_os = "linux")]
+pub mod listen_to_output;
+
+pub mod tracing_init;
+pub mod tree_generation;
+pub mod ui;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod ring_writer;

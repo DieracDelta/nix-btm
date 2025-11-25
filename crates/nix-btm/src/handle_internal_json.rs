@@ -14,6 +14,8 @@ use std::{
     time::Duration,
 };
 
+use crate::shutdown::Shutdown;
+
 use bstr::ByteSlice as _;
 use either::Either;
 use futures::FutureExt;
@@ -24,11 +26,9 @@ use tokio::{
     io::{AsyncBufReadExt as _, BufReader},
     net::{UnixListener, UnixStream},
     sync::{
-        RwLock,
-        mpsc::{
+        Notify, RwLock, mpsc::{
             Receiver, Sender, UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel
-        },
-        watch,
+        }, watch
     },
     time::{self, MissedTickBehavior, error::Elapsed, interval, sleep},
 };
@@ -572,7 +572,7 @@ pub fn setup_unix_socket(
 pub async fn handle_daemon_info(
     socket_path: PathBuf,
     mode: u32,
-    is_shutdown: Arc<AtomicBool>,
+    shutdown: Shutdown,
     info_builds: watch::Sender<JobsStateInner>,
 ) {
     // Call the socket function **once**
@@ -588,29 +588,33 @@ pub async fn handle_daemon_info(
     let mut last_state_send = std::time::Instant::now();
     let (s, r) = unbounded_channel();
     let cur_state__ = cur_state.clone();
-    let is_shutdown__ = is_shutdown.clone();
+    let shutdown__ = shutdown.clone();
     spawn_named("line-handler", async move {
-        handle_lines(r, cur_state__, is_shutdown__).await
+        handle_lines(r, cur_state__, shutdown__).await
     });
     loop {
         let accept_fut = listener.accept();
         tokio::pin!(accept_fut);
+        let shutdown_fut = shutdown.wait();
+        tokio::pin!(shutdown_fut);
 
         loop {
             tokio::select! {
-                biased;
+                _done = &mut shutdown_fut => {
+                    return;
+                }
+                //biased;
                 res = &mut accept_fut => {
                     // it seems that a socket is opened per requester
                     match res {
-                        Ok((stream, _addr))
-                            if !is_shutdown.load(Ordering::Relaxed) =>
+                        Ok((stream, _addr)) =>
                             {
                                 let rid = next_rid;
                                 error!("ACCEPTED SOCKET {next_rid:?}");
                                 next_rid = (*next_rid + 1).into();
                                 ticks_without_connection = 0;
                                 warned_no_connection = false;
-                                let is_shutdown_ = is_shutdown.clone();
+                                let shutdown_ = shutdown.clone();
                                 let cur_state_ = cur_state.clone();
                                 let s_ = s.clone();
                                 let fut = async move {
@@ -618,7 +622,7 @@ pub async fn handle_daemon_info(
                                         = read_stream(
                                             Box::new(stream),
                                             cur_state_,
-                                            is_shutdown_,
+                                            shutdown_,
                                             rid,
                                             s_
                                             ).await {
@@ -629,17 +633,11 @@ pub async fn handle_daemon_info(
                                 spawn_named(&format!("client-socket-handler-{rid:?}"), fut);
 
                             }
-                        Ok((_stream, _addr)) => {
-                        }
-
                         Err(e) => error!("accept error: {e}"),
                     }
                     break; // Break inner loop to create new accept future
                 }
                 _ = ticker.tick() => {
-                    if is_shutdown.load(Ordering::Relaxed) {
-                        return;
-                    }
 
                     // Send state update every second - use try_read to never block accept
                     if last_state_send.elapsed() >= Duration::from_secs(1) {
@@ -669,6 +667,7 @@ pub async fn handle_daemon_info(
             }
         }
     }
+    // TODO remove socket path
 }
 
 #[derive(
@@ -1451,9 +1450,9 @@ fn extract_hash_from_url(url: &str) -> Option<String> {
 
 async fn read_stream(
     stream: Box<UnixStream>,
-    state: JobsState,
+    _state: JobsState,
     //info_builds: watch::Sender<HashMap<u64, BuildJob>>,
-    is_shutdown: Arc<AtomicBool>,
+    shutdown: Shutdown,
     rid: RequesterId,
     chan: UnboundedSender<(
         RequesterId,
@@ -1463,20 +1462,13 @@ async fn read_stream(
     let reader = BufReader::new(stream);
     let mut lines = reader.lines();
 
-    let mut tick = time::interval(Duration::from_millis(500));
+    let shutdown_fut = shutdown.wait().boxed();
+    tokio::pin!(shutdown_fut);
+
 
     loop {
-        if is_shutdown.load(Ordering::Relaxed) {
-            break;
-        }
-
         tokio::select! {
-            _ = tick.tick() => {
-                if is_shutdown.load(Ordering::Relaxed) {
-                    break;
-                }
-            }
-
+            _ = &mut shutdown_fut => { break }
             result = lines.next_line() => {
                 match result {
                     Ok(Some(line)) => {
@@ -1504,36 +1496,39 @@ async fn read_stream(
 pub async fn handle_lines(
     mut chan: UnboundedReceiver<(RequesterId, Either<String, ()>)>,
     state: JobsState,
-    is_shutdown: Arc<AtomicBool>,
+    is_shutdown: Shutdown,
 ) {
+    let shutdown_fut = is_shutdown.wait();
+    tokio::pin!(shutdown_fut);
     loop {
-        if is_shutdown.load(Ordering::Relaxed) {
-            error!("handle_lines shutting down");
-            return;
-        }
-
-        match chan.try_recv() {
-            Ok((rid, msg)) => {
-                match msg {
-                    Either::Left(line) => {
-                        handle_line(line, state.clone(), rid).await;
-                    }
-                    // Stream closed or error on that UnixStream
-                    Either::Right(()) => {
-                        error!("stopped being able to read socket on {rid:?}");
-                        // Clean up jobs for this requester on connection close
-                        state.cleanup_requester(rid).await;
-                    }
-                }
-            }
-            Err(TryRecvError::Empty) => {
-                sleep(Duration::from_millis(10)).await;
-            }
-            Err(TryRecvError::Disconnected) => {
-                error!("handle_lines channel closed");
+        tokio::select!(
+            _ = &mut shutdown_fut => {
+                error!("handle_lines shutting down");
                 return;
             }
-        }
+            res = chan.recv() => {
+                match res {
+                    Some((rid, msg)) => {
+                        match msg {
+                            Either::Left(line) => {
+                                handle_line(line, state.clone(), rid).await;
+                            }
+                            // Stream closed or error on that UnixStream
+                            Either::Right(()) => {
+                                error!("stopped being able to read socket on {rid:?}");
+                                // Clean up jobs for this requester on connection close
+                                state.cleanup_requester(rid).await;
+                            }
+                        }
+
+                    },
+                    None => {
+                        error!("handle_lines channel closed");
+                        return;
+                    },
+                }
+            }
+        );
     }
 }
 

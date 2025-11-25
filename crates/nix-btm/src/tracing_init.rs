@@ -5,9 +5,9 @@ use tracing_subscriber::{
     EnvFilter, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-use crate::Args;
+use crate::cli::Args;
 
-pub(crate) fn init_tracing(args: &Args) {
+pub fn init_tracing(args: &Args) {
     let log_path: &str = match args {
         Args::Daemon {
             daemon_log_path, ..
