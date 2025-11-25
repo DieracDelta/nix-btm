@@ -39,6 +39,7 @@ pub mod gruvbox;
 #[cfg(target_os = "linux")]
 pub mod listen_to_output;
 pub mod tracing_init;
+pub mod tree_generation;
 pub mod ui;
 
 use crossterm::{
@@ -63,7 +64,7 @@ use ui::{
 use crate::{
     get_stats::{ProcMetadata, get_active_users_and_pids},
     tracing_init::init_tracing,
-    ui::PruneType,
+    tree_generation::PruneType,
 };
 
 static HELP_STR_SOCKET: &str = "
