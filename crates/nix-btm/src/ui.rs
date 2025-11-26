@@ -159,8 +159,8 @@ pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
     let state = &app.cur_info_builds;
 
     error!("getting items for eagle eye ui");
-    let items: Vec<TreeItem<'_, String>> =
-        gen_drv_tree_leaves_from_state(state, app.eagle_eye_view.active_only);
+    let items: &[TreeItem<'_, String>] =
+        gen_drv_tree_leaves_from_state(&mut app.eagle_eye_view.tree_cache, state, app.eagle_eye_view.active_only);
 
     if !items.is_empty() && app.eagle_eye_view.perform_toggle {
         match app.eagle_eye_view.last_toggle {

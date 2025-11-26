@@ -5,6 +5,47 @@ use tui_tree_widget::{TreeItem, TreeState};
 
 use crate::handle_internal_json::{Drv, JobStatus, JobsStateInner};
 
+/// Cache for tree generation to avoid rebuilding identical trees
+#[derive(Debug)]
+pub struct TreeCache {
+    cached_tree: Vec<TreeItem<'static, String>>,
+    cached_state_version: u64,
+    cached_prune_mode: PruneType,
+}
+
+impl Default for TreeCache {
+    fn default() -> Self {
+        Self {
+            cached_tree: Vec::new(),
+            cached_state_version: 0,
+            cached_prune_mode: PruneType::Normal,
+        }
+    }
+}
+
+impl TreeCache {
+    /// Get the cached tree or rebuild if necessary
+    /// Returns a reference to the cached tree (avoids cloning large trees)
+    pub fn get_or_build<'a>(
+        &'a mut self,
+        state: &JobsStateInner,
+        prune_mode: PruneType,
+    ) -> &'a Vec<TreeItem<'static, String>> {
+        // Check if cache is valid
+        let needs_rebuild = self.cached_state_version != state.version
+            || self.cached_prune_mode != prune_mode;
+
+        if needs_rebuild {
+            // Rebuild the tree
+            self.cached_tree = gen_drv_tree_leaves_from_state_uncached(state, prune_mode);
+            self.cached_state_version = state.version;
+            self.cached_prune_mode = prune_mode;
+        }
+
+        &self.cached_tree
+    }
+}
+
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum PruneType {
     None,
@@ -260,10 +301,12 @@ pub fn explore_root(
 // for each drv, look up and see if there are any build jobs going on. If
 // there are, then you can use that to deduce the status. If there are
 // none, you take the L and say unused
-pub fn gen_drv_tree_leaves_from_state(
+
+/// Internal function that actually builds the tree (no caching)
+fn gen_drv_tree_leaves_from_state_uncached(
     state: &JobsStateInner,
     do_prune: PruneType,
-) -> Vec<TreeItem<'_, String>> {
+) -> Vec<TreeItem<'static, String>> {
     // Debug: log tree roots and active closure
     error!("=== PRUNE DEBUG ===");
     error!("Prune mode: {:?}", do_prune);
@@ -503,6 +546,16 @@ pub fn compute_active_closure(state: &JobsStateInner) -> HashSet<Drv> {
 
     // Return owned set
     marked.into_iter().cloned().collect()
+}
+
+/// Public API: Generate tree with caching
+/// Uses the provided cache to avoid rebuilding identical trees
+pub fn gen_drv_tree_leaves_from_state<'a>(
+    cache: &'a mut TreeCache,
+    state: &JobsStateInner,
+    prune_mode: PruneType,
+) -> &'a [TreeItem<'static, String>] {
+    cache.get_or_build(state, prune_mode)
 }
 
 pub fn expand_all(

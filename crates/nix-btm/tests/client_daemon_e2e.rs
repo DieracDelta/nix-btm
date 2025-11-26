@@ -115,6 +115,7 @@ fn make_test_state() -> JobsStateInner {
             tree_roots: roots,
         },
         already_built_drvs: Default::default(),
+        version: 0,
     }
 }
 

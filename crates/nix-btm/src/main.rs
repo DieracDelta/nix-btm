@@ -506,6 +506,7 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
             let jid = job.jid;
             state.jid_to_job.insert(jid, job);
             state.drv_to_jobs.entry(drv).or_default().insert(jid);
+            state.increment_version();
         }
         Update::JobUpdate { jid, status } => {
             if let Some(job) = state.jid_to_job.get_mut(&jid.into()) {
@@ -513,12 +514,14 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
                 // For now, just update as BuildPhaseType
                 use nix_btm::handle_internal_json::JobStatus;
                 job.status = JobStatus::BuildPhaseType(status);
+                state.increment_version();
             }
         }
         Update::JobFinish { jid, stop_time_ns } => {
             if let Some(job) = state.jid_to_job.get_mut(&jid.into()) {
                 job.stop_time_ns = Some(stop_time_ns);
                 job.status = job.status.mark_complete();
+                state.increment_version();
             }
         }
         Update::DepGraphUpdate { drv, deps } => {
@@ -541,9 +544,11 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
             // Use insert_node which properly handles tree_roots
             // by checking if this node is a child of existing roots
             state.dep_tree.insert_node(node);
+            state.increment_version();
         }
         Update::Heartbeat { daemon_seq: _ } => {
             // Heartbeat received, daemon is alive
+            // No state change, no version increment
         }
     }
 }
@@ -697,7 +702,7 @@ pub(crate) async fn run_debug(
 }
 
 fn dump_state(state: &JobsStateInner) {
-    use nix_btm::tree_generation::{PruneType, gen_drv_tree_leaves_from_state};
+    use nix_btm::tree_generation::{PruneType, TreeCache, gen_drv_tree_leaves_from_state};
 
     println!("\n{:=<80}", "");
     println!("TIMESTAMP: {:?}", std::time::SystemTime::now());
@@ -753,7 +758,8 @@ fn dump_state(state: &JobsStateInner) {
         [PruneType::None, PruneType::Normal, PruneType::Aggressive]
     {
         println!("TREE (PruneType::{:?}):", prune_mode);
-        let tree = gen_drv_tree_leaves_from_state(state, prune_mode);
+        let mut cache = TreeCache::default();
+        let tree = gen_drv_tree_leaves_from_state(&mut cache, state, prune_mode);
         if tree.is_empty() {
             println!("  (empty)");
         } else {

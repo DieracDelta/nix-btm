@@ -14,7 +14,7 @@ use tui_tree_widget::TreeState;
 use crate::{
     get_stats::ProcMetadata,
     handle_internal_json::JobsStateInner,
-    tree_generation::PruneType,
+    tree_generation::{PruneType, TreeCache},
     ui::{
         BORDER_STYLE_SELECTED, BORDER_STYLE_UNSELECTED, TITLE_STYLE_SELECTED,
         TITLE_STYLE_UNSELECTED,
@@ -102,6 +102,7 @@ pub struct EagleEyeViewState {
     pub state: TreeState<String>,
     pub perform_toggle: bool,
     pub last_toggle: TreeToggle,
+    pub tree_cache: TreeCache,
 }
 
 #[derive(Default, Debug)]

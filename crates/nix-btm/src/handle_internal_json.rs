@@ -243,11 +243,21 @@ pub struct JobsStateInner {
 
     /// Drvs that were already built (cached) - for status display
     pub already_built_drvs: HashSet<Drv>,
+
+    /// Version counter incremented on every state change
+    /// Used for tree caching to detect when rebuild is needed
+    pub version: u64,
 }
 
 impl JobsStateInner {
     /// Get global status of a drv (not target-specific)
     /// For target-specific status, use get_drv_status_for_target instead
+    /// Increment the version counter to invalidate cached trees
+    /// Call this whenever state changes (new jobs, status updates, new nodes, etc.)
+    pub fn increment_version(&mut self) {
+        self.version = self.version.wrapping_add(1);
+    }
+
     pub fn get_status(&self, drv: &Drv) -> JobStatus {
         // Check if this drv has explicit jobs
         if let Some(jobs) = self.drv_to_jobs.get(drv) {

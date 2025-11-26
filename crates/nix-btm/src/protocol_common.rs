@@ -395,6 +395,7 @@ impl From<JobsStateInnerWire> for JobsStateInner {
             drv_to_jobs,
             dep_tree,
             already_built_drvs: HashSet::new(),
+            version: 0,
         }
     }
 }

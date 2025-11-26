@@ -85,6 +85,7 @@ mod tests {
                 tree_roots: roots,
             },
             already_built_drvs: Default::default(),
+            version: 0,
         }
     }
 
