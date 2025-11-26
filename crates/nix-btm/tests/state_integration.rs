@@ -1,10 +1,9 @@
 use nix_btm::{
     derivation_tree::DrvNode,
     handle_internal_json::{
-        Drv, JobId, JobStatus, JobsStateInner,
-        RequesterId,
+        Drv, JobId, JobStatus, JobsStateInner, RequesterId,
     },
-    tree_generation::{gen_drv_tree_leaves_from_state, PruneType},
+    tree_generation::{PruneType, gen_drv_tree_leaves_from_state},
 };
 
 /// Test that we correctly parse the target from Nix logs
@@ -13,7 +12,8 @@ fn test_target_detection() {
     let _log_line = r#"{"action":"start","id":408262411288576,"level":4,"parent":0,"text":"evaluating derivation 'github:nixos/nixpkgs/master#haskellPackages.hoogle'","type":0}"#;
 
     // This simulates what handle_line does when it sees "evaluating derivation"
-    let text = "evaluating derivation 'github:nixos/nixpkgs/master#haskellPackages.hoogle'";
+    let text = "evaluating derivation \
+                'github:nixos/nixpkgs/master#haskellPackages.hoogle'";
     let target = text
         .strip_prefix("evaluating derivation '")
         .and_then(|s| s.strip_suffix("'"))
@@ -67,20 +67,54 @@ fn test_build_target_structure() {
 
     // Verify target was created correctly
     let target = state.targets.get(&target_id).expect("Target should exist");
-    assert_eq!(target.reference, "github:nixos/nixpkgs/master#haskellPackages.hoogle");
+    assert_eq!(
+        target.reference,
+        "github:nixos/nixpkgs/master#haskellPackages.hoogle"
+    );
     assert_eq!(target.root_drv, hoogle);
     assert_eq!(target.requester_id, RequesterId(1));
 
     // Verify transitive closure includes all dependencies
-    assert!(target.transitive_closure.contains(&hoogle), "Should contain root");
-    assert!(target.transitive_closure.contains(&aeson), "Should contain aeson dependency");
-    assert!(target.transitive_closure.contains(&text), "Should contain text dependency");
-    assert_eq!(target.transitive_closure.len(), 3, "Should have exactly 3 drvs");
+    assert!(
+        target.transitive_closure.contains(&hoogle),
+        "Should contain root"
+    );
+    assert!(
+        target.transitive_closure.contains(&aeson),
+        "Should contain aeson dependency"
+    );
+    assert!(
+        target.transitive_closure.contains(&text),
+        "Should contain text dependency"
+    );
+    assert_eq!(
+        target.transitive_closure.len(),
+        3,
+        "Should have exactly 3 drvs"
+    );
 
     // Verify reverse index
-    assert!(state.drv_to_targets.get(&hoogle).unwrap().contains(&target_id));
-    assert!(state.drv_to_targets.get(&aeson).unwrap().contains(&target_id));
-    assert!(state.drv_to_targets.get(&text).unwrap().contains(&target_id));
+    assert!(
+        state
+            .drv_to_targets
+            .get(&hoogle)
+            .unwrap()
+            .contains(&target_id)
+    );
+    assert!(
+        state
+            .drv_to_targets
+            .get(&aeson)
+            .unwrap()
+            .contains(&target_id)
+    );
+    assert!(
+        state
+            .drv_to_targets
+            .get(&text)
+            .unwrap()
+            .contains(&target_id)
+    );
 }
 
 /// Test that job status correctly affects target status
@@ -108,7 +142,10 @@ fn test_target_status_from_jobs() {
 
     // Initially should be Evaluating (no jobs)
     let target = state.targets.get(&target_id).unwrap();
-    assert_eq!(target.status, nix_btm::handle_internal_json::TargetStatus::Evaluating);
+    assert_eq!(
+        target.status,
+        nix_btm::handle_internal_json::TargetStatus::Evaluating
+    );
 
     // Add a downloading job
     let job = nix_btm::handle_internal_json::BuildJob {
@@ -125,14 +162,21 @@ fn test_target_status_from_jobs() {
     };
 
     state.jid_to_job.insert(JobId(1), job);
-    state.drv_to_jobs.entry(drv.clone()).or_default().insert(JobId(1));
+    state
+        .drv_to_jobs
+        .entry(drv.clone())
+        .or_default()
+        .insert(JobId(1));
 
     // Update target status
     state.update_target_status(target_id);
 
     // Should now be Active (job is downloading)
     let target = state.targets.get(&target_id).unwrap();
-    assert_eq!(target.status, nix_btm::handle_internal_json::TargetStatus::Active);
+    assert_eq!(
+        target.status,
+        nix_btm::handle_internal_json::TargetStatus::Active
+    );
 }
 
 /// Test that targets with all cached drvs are marked as Cached
@@ -165,7 +209,10 @@ fn test_target_status_cached() {
 
     // Should be Cached (all drvs already built, no jobs)
     let target = state.targets.get(&target_id).unwrap();
-    assert_eq!(target.status, nix_btm::handle_internal_json::TargetStatus::Cached);
+    assert_eq!(
+        target.status,
+        nix_btm::handle_internal_json::TargetStatus::Cached
+    );
 }
 
 /// Test that per-target drv status works correctly (Option C semantics)
@@ -235,7 +282,11 @@ fn test_per_target_drv_status() {
     };
 
     state.jid_to_job.insert(JobId(1), job);
-    state.drv_to_jobs.entry(shared.clone()).or_default().insert(JobId(1));
+    state
+        .drv_to_jobs
+        .entry(shared.clone())
+        .or_default()
+        .insert(JobId(1));
 
     // Get per-target status of shared drv
     let status_in_a = state.get_drv_status_for_target(&shared, target_a_id);
@@ -316,14 +367,21 @@ fn test_target_cancellation() {
     };
 
     state.jid_to_job.insert(JobId(1), job);
-    state.drv_to_jobs.entry(drv.clone()).or_default().insert(JobId(1));
+    state
+        .drv_to_jobs
+        .entry(drv.clone())
+        .or_default()
+        .insert(JobId(1));
 
     // Update target status
     state.update_target_status(target_id);
 
     // Should be Cancelled
     let target = state.targets.get(&target_id).unwrap();
-    assert_eq!(target.status, nix_btm::handle_internal_json::TargetStatus::Cancelled);
+    assert_eq!(
+        target.status,
+        nix_btm::handle_internal_json::TargetStatus::Cancelled
+    );
 }
 
 /// Test multiple targets can share dependencies
@@ -356,7 +414,10 @@ fn test_shared_dependencies_between_targets() {
     let text_node = DrvNode::default();
 
     state.dep_tree.nodes.insert(aeson.clone(), aeson_node);
-    state.dep_tree.nodes.insert(attoparsec.clone(), attoparsec_node);
+    state
+        .dep_tree
+        .nodes
+        .insert(attoparsec.clone(), attoparsec_node);
     state.dep_tree.nodes.insert(text.clone(), text_node);
     state.dep_tree.tree_roots.insert(aeson.clone());
     state.dep_tree.tree_roots.insert(attoparsec.clone());
@@ -378,12 +439,28 @@ fn test_shared_dependencies_between_targets() {
     let a = state.targets.get(&target_a).unwrap();
     let b = state.targets.get(&target_b).unwrap();
 
-    assert!(a.transitive_closure.contains(&text), "Target A should include text");
-    assert!(b.transitive_closure.contains(&text), "Target B should include text");
+    assert!(
+        a.transitive_closure.contains(&text),
+        "Target A should include text"
+    );
+    assert!(
+        b.transitive_closure.contains(&text),
+        "Target B should include text"
+    );
 
     // Verify reverse index shows text belongs to both targets
     let text_targets = state.drv_to_targets.get(&text).unwrap();
-    assert!(text_targets.contains(&target_a), "text should map to target A");
-    assert!(text_targets.contains(&target_b), "text should map to target B");
-    assert_eq!(text_targets.len(), 2, "text should belong to exactly 2 targets");
+    assert!(
+        text_targets.contains(&target_a),
+        "text should map to target A"
+    );
+    assert!(
+        text_targets.contains(&target_b),
+        "text should map to target B"
+    );
+    assert_eq!(
+        text_targets.len(),
+        2,
+        "text should belong to exactly 2 targets"
+    );
 }

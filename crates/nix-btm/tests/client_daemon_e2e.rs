@@ -9,7 +9,8 @@ use nix_btm::{
     client_side::client_read_snapshot_into_state,
     derivation_tree::{DrvNode, DrvRelations},
     handle_internal_json::{
-        BuildJob, BuildTargetId, Drv, JobId, JobStatus, JobsStateInner, RequesterId,
+        BuildJob, BuildTargetId, Drv, JobId, JobStatus, JobsStateInner,
+        RequesterId,
     },
     protocol_common::Update,
     ring_reader::{ReadResult, RingReader},

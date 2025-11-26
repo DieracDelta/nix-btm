@@ -29,7 +29,9 @@ mod tests {
         client_side::client_read_snapshot_into_state,
         daemon_side::create_shmem_and_write_snapshot,
         derivation_tree::{DrvNode, DrvRelations},
-        handle_internal_json::{BuildJob, BuildTargetId, Drv, JobId, JobsStateInner},
+        handle_internal_json::{
+            BuildJob, BuildTargetId, Drv, JobId, JobsStateInner,
+        },
         protocol_common::{JobsStateInnerWire, SnapshotHeader},
     };
     fn to_eyre_with_origin_bt<

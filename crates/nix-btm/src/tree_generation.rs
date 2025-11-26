@@ -339,9 +339,16 @@ pub fn gen_drv_tree_leaves_from_state(
     let mut drv_to_target_map: HashMap<&Drv, String> = HashMap::new();
     for target in state.targets.values() {
         drv_to_target_map.insert(&target.root_drv, target.reference.clone());
-        error!("Target: '{}' with root drv: {}", target.reference, target.root_drv.name);
+        error!(
+            "Target: '{}' with root drv: {}",
+            target.reference, target.root_drv.name
+        );
     }
-    error!("Total targets: {}, Total dep_tree roots: {}", state.targets.len(), state.dep_tree.tree_roots.len());
+    error!(
+        "Total targets: {}, Total dep_tree roots: {}",
+        state.targets.len(),
+        state.dep_tree.tree_roots.len()
+    );
 
     // Group roots by their target (flake reference)
     // Roots with a target get wrapped in a parent node showing the target
@@ -399,7 +406,11 @@ pub fn gen_drv_tree_leaves_from_state(
                 && !status.is_completed()
                 && !matches!(status, JobStatus::AlreadyBuilt)
             {
-                error!("FILTERING OUT root {} - no children, not active, not completed", a_root.name);
+                error!(
+                    "FILTERING OUT root {} - no children, not active, not \
+                     completed",
+                    a_root.name
+                );
                 continue;
             }
 
@@ -444,7 +455,11 @@ pub fn gen_drv_tree_leaves_from_state(
             && !status.is_completed()
             && !matches!(status, JobStatus::AlreadyBuilt)
         {
-            error!("FILTERING OUT orphan root {} - no children, not active, not completed", a_root.name);
+            error!(
+                "FILTERING OUT orphan root {} - no children, not active, not \
+                 completed",
+                a_root.name
+            );
             continue;
         }
 

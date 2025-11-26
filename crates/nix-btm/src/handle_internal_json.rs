@@ -127,7 +127,8 @@ impl Display for TargetStatus {
     }
 }
 
-/// A build target represents a user's build request (e.g., "nix build nixpkgs#bat")
+/// A build target represents a user's build request (e.g., "nix build
+/// nixpkgs#bat")
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BuildTarget {
     /// Unique identifier for this target
@@ -189,10 +190,12 @@ impl BuildTarget {
         }
 
         // Check for evaluation/fetching activities
-        if all_jobs
-            .iter()
-            .any(|j| matches!(j.status, JobStatus::Evaluating | JobStatus::FetchingTree(_)))
-        {
+        if all_jobs.iter().any(|j| {
+            matches!(
+                j.status,
+                JobStatus::Evaluating | JobStatus::FetchingTree(_)
+            )
+        }) {
             return TargetStatus::Evaluating;
         }
 
@@ -396,7 +399,10 @@ impl JobsStateInner {
     }
 
     /// Get all targets for a given requester
-    pub fn get_targets_for_requester(&self, rid: RequesterId) -> Vec<&BuildTarget> {
+    pub fn get_targets_for_requester(
+        &self,
+        rid: RequesterId,
+    ) -> Vec<&BuildTarget> {
         self.targets
             .values()
             .filter(|t| t.requester_id == rid)
@@ -566,11 +572,8 @@ impl JobsState {
 
             // Create BuildTarget with transitive closure
             if let Some(target_ref) = target {
-                let target_id = state.create_target(
-                    target_ref.clone(),
-                    drv.clone(),
-                    rid,
-                );
+                let target_id =
+                    state.create_target(target_ref.clone(), drv.clone(), rid);
                 tracing::info!(
                     "Created target {:?} for '{}' (drv: {})",
                     target_id,
@@ -757,7 +760,9 @@ impl JobsState {
         // Update status for each target
         for target_id in &target_ids {
             // Clone data we need before mutating state
-            let (target_ref, transitive_closure) = if let Some(target) = state.targets.get(target_id) {
+            let (target_ref, transitive_closure) = if let Some(target) =
+                state.targets.get(target_id)
+            {
                 (target.reference.clone(), target.transitive_closure.clone())
             } else {
                 continue;
@@ -1276,11 +1281,15 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                         // Type 0 is used for various activities, check text
                         let text_str = text.to_string();
                         if text_str.starts_with("evaluating derivation") {
-                            // Extract the target from "evaluating derivation 'target'..."
+                            // Extract the target from "evaluating derivation
+                            // 'target'..."
                             // Note: Nix sometimes adds "..." at the end
                             if let Some(target) = text_str
                                 .strip_prefix("evaluating derivation '")
-                                .and_then(|s| s.strip_suffix("'...").or_else(|| s.strip_suffix("'")))
+                                .and_then(|s| {
+                                    s.strip_suffix("'...")
+                                        .or_else(|| s.strip_suffix("'"))
+                                })
                             {
                                 // Evaluate the flake reference to get the .drv
                                 // path
@@ -1289,7 +1298,8 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                 let state_clone = state.clone();
                                 let target_owned = target.to_string();
                                 tracing::error!(
-                                    "🎯 Detected target: '{}', spawning eval task",
+                                    "🎯 Detected target: '{}', spawning eval \
+                                     task",
                                     target_owned
                                 );
                                 spawn_named(
@@ -1299,10 +1309,13 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                             "📊 Starting eval for target: '{}'",
                                             target_owned
                                         );
-                                        match eval_flake_to_drv(&target_owned).await {
+                                        match eval_flake_to_drv(&target_owned)
+                                            .await
+                                        {
                                             Some(drv) => {
                                                 tracing::error!(
-                                                    "✅ Eval SUCCESS for '{}' -> drv: {}",
+                                                    "✅ Eval SUCCESS for '{}' \
+                                                     -> drv: {}",
                                                     target_owned,
                                                     drv.name
                                                 );
@@ -1324,7 +1337,8 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                             }
                                             None => {
                                                 tracing::error!(
-                                                    "❌ Eval FAILED for target: '{}'",
+                                                    "❌ Eval FAILED for \
+                                                     target: '{}'",
                                                     target_owned
                                                 );
                                             }

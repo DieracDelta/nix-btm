@@ -63,9 +63,13 @@ pub(crate) fn init_async_runtime() {
                         Args::Debug {
                             nix_json_file_path,
                             dump_interval,
-                        } => run_debug(nix_json_file_path, dump_interval, shutdown_)
-                            .await
-                            .unwrap(),
+                        } => run_debug(
+                            nix_json_file_path,
+                            dump_interval,
+                            shutdown_,
+                        )
+                        .await
+                        .unwrap(),
                     }
                 });
                 let fut2 = async move {
@@ -660,7 +664,10 @@ pub(crate) async fn run_debug(
         tokio::pin!(shutdown_fut);
 
         eprintln!("=== NIX-BTM DEBUG MODE ===");
-        eprintln!("Listening on socket, will dump state every {} seconds", dump_interval);
+        eprintln!(
+            "Listening on socket, will dump state every {} seconds",
+            dump_interval
+        );
         eprintln!("Press Ctrl+C to exit\n");
 
         loop {
@@ -690,7 +697,7 @@ pub(crate) async fn run_debug(
 }
 
 fn dump_state(state: &JobsStateInner) {
-    use nix_btm::tree_generation::{gen_drv_tree_leaves_from_state, PruneType};
+    use nix_btm::tree_generation::{PruneType, gen_drv_tree_leaves_from_state};
 
     println!("\n{:=<80}", "");
     println!("TIMESTAMP: {:?}", std::time::SystemTime::now());
@@ -699,19 +706,26 @@ fn dump_state(state: &JobsStateInner) {
     // Dump targets
     println!("TARGETS ({}):", state.targets.len());
     for (id, target) in &state.targets {
-        println!("  [{:?}] {} (requester: {:?})",
-            id, target.reference, target.requester_id);
+        println!(
+            "  [{:?}] {} (requester: {:?})",
+            id, target.reference, target.requester_id
+        );
         println!("    Status: {:?}", target.status);
         println!("    Root drv: {}", target.root_drv.name);
-        println!("    Transitive closure: {} drvs", target.transitive_closure.len());
+        println!(
+            "    Transitive closure: {} drvs",
+            target.transitive_closure.len()
+        );
     }
     println!();
 
     // Dump jobs
     println!("JOBS ({}):", state.jid_to_job.len());
     for (jid, job) in &state.jid_to_job {
-        println!("  [JobId({:?})] {} - {:?} (requester: {:?})",
-            jid.0, job.drv.name, job.status, job.rid);
+        println!(
+            "  [JobId({:?})] {} - {:?} (requester: {:?})",
+            jid.0, job.drv.name, job.status, job.rid
+        );
     }
     println!();
 
@@ -735,19 +749,28 @@ fn dump_state(state: &JobsStateInner) {
     println!();
 
     // Generate and dump tree for each prune mode
-    for prune_mode in [PruneType::None, PruneType::Normal, PruneType::Aggressive] {
+    for prune_mode in
+        [PruneType::None, PruneType::Normal, PruneType::Aggressive]
+    {
         println!("TREE (PruneType::{:?}):", prune_mode);
         let tree = gen_drv_tree_leaves_from_state(state, prune_mode);
         if tree.is_empty() {
             println!("  (empty)");
         } else {
             for (i, root) in tree.iter().enumerate() {
-                println!("  [{}] {} (children: {})",
-                    i, root.identifier(), root.children().len());
+                println!(
+                    "  [{}] {} (children: {})",
+                    i,
+                    root.identifier(),
+                    root.children().len()
+                );
                 // Show first level of children
                 for child in root.children().iter().take(5) {
-                    println!("    - {} (children: {})",
-                        child.identifier(), child.children().len());
+                    println!(
+                        "    - {} (children: {})",
+                        child.identifier(),
+                        child.children().len()
+                    );
                 }
                 if root.children().len() > 5 {
                     println!("    ... ({} more)", root.children().len() - 5);
