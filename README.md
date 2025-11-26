@@ -11,13 +11,11 @@ If any of these things are true, nix-btm is for you! Fearlessly exert more contr
 
 # How to run?
 
-Step 1: Use linux
-
-Step 2:
-
 `nix run github:DieracDelta/nix-btm/0.3.0`
 
 But, this will only provide the process monitor.
+
+On MacOS, to get the process scraping to work, you'll need to run with elevated permissions (`sudo nix-btm`)
 
 ## How to get Eagle Eye view/Jobs View to work?
 

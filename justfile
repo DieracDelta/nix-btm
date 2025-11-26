@@ -37,6 +37,14 @@ run-standalone:
     rm -f /tmp/nixbtm.sock /tmp/nixbtm-standalone-*.log /tmp/nixbtm-standalone.log
     cargo run --bin nix-btm --profile dev -- standalone -n /tmp/nixbtm.sock -s /tmp/nixbtm-standalone.log
 
+[doc('run-standalone-root')]
+run-standalone-root:
+    -pkill -9 -f "nix-btm.*standalone" 2>/dev/null || true
+    -pkill -9 -f "nix-btm.*daemon" 2>/dev/null || true
+    rm -f /tmp/nixbtm.sock /tmp/nixbtm-standalone-*.log /tmp/nixbtm-standalone.log
+    cargo run --bin nix-btm --profile dev
+    sudo ./target_dirs/nix_rustc/aarch64-apple-darwin/debug/nix-btm standalone -n /tmp/nixbtm.sock -s /tmp/nixbtm-standalone.log
+
 [doc('release-standalone')]
 release-standalone:
     -pkill -9 -f "nix-btm.*standalone" 2>/dev/null || true
