@@ -379,8 +379,16 @@ fn gen_drv_tree_leaves_from_state_uncached(
     let mut roots = vec![];
 
     // Build mapping from drv to target using the new targets HashMap
+    // Skip cancelled targets - they should not appear in the tree
     let mut drv_to_target_map: HashMap<&Drv, String> = HashMap::new();
     for target in state.targets.values() {
+        if matches!(target.status, crate::handle_internal_json::TargetStatus::Cancelled) {
+            error!(
+                "Skipping cancelled target: '{}' with root drv: {}",
+                target.reference, target.root_drv.name
+            );
+            continue;
+        }
         drv_to_target_map.insert(&target.root_drv, target.reference.clone());
         error!(
             "Target: '{}' with root drv: {}",
@@ -401,6 +409,13 @@ fn gen_drv_tree_leaves_from_state_uncached(
     let mut orphan_roots: Vec<&Drv> = vec![];
 
     for a_root in &state.dep_tree.tree_roots {
+        // Skip roots that only belong to cancelled targets
+        let root_status = state.get_status(a_root);
+        if matches!(root_status, crate::handle_internal_json::JobStatus::Cancelled) {
+            error!("  SKIPPING root {} - cancelled status", a_root.name);
+            continue;
+        }
+
         // For Normal pruning, skip roots that have no active descendants
         if let Some(ref ac) = active {
             if !ac.contains(a_root) {

@@ -273,9 +273,28 @@ impl JobsStateInner {
             return JobStatus::AlreadyBuilt;
         }
 
-        // If drv is in the dependency tree, it's queued to be built
+        // If drv is in the dependency tree, check if it belongs to any active targets
         if self.dep_tree.nodes.contains_key(drv) {
-            JobStatus::Queued
+            // Check if this drv belongs to any targets
+            if let Some(target_ids) = self.drv_to_targets.get(drv) {
+                // Check if any of these targets are not cancelled
+                let has_active_target = target_ids.iter().any(|tid| {
+                    self.targets
+                        .get(tid)
+                        .map(|t| !matches!(t.status, TargetStatus::Cancelled))
+                        .unwrap_or(false)
+                });
+
+                if has_active_target {
+                    JobStatus::Queued
+                } else {
+                    // All targets containing this drv are cancelled
+                    JobStatus::Cancelled
+                }
+            } else {
+                // Drv is in dep_tree but not associated with any target
+                JobStatus::Queued
+            }
         } else {
             JobStatus::NotEnoughInfo
         }
@@ -682,6 +701,9 @@ impl JobsState {
                 }
             }
         }
+
+        // Increment version to invalidate tree cache
+        state.version += 1;
     }
 
     pub async fn mutate_build_job<F>(&self, id: JobId, mutator: F)
@@ -693,6 +715,8 @@ impl JobsState {
             Entry::Occupied(mut occupied_entry) => {
                 let job = occupied_entry.get_mut();
                 mutator(job);
+                // Increment version to invalidate tree cache
+                state.version += 1;
             }
             Entry::Vacant(_vacant_entry) => {}
         }
@@ -743,28 +767,44 @@ impl JobsState {
                 )
         });
 
-        // Mark any active/pending jobs as cancelled
-        let mut cancelled_count = 0;
+        // Collect jobs to remove for this requester
+        let jobs_to_remove: Vec<(JobId, Drv)> = state
+            .jid_to_job
+            .iter()
+            .filter_map(|(jid, job)| {
+                if job.rid == rid
+                    && !matches!(
+                        job.status,
+                        JobStatus::CompletedBuild
+                            | JobStatus::CompletedDownload
+                            | JobStatus::CompletedSubstitute
+                            | JobStatus::CompletedCopy
+                            | JobStatus::CompletedQuery
+                            | JobStatus::CompletedEvaluation
+                            | JobStatus::CompletedSourceCopy
+                            | JobStatus::AlreadyBuilt
+                    )
+                {
+                    Some((*jid, job.drv.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        for (_jid, job) in state.jid_to_job.iter_mut() {
-            if job.rid == rid
-                && !matches!(
-                    job.status,
-                    JobStatus::Cancelled
-                        | JobStatus::CompletedBuild
-                        | JobStatus::CompletedDownload
-                        | JobStatus::CompletedSubstitute
-                        | JobStatus::CompletedCopy
-                        | JobStatus::CompletedQuery
-                        | JobStatus::CompletedEvaluation
-                        | JobStatus::CompletedSourceCopy
-                        | JobStatus::AlreadyBuilt
-                )
-            {
-                job.status = JobStatus::Cancelled;
-                job.stop_time_ns =
-                    Some(START_INSTANT.elapsed().as_nanos() as u64);
-                cancelled_count += 1;
+        let cancelled_count = jobs_to_remove.len();
+
+        // Remove jobs from both jid_to_job and drv_to_jobs
+        for (jid, drv) in jobs_to_remove {
+            state.jid_to_job.remove(&jid);
+
+            // Remove this job from drv_to_jobs
+            if let Some(job_set) = state.drv_to_jobs.get_mut(&drv) {
+                job_set.remove(&jid);
+                // If the set is now empty, remove the drv entry entirely
+                if job_set.is_empty() {
+                    state.drv_to_jobs.remove(&drv);
+                }
             }
         }
 
@@ -815,6 +855,9 @@ impl JobsState {
             rid,
             cancelled_count
         );
+
+        // Increment version to invalidate UI caches
+        state.version += 1;
     }
 }
 
