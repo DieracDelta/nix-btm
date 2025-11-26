@@ -259,7 +259,25 @@ impl JobsStateInner {
     }
 
     pub fn get_status(&self, drv: &Drv) -> JobStatus {
-        // Check if this drv has explicit jobs
+        // FIRST: Check if drv belongs to cancelled targets
+        // Cancellation takes precedence over ALL other statuses (even active jobs)
+        if self.dep_tree.nodes.contains_key(drv) {
+            if let Some(target_ids) = self.drv_to_targets.get(drv) {
+                let has_active_target = target_ids.iter().any(|tid| {
+                    self.targets
+                        .get(tid)
+                        .map(|t| !matches!(t.status, TargetStatus::Cancelled))
+                        .unwrap_or(false)
+                });
+
+                if !has_active_target {
+                    // All targets containing this drv are cancelled
+                    return JobStatus::Cancelled;
+                }
+            }
+        }
+
+        // SECOND: Check if this drv has explicit jobs
         if let Some(jobs) = self.drv_to_jobs.get(drv) {
             for job in jobs {
                 if let Some(bj) = self.jid_to_job.get(job) {
@@ -268,33 +286,14 @@ impl JobsStateInner {
             }
         }
 
-        // Check if this drv was already built (cached)
+        // THIRD: Check if this drv was already built (cached)
         if self.already_built_drvs.contains(drv) {
             return JobStatus::AlreadyBuilt;
         }
 
-        // If drv is in the dependency tree, check if it belongs to any active targets
+        // FOURTH: If drv is in the dependency tree, it's queued to be built
         if self.dep_tree.nodes.contains_key(drv) {
-            // Check if this drv belongs to any targets
-            if let Some(target_ids) = self.drv_to_targets.get(drv) {
-                // Check if any of these targets are not cancelled
-                let has_active_target = target_ids.iter().any(|tid| {
-                    self.targets
-                        .get(tid)
-                        .map(|t| !matches!(t.status, TargetStatus::Cancelled))
-                        .unwrap_or(false)
-                });
-
-                if has_active_target {
-                    JobStatus::Queued
-                } else {
-                    // All targets containing this drv are cancelled
-                    JobStatus::Cancelled
-                }
-            } else {
-                // Drv is in dep_tree but not associated with any target
-                JobStatus::Queued
-            }
+            JobStatus::Queued
         } else {
             JobStatus::NotEnoughInfo
         }
@@ -302,6 +301,35 @@ impl JobsStateInner {
 
     pub fn make_tree_description(&self, drv: &Drv) -> String {
         let status = self.get_status(drv);
+        // Get required outputs for this drv if available
+        let outputs_str = if let Some(node) = self.dep_tree.nodes.get(drv) {
+            if node.required_outputs.is_empty() {
+                String::new()
+            } else {
+                let outputs: Vec<&str> =
+                    node.required_outputs.iter().map(|s| s.as_str()).collect();
+                format!(" [{}]", outputs.join(", "))
+            }
+        } else {
+            String::new()
+        };
+        format!(
+            "{} - {} - {}{}",
+            drv.name.clone(),
+            drv.hash.clone(),
+            status,
+            outputs_str
+        )
+    }
+
+    /// Create a tree description for a drv within a specific target's context
+    /// Uses target-specific status to avoid mixing statuses across different builds
+    pub fn make_tree_description_for_target(
+        &self,
+        drv: &Drv,
+        target_id: BuildTargetId,
+    ) -> String {
+        let status = self.get_drv_status_for_target(drv, target_id);
         // Get required outputs for this drv if available
         let outputs_str = if let Some(node) = self.dep_tree.nodes.get(drv) {
             if node.required_outputs.is_empty() {
@@ -399,7 +427,13 @@ impl JobsStateInner {
             return JobStatus::NotEnoughInfo;
         };
 
-        // Check if this drv has jobs from this target's requester
+        // FIRST: Check target status for cancelled
+        // If target is cancelled, ALL its drvs show as cancelled
+        if target.status == TargetStatus::Cancelled {
+            return JobStatus::Cancelled;
+        }
+
+        // SECOND: Check if this drv has jobs from this target's requester
         if let Some(jobs) = self.drv_to_jobs.get(drv) {
             for job in jobs {
                 if let Some(bj) = self.jid_to_job.get(job) {
@@ -410,14 +444,9 @@ impl JobsStateInner {
             }
         }
 
-        // Check if this drv was already built (cached)
+        // THIRD: Check if this drv was already built (cached)
         if self.already_built_drvs.contains(drv) {
             return JobStatus::AlreadyBuilt;
-        }
-
-        // Check target status for cancelled
-        if target.status == TargetStatus::Cancelled {
-            return JobStatus::Cancelled;
         }
 
         // If drv is in the dependency tree, it's queued to be built
@@ -747,11 +776,11 @@ impl JobsState {
         );
 
         // Check if any jobs were created for this requester
-        let requester_had_jobs =
+        let _requester_had_jobs =
             state.jid_to_job.values().any(|j| j.rid == rid);
 
         // Check if any jobs are still active (not completed)
-        let has_active_jobs = state.jid_to_job.values().any(|j| {
+        let _has_active_jobs = state.jid_to_job.values().any(|j| {
             j.rid == rid
                 && !matches!(
                     j.status,
@@ -824,7 +853,9 @@ impl JobsState {
                 .iter()
                 .all(|drv| state.already_built_drvs.contains(drv));
 
-            if !requester_had_jobs || !has_active_jobs || all_already_built {
+            // Only mark as "completed from cache" if ALL drvs were already in store
+            // Don't check has_active_jobs - after removing jobs it's always false!
+            if all_already_built {
                 // Build completed from cache - mark all drvs as already built
                 tracing::info!(
                     "Target '{}' completed from cache ({} drvs)",
@@ -837,17 +868,24 @@ impl JobsState {
                         state.already_built_drvs.insert(drv.clone());
                     }
                 }
-            } else {
-                // Target was cancelled
-                tracing::info!(
-                    "Target '{}' cancelled ({} drvs)",
-                    target_ref,
-                    transitive_closure.len()
-                );
-            }
 
-            // Update the target's status based on jobs
-            state.update_target_status(*target_id);
+                // Update status to Cached
+                state.update_target_status(*target_id);
+            } else {
+                // Target was cancelled - don't mark drvs as already built
+                tracing::info!(
+                    "Target '{}' cancelled ({} drvs, {} were already built)",
+                    target_ref,
+                    transitive_closure.len(),
+                    transitive_closure.iter().filter(|d| state.already_built_drvs.contains(d)).count()
+                );
+
+                // Explicitly set target status to Cancelled
+                // We can't rely on compute_status() because we already removed the jobs
+                if let Some(target) = state.targets.get_mut(target_id) {
+                    target.status = TargetStatus::Cancelled;
+                }
+            }
         }
 
         tracing::info!(

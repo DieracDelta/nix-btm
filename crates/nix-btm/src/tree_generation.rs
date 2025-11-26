@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use tracing::{error, info};
 use tui_tree_widget::{TreeItem, TreeState};
@@ -116,12 +116,30 @@ pub fn explore_root(
     root_drv: &Drv,
     prune: PruneType,
     active_closure: Option<&HashSet<Drv>>,
+    target_id: Option<crate::handle_internal_json::BuildTargetId>,
 ) {
     // reshuffle if mismatched args (shouldn't be possible)
     let active = if prune == PruneType::None {
         None
     } else {
         active_closure
+    };
+
+    // Helper closures for target-aware status lookups
+    let get_status = |drv: &Drv| -> crate::handle_internal_json::JobStatus {
+        if let Some(tid) = target_id {
+            state.get_drv_status_for_target(drv, tid)
+        } else {
+            state.get_status(drv)
+        }
+    };
+
+    let make_description = |drv: &Drv| -> String {
+        if let Some(tid) = target_id {
+            state.make_tree_description_for_target(drv, tid)
+        } else {
+            state.make_tree_description(drv)
+        }
     };
 
     if let Some(ac) = active
@@ -160,7 +178,7 @@ pub fn explore_root(
                     if !ac.contains(child) {
                         continue;
                     }
-                    if state.get_status(child).is_active() {
+                    if get_status(child).is_active() {
                         if !printed_leaves.contains(child) {
                             kept_children.push(child);
                             assigned_here.insert(child.clone());
@@ -205,7 +223,7 @@ pub fn explore_root(
                         }
 
                         (PruneType::Normal, Some(ac)) => {
-                            if state.get_status(child).is_active() {
+                            if get_status(child).is_active() {
                                 if !printed_leaves.insert(child.clone()) {
                                     (None, None)
                                 } else {
@@ -234,7 +252,7 @@ pub fn explore_root(
                                 ac,
                                 &mut leaves_memo,
                             );
-                            if state.get_status(&vis).is_active() {
+                            if get_status(&vis).is_active() {
                                 if !printed_leaves.insert(vis.clone()) {
                                     (None, None)
                                 } else {
@@ -272,7 +290,7 @@ pub fn explore_root(
 
                     let node = TreeItem::new(
                         ident,
-                        state.make_tree_description(&vis),
+                        make_description(&vis),
                         vec![],
                     )
                     .expect("TreeItem::new failed");
@@ -378,119 +396,104 @@ fn gen_drv_tree_leaves_from_state_uncached(
 
     let mut roots = vec![];
 
-    // Build mapping from drv to target using the new targets HashMap
-    // Skip cancelled targets - they should not appear in the tree
-    let mut drv_to_target_map: HashMap<&Drv, String> = HashMap::new();
-    for target in state.targets.values() {
-        if matches!(target.status, crate::handle_internal_json::TargetStatus::Cancelled) {
-            error!(
-                "Skipping cancelled target: '{}' with root drv: {}",
-                target.reference, target.root_drv.name
-            );
-            continue;
-        }
-        drv_to_target_map.insert(&target.root_drv, target.reference.clone());
-        error!(
-            "Target: '{}' with root drv: {}",
-            target.reference, target.root_drv.name
-        );
-    }
     error!(
         "Total targets: {}, Total dep_tree roots: {}",
         state.targets.len(),
         state.dep_tree.tree_roots.len()
     );
 
-    // Group roots by their target (flake reference)
-    // Roots with a target get wrapped in a parent node showing the target
-    // Roots without a target are shown directly
-    let mut target_to_roots: BTreeMap<String, Vec<&Drv>> =
-        BTreeMap::new();
-    let mut orphan_roots: Vec<&Drv> = vec![];
+    // Build list of all targets
+    // Each target instance gets its own tree node (even if same reference/drv)
+    // Include cancelled targets - they should still be visible
+    let all_targets: Vec<_> = state.targets.values().collect();
 
-    for a_root in &state.dep_tree.tree_roots {
-        // Skip roots that only belong to cancelled targets
-        let root_status = state.get_status(a_root);
-        if matches!(root_status, crate::handle_internal_json::JobStatus::Cancelled) {
-            error!("  SKIPPING root {} - cancelled status", a_root.name);
+    // Also find orphan roots (in dep_tree but not belonging to any target)
+    let target_root_drvs: HashSet<_> =
+        all_targets.iter().map(|t| &t.root_drv).collect();
+    let mut orphan_roots: Vec<&Drv> = state
+        .dep_tree
+        .tree_roots
+        .iter()
+        .filter(|root| !target_root_drvs.contains(root))
+        .collect();
+
+    // For Normal pruning, filter orphan roots by active closure
+    if let Some(ref ac) = active {
+        orphan_roots.retain(|root| ac.contains(root));
+    }
+
+    // Create tree items for each target instance
+    // Use target ID to ensure uniqueness even if multiple builds of same ref
+    for target in &all_targets {
+        // Skip if Normal pruning and root not in active closure
+        if let Some(ref ac) = active {
+            if !ac.contains(&target.root_drv) {
+                error!("  SKIPPING target '{}' - not in closure", target.reference);
+                continue;
+            }
+        }
+
+        error!(
+            "Creating tree node for target '{}' (ID: {:?}, root drv: {})",
+            target.reference, target.id, target.root_drv.name
+        );
+
+        // Build tree for this target's root drv
+        let a_root = &target.root_drv;
+        error!("building tree node for {a_root}");
+
+        let mut drv_node = TreeItem::new(
+            a_root.clone().to_string(),
+            state.make_tree_description_for_target(a_root, target.id),
+            vec![],
+        )
+        .unwrap();
+
+        explore_root(
+            &mut drv_node,
+            state,
+            a_root,
+            do_prune,
+            active.as_ref(),
+            Some(target.id),
+        );
+
+        // For Normal pruning, check if we should include this target
+        // Use target-level status, not drv-level status
+        let is_target_active = matches!(
+            target.status,
+            crate::handle_internal_json::TargetStatus::Active
+                | crate::handle_internal_json::TargetStatus::Evaluating
+        );
+        let is_target_completed = matches!(
+            target.status,
+            crate::handle_internal_json::TargetStatus::Completed
+                | crate::handle_internal_json::TargetStatus::Cached
+        );
+
+        if do_prune == PruneType::Normal
+            && drv_node.children().is_empty()
+            && !is_target_active
+            && !is_target_completed
+        {
+            error!(
+                "FILTERING OUT target '{}' - no children, not active, not \
+                 completed",
+                target.reference
+            );
             continue;
         }
 
-        // For Normal pruning, skip roots that have no active descendants
-        if let Some(ref ac) = active {
-            if !ac.contains(a_root) {
-                error!("  SKIPPING root {} - not in closure", a_root.name);
-                continue;
-            }
-            error!("  KEEPING root {} - in closure", a_root.name);
-        }
+        // Create target node with drv as child
+        // Use target ID in the identifier to ensure uniqueness
+        let target_identifier = format!("{}:{:?}", target.reference, target.id);
+        // Use target-level status instead of drv-level status
+        let target_display = format!("{} - {:?}", target.reference, target.status);
 
-        if let Some(target) = drv_to_target_map.get(a_root) {
-            target_to_roots
-                .entry(target.clone())
-                .or_default()
-                .push(a_root);
-        } else {
-            orphan_roots.push(a_root);
-        }
-    }
-
-    // Create tree items for roots with targets (target as parent, drv as child)
-    for (target, drv_roots) in &target_to_roots {
-        let mut children = vec![];
-
-        for a_root in drv_roots {
-            error!("building tree node for {a_root}");
-            let mut drv_node = TreeItem::new(
-                ((*a_root).clone()).to_string(),
-                state.make_tree_description(a_root),
-                vec![],
-            )
-            .unwrap();
-            explore_root(
-                &mut drv_node,
-                state,
-                a_root,
-                do_prune,
-                active.as_ref(),
-            );
-
-            // For Normal pruning, only include if root has children or is
-            // itself active or completed
-            let status = state.get_status(a_root);
-            if do_prune == PruneType::Normal
-                && drv_node.children().is_empty()
-                && !status.is_active()
-                && !status.is_completed()
-                && !matches!(status, JobStatus::AlreadyBuilt)
-            {
-                error!(
-                    "FILTERING OUT root {} - no children, not active, not \
-                     completed",
-                    a_root.name
-                );
-                continue;
-            }
-
-            children.push(drv_node);
-        }
-
-        // Only add target node if it has children
-        if !children.is_empty() {
-            // Get the status from the first (usually only) drv root for this
-            // target
-            let drv_status = if let Some(first_drv) = drv_roots.first() {
-                state.get_status(first_drv)
-            } else {
-                JobStatus::NotEnoughInfo
-            };
-            let target_display = format!("{} - {}", target, drv_status);
-
-            let target_node =
-                TreeItem::new(target.clone(), target_display, children)
-                    .unwrap();
-            roots.push(target_node);
-        }
+        let target_node =
+            TreeItem::new(target_identifier, target_display, vec![drv_node])
+                .unwrap();
+        roots.push(target_node);
     }
 
     // Add orphan roots (no target) directly
@@ -502,7 +505,7 @@ fn gen_drv_tree_leaves_from_state_uncached(
             vec![],
         )
         .unwrap();
-        explore_root(&mut new_root, state, a_root, do_prune, active.as_ref());
+        explore_root(&mut new_root, state, a_root, do_prune, active.as_ref(), None);
 
         // For Normal pruning, only include if root has children or is itself
         // active or completed
