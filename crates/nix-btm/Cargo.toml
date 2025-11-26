@@ -48,6 +48,7 @@ memmap2.workspace = true
 snafu.workspace = true
 eyre.workspace = true
 psx-shm.workspace = true
+nix-compat.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 procfs = {workspace = true}

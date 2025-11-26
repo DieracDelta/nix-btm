@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, hash_map::Entry},
+    collections::{BTreeMap, HashMap, HashSet, hash_map::Entry},
     fmt::Display,
     fs,
     io::{self},
@@ -222,7 +222,8 @@ impl BuildTarget {
 #[derive(Clone, Debug, Default)]
 pub struct JobsStateInner {
     /// All known build targets, indexed by unique ID
-    pub targets: HashMap<BuildTargetId, BuildTarget>,
+    /// BTreeMap for stable iteration order
+    pub targets: BTreeMap<BuildTargetId, BuildTarget>,
 
     /// Reverse index: which targets contain each drv
     /// Multiple targets can share drvs (common dependencies)

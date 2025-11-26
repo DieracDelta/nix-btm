@@ -63,82 +63,66 @@ pub struct DrvRelations {
 impl DrvRelations {
     // Updates nodes and marks the queried drv as a potential root
     pub async fn insert(&mut self, drv: Drv) {
-        if let Some(map) = drv.query_nix_about_drv().await {
-            // First pass: collect which outputs each drv needs
-            // Map from drv -> set of required output names
-            let mut required_outputs_map: BTreeMap<Drv, BTreeSet<String>> =
-                BTreeMap::new();
+        // Recursively insert this drv and all its dependencies
+        self.insert_recursive(drv, None).await;
+        // Recalculate all roots based on the updated graph
+        self.recalculate_roots();
+    }
 
-            for derivation in map.values() {
+    /// Recursively insert a drv and all its dependencies into the graph
+    /// required_outputs: which outputs of this drv are needed (None means default to "out")
+    async fn insert_recursive(
+        &mut self,
+        drv: Drv,
+        required_outputs: Option<BTreeSet<String>>,
+    ) {
+        // Skip if already processed
+        if self.nodes.contains_key(&drv) {
+            return;
+        }
+
+        if let Some(map) = drv.parse_drv_file().await {
+            // parse_drv_file returns a map with just one entry
+            if let Some((_d, derivation)) = map.into_iter().next() {
+                // First, recursively process dependencies
+                // Pass down which outputs each dependency needs
                 for (dep_drv, input_drv) in &derivation.input_drvs {
-                    required_outputs_map
-                        .entry(dep_drv.clone())
-                        .or_default()
-                        .extend(input_drv.outputs.iter().cloned());
+                    let dep_outputs = input_drv.outputs.iter().cloned().collect();
+                    Box::pin(
+                        self.insert_recursive(dep_drv.clone(), Some(dep_outputs)),
+                    )
+                    .await;
                 }
-            }
 
-            // Add all nodes to the graph
-            for (d, derivation) in map.into_iter() {
-                // Get required outputs for this drv, default to "out" for root
-                let required_outputs = required_outputs_map
-                    .get(&d)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        // For root drv, default to "out" output
-                        let mut set = BTreeSet::new();
-                        set.insert("out".to_string());
-                        set
-                    });
+                // Determine which outputs of this drv are required
+                let required_outputs = required_outputs.unwrap_or_else(|| {
+                    // Default to "out" if not specified (e.g., for root drvs)
+                    let mut set = BTreeSet::new();
+                    set.insert("out".to_string());
+                    set
+                });
 
-                // Get the actual output paths for the required outputs
-                // Note: nix derivation show returns paths without /nix/store/
-                // prefix
-                let mut required_output_paths: BTreeSet<String> =
-                    required_outputs
-                        .iter()
-                        .filter_map(|output_name| {
-                            derivation.outputs.get(output_name).map(|o| {
-                                if o.path.starts_with("/nix/store/") {
-                                    o.path.clone()
-                                } else if !o.path.is_empty() {
-                                    format!("/nix/store/{}", o.path)
-                                } else {
-                                    String::new()
-                                }
-                            })
-                        })
-                        .filter(|p| !p.is_empty())
-                        .collect();
-
-                // For FODs (fixed-output derivations), paths are empty in nix
-                // derivation show Query nix-store directly to
-                // get output paths
-                if required_output_paths.is_empty()
-                    && !required_outputs.is_empty()
-                {
-                    let drv_path =
-                        format!("/nix/store/{}-{}.drv", d.hash, d.name);
-                    if let Ok(output) = Command::new("nix-store")
-                        .arg("-q")
-                        .arg("--outputs")
-                        .arg(&drv_path)
-                        .output()
-                        .await
-                        && output.status.success()
-                    {
-                        let stdout = String::from_utf8_lossy(&output.stdout);
-                        for line in stdout.lines() {
-                            let path = line.trim();
-                            if !path.is_empty() {
-                                required_output_paths.insert(path.to_string());
+                // Extract output paths for required outputs
+                // parse_drv_file gets these directly from .drv file (works for FODs!)
+                let required_output_paths: BTreeSet<String> = required_outputs
+                    .iter()
+                    .filter_map(|output_name| {
+                        derivation.outputs.get(output_name).map(|o| {
+                            if o.path.starts_with("/nix/store/") {
+                                o.path.clone()
+                            } else if !o.path.is_empty() {
+                                format!("/nix/store/{}", o.path)
+                            } else {
+                                String::new()
                             }
-                        }
-                    }
-                }
+                        })
+                    })
+                    .filter(|p| !p.is_empty())
+                    .collect();
 
+                // Create and insert the node
                 let node = DrvNode {
-                    root: d.clone(),
+                    root: drv.clone(),
                     deps: derivation
                         .input_drvs
                         .into_keys()
@@ -146,10 +130,8 @@ impl DrvRelations {
                     required_outputs,
                     required_output_paths,
                 };
-                self.nodes.insert(d, node);
+                self.nodes.insert(drv, node);
             }
-            // Recalculate all roots based on the updated graph
-            self.recalculate_roots();
         } else {
             error!("COULD NOT FIND DRV {} IN NIX STORE??", drv);
         }
@@ -312,6 +294,62 @@ impl Drv {
         let parsed: BTreeMap<Drv, Derivation> =
             serde_json::from_slice(&output.stdout).ok()?;
         Some(parsed)
+    }
+
+    /// Parse a single .drv file directly (non-recursive, fast)
+    /// This replaces the recursive nix derivation show approach
+    pub async fn parse_drv_file(&self) -> Option<BTreeMap<Drv, Derivation>> {
+        use nix_compat::derivation::Derivation as NixDerivation;
+
+        let path = format!("/nix/store/{}-{}.drv", self.hash, self.name);
+
+        // Read the .drv file directly
+        let contents = tokio::fs::read(&path).await.ok()?;
+
+        // Parse ATerm format
+        let nix_drv = NixDerivation::from_aterm_bytes(&contents).ok()?;
+
+        // Convert nix_compat's Derivation to our Derivation struct
+        let mut input_drvs = BTreeMap::new();
+        for (input_drv_path, outputs) in nix_drv.input_derivations {
+            // Parse the drv path to get our Drv type
+            if let Left(drv) = parse_store_path(&input_drv_path.to_absolute_path()) {
+                input_drvs.insert(
+                    drv,
+                    InputDrv {
+                        outputs: outputs.into_iter().collect(),
+                    },
+                );
+            }
+        }
+
+        // Extract outputs with their paths (works for FODs too!)
+        let mut outputs = BTreeMap::new();
+        for (output_name, output_spec) in nix_drv.outputs {
+            let path_str = output_spec.path_str();
+            outputs.insert(
+                output_name,
+                Output {
+                    path: path_str.to_string(),
+                },
+            );
+        }
+
+        let derivation = Derivation {
+            name: self.name.clone(),
+            // TODO: extract system from nix_drv.environment or another field
+            system: nix_drv.environment.get("system")
+                .and_then(|v| std::str::from_utf8(v).ok())
+                .unwrap_or("")
+                .to_string(),
+            input_drvs,
+            outputs,
+        };
+
+        // Return a map with just this one derivation
+        let mut result = BTreeMap::new();
+        result.insert(self.clone(), derivation);
+        Some(result)
     }
 }
 

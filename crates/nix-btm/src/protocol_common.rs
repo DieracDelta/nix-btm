@@ -388,7 +388,7 @@ impl From<JobsStateInnerWire> for JobsStateInner {
         };
 
         JobsStateInner {
-            targets: HashMap::new(),
+            targets: BTreeMap::new(),
             drv_to_targets: HashMap::new(),
             next_target_id: BuildTargetId(0),
             jid_to_job,

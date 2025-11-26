@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use tracing::{error, info};
 use tui_tree_widget::{TreeItem, TreeState};
@@ -353,8 +353,8 @@ pub fn gen_drv_tree_leaves_from_state(
     // Group roots by their target (flake reference)
     // Roots with a target get wrapped in a parent node showing the target
     // Roots without a target are shown directly
-    let mut target_to_roots: std::collections::HashMap<String, Vec<&Drv>> =
-        std::collections::HashMap::new();
+    let mut target_to_roots: BTreeMap<String, Vec<&Drv>> =
+        BTreeMap::new();
     let mut orphan_roots: Vec<&Drv> = vec![];
 
     for a_root in &state.dep_tree.tree_roots {
