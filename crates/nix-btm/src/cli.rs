@@ -90,4 +90,22 @@ pub enum Args {
         )]
         standalone_log_path: Option<String>,
     },
+    Debug {
+        #[arg(
+            long,
+            short,
+            value_name = "JSON_FILE_PATH",
+            help = HELP_STR_SOCKET,
+            default_value = "/tmp/nixbtm.sock"
+        )]
+        nix_json_file_path: Option<String>,
+        #[arg(
+            long,
+            short = 'i',
+            value_name = "INTERVAL_SECS",
+            help = "How often to dump state to stdout (in seconds)",
+            default_value = "2"
+        )]
+        dump_interval: u64,
+    },
 }

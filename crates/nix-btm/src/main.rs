@@ -60,6 +60,12 @@ pub(crate) fn init_async_runtime() {
                         } => run_standalone(nix_json_file_path, shutdown_)
                             .await
                             .unwrap(),
+                        Args::Debug {
+                            nix_json_file_path,
+                            dump_interval,
+                        } => run_debug(nix_json_file_path, dump_interval, shutdown_)
+                            .await
+                            .unwrap(),
                     }
                 });
                 let fut2 = async move {
@@ -625,4 +631,131 @@ async fn run_standalone(
     join_all(handles).await;
 
     Ok(())
+}
+
+/// Debug mode: listens on socket and dumps state to stdout periodically
+pub(crate) async fn run_debug(
+    nix_json_file_path: Option<String>,
+    dump_interval: u64,
+    shutdown: Shutdown,
+) -> nix_btm::app::Result<()> {
+    let shutdown_ = shutdown.clone();
+    let socket = nix_json_file_path.map(PathBuf::from);
+
+    let (tx_jobs, mut recv_job_updates): (_, watch::Receiver<JobsStateInner>) =
+        watch::channel(Default::default());
+
+    // Start listening on socket if provided
+    let maybe_jh = socket.map(|socket| {
+        spawn_named("listening for new connections", async move {
+            handle_daemon_info(socket.into(), 0o660, shutdown_, tx_jobs).await;
+            eprintln!("[DEBUG] Socket listener exited");
+        })
+    });
+
+    // Periodically dump state
+    let dump_handle = spawn_named("state dumper", async move {
+        let mut interval = interval(Duration::from_secs(dump_interval));
+        let shutdown_fut = shutdown.wait();
+        tokio::pin!(shutdown_fut);
+
+        eprintln!("=== NIX-BTM DEBUG MODE ===");
+        eprintln!("Listening on socket, will dump state every {} seconds", dump_interval);
+        eprintln!("Press Ctrl+C to exit\n");
+
+        loop {
+            tokio::select! {
+                _ = &mut shutdown_fut => {
+                    eprintln!("[DEBUG] Dumper shutting down");
+                    break;
+                }
+                _ = interval.tick() => {
+                    // Wait for state update
+                    if recv_job_updates.changed().await.is_ok() {
+                        let state = recv_job_updates.borrow().clone();
+                        dump_state(&state);
+                    }
+                }
+            }
+        }
+    });
+
+    let mut handles = vec![dump_handle];
+    if let Some(jh) = maybe_jh {
+        handles.push(jh);
+    }
+
+    join_all(handles).await;
+    Ok(())
+}
+
+fn dump_state(state: &JobsStateInner) {
+    use nix_btm::tree_generation::{gen_drv_tree_leaves_from_state, PruneType};
+
+    println!("\n{:=<80}", "");
+    println!("TIMESTAMP: {:?}", std::time::SystemTime::now());
+    println!("{:=<80}\n", "");
+
+    // Dump targets
+    println!("TARGETS ({}):", state.targets.len());
+    for (id, target) in &state.targets {
+        println!("  [{:?}] {} (requester: {:?})",
+            id, target.reference, target.requester_id);
+        println!("    Status: {:?}", target.status);
+        println!("    Root drv: {}", target.root_drv.name);
+        println!("    Transitive closure: {} drvs", target.transitive_closure.len());
+    }
+    println!();
+
+    // Dump jobs
+    println!("JOBS ({}):", state.jid_to_job.len());
+    for (jid, job) in &state.jid_to_job {
+        println!("  [JobId({:?})] {} - {:?} (requester: {:?})",
+            jid.0, job.drv.name, job.status, job.rid);
+    }
+    println!();
+
+    // Dump dep tree
+    println!("DEP TREE:");
+    println!("  Nodes: {}", state.dep_tree.nodes.len());
+    println!("  Tree roots: {}", state.dep_tree.tree_roots.len());
+    for root in &state.dep_tree.tree_roots {
+        println!("    - {}", root.name);
+    }
+    println!();
+
+    // Dump drv_to_targets mapping
+    println!("DRV_TO_TARGETS ({} entries):", state.drv_to_targets.len());
+    for (drv, targets) in state.drv_to_targets.iter().take(10) {
+        println!("  {} -> {:?}", drv.name, targets);
+    }
+    if state.drv_to_targets.len() > 10 {
+        println!("  ... ({} more)", state.drv_to_targets.len() - 10);
+    }
+    println!();
+
+    // Generate and dump tree for each prune mode
+    for prune_mode in [PruneType::None, PruneType::Normal, PruneType::Aggressive] {
+        println!("TREE (PruneType::{:?}):", prune_mode);
+        let tree = gen_drv_tree_leaves_from_state(state, prune_mode);
+        if tree.is_empty() {
+            println!("  (empty)");
+        } else {
+            for (i, root) in tree.iter().enumerate() {
+                println!("  [{}] {} (children: {})",
+                    i, root.identifier(), root.children().len());
+                // Show first level of children
+                for child in root.children().iter().take(5) {
+                    println!("    - {} (children: {})",
+                        child.identifier(), child.children().len());
+                }
+                if root.children().len() > 5 {
+                    println!("    ... ({} more)", root.children().len() - 5);
+                }
+            }
+        }
+        println!();
+    }
+
+    println!("{:=<80}\n", "");
 }

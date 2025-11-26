@@ -1276,11 +1276,11 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                         // Type 0 is used for various activities, check text
                         let text_str = text.to_string();
                         if text_str.starts_with("evaluating derivation") {
-                            // Extract the target from "evaluating derivation
-                            // 'target'"
+                            // Extract the target from "evaluating derivation 'target'..."
+                            // Note: Nix sometimes adds "..." at the end
                             if let Some(target) = text_str
                                 .strip_prefix("evaluating derivation '")
-                                .and_then(|s| s.strip_suffix("'"))
+                                .and_then(|s| s.strip_suffix("'...").or_else(|| s.strip_suffix("'")))
                             {
                                 // Evaluate the flake reference to get the .drv
                                 // path
@@ -1288,24 +1288,46 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                 // the dependency tree
                                 let state_clone = state.clone();
                                 let target_owned = target.to_string();
+                                tracing::error!(
+                                    "🎯 Detected target: '{}', spawning eval task",
+                                    target_owned
+                                );
                                 spawn_named(
                                     &format!("evaluating {target_owned:?}"),
                                     async move {
-                                        if let Some(drv) =
-                                            eval_flake_to_drv(&target_owned)
-                                                .await
-                                        {
-                                            tracing::info!(
-                                                "inserting top-level drv: {}",
-                                                drv.name
-                                            );
-                                            state_clone
-                                                .insert_idle_drv_for_requester(
-                                                    drv,
-                                                    rid,
-                                                    Some(target_owned),
-                                                )
-                                                .await;
+                                        tracing::error!(
+                                            "📊 Starting eval for target: '{}'",
+                                            target_owned
+                                        );
+                                        match eval_flake_to_drv(&target_owned).await {
+                                            Some(drv) => {
+                                                tracing::error!(
+                                                    "✅ Eval SUCCESS for '{}' -> drv: {}",
+                                                    target_owned,
+                                                    drv.name
+                                                );
+                                                tracing::error!(
+                                                    "📝 About to call insert_idle_drv_for_requester for '{}'",
+                                                    target_owned
+                                                );
+                                                state_clone
+                                                    .insert_idle_drv_for_requester(
+                                                        drv,
+                                                        rid,
+                                                        Some(target_owned.clone()),
+                                                    )
+                                                    .await;
+                                                tracing::error!(
+                                                    "✅ insert_idle_drv_for_requester completed for '{}'",
+                                                    target_owned
+                                                );
+                                            }
+                                            None => {
+                                                tracing::error!(
+                                                    "❌ Eval FAILED for target: '{}'",
+                                                    target_owned
+                                                );
+                                            }
                                         }
                                     },
                                 );

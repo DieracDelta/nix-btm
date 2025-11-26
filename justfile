@@ -55,3 +55,9 @@ lint: fmt
 [doc('lint-fix')]
 lint-fix: fmt
     cargo clippy --fix --workspace --profile dev --allow-dirty
+
+[doc('run-debug')]
+run-debug:
+    -pkill -9 -f "nix-btm.*debug" 2>/dev/null || true
+    rm -f /tmp/nixbtm.sock
+    cargo run --bin nix-btm --profile dev -- debug -n /tmp/nixbtm.sock -i 2

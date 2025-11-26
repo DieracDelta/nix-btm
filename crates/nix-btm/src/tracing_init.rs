@@ -37,6 +37,41 @@ pub fn init_tracing(args: &Args) {
                 &format!("/tmp/nixbtm-standalone-{pid}.log")
             }
         },
+        Args::Debug { .. } => {
+            // Debug mode uses stderr logging
+            let env_filter = EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("debug"));
+
+            #[cfg(tokio_unstable)]
+            {
+                let console_layer = console_subscriber::ConsoleLayer::builder()
+                    .with_default_env()
+                    .spawn();
+
+                tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(console_layer)
+                    .with(
+                        tracing_subscriber::fmt::layer()
+                            .with_writer(std::io::stderr)
+                            .with_target(false),
+                    )
+                    .init();
+            }
+
+            #[cfg(not(tokio_unstable))]
+            {
+                tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(
+                        tracing_subscriber::fmt::layer()
+                            .with_writer(std::io::stderr)
+                            .with_target(false),
+                    )
+                    .init();
+            }
+            return;
+        }
     };
 
     let file = File::create(log_path).expect("Could not initialize log");
