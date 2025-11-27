@@ -59,6 +59,7 @@ fn test_build_target_structure() {
     state.dep_tree.tree_roots.insert(hoogle.clone());
 
     // Create BuildTarget for hoogle
+    state.register_requester(RequesterId(1));
     let target_id = state.create_target(
         "github:nixos/nixpkgs/master#haskellPackages.hoogle".to_string(),
         hoogle.clone(),
@@ -134,6 +135,7 @@ fn test_target_status_from_jobs() {
     state.dep_tree.tree_roots.insert(drv.clone());
 
     // Create target
+    state.register_requester(RequesterId(1));
     let target_id = state.create_target(
         "nixpkgs#aeson".to_string(),
         drv.clone(),
@@ -198,6 +200,7 @@ fn test_target_status_cached() {
     state.already_built_drvs.insert(drv.clone());
 
     // Create target
+    state.register_requester(RequesterId(1));
     let target_id = state.create_target(
         "nixpkgs#text-short".to_string(),
         drv.clone(),
@@ -255,12 +258,14 @@ fn test_per_target_drv_status() {
     state.dep_tree.tree_roots.insert(target_b_drv.clone());
 
     // Create two targets
+    state.register_requester(RequesterId(1));
     let target_a_id = state.create_target(
         "nixpkgs#aeson".to_string(),
         target_a_drv.clone(),
         RequesterId(1),
     );
 
+    state.register_requester(RequesterId(2));
     let target_b_id = state.create_target(
         "nixpkgs#attoparsec".to_string(),
         target_b_drv.clone(),
@@ -315,6 +320,7 @@ fn test_tree_generation_with_targets() {
     state.dep_tree.tree_roots.insert(drv.clone());
 
     // Create target
+    state.register_requester(RequesterId(1));
     state.create_target(
         "github:nixos/nixpkgs/master#haskellPackages.hoogle".to_string(),
         drv.clone(),
@@ -351,6 +357,7 @@ fn test_target_cancellation() {
     state.dep_tree.nodes.insert(drv.clone(), node);
     state.dep_tree.tree_roots.insert(drv.clone());
 
+    state.register_requester(RequesterId(1));
     let target_id = state.create_target(
         "nixpkgs#aeson".to_string(),
         drv.clone(),
@@ -424,12 +431,14 @@ fn test_shared_dependencies_between_targets() {
     state.dep_tree.tree_roots.insert(attoparsec.clone());
 
     // Create two targets
+    state.register_requester(RequesterId(1));
     let target_a = state.create_target(
         "nixpkgs#aeson".to_string(),
         aeson.clone(),
         RequesterId(1),
     );
 
+    state.register_requester(RequesterId(2));
     let target_b = state.create_target(
         "nixpkgs#attoparsec".to_string(),
         attoparsec.clone(),

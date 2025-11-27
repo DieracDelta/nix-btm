@@ -98,6 +98,7 @@ async fn test_rebuild_cancel_tree_display() {
 
     // Create first target and simulate it being built
     let requester1 = RequesterId(1);
+    state.register_requester(requester1);
     let target1_id = state.create_target(target_ref.clone(), root_drv.clone(), requester1);
 
     // Simulate an active build job for the root drv (rebuilding)
@@ -193,6 +194,7 @@ async fn test_rebuild_cancel_tree_display() {
     // Now create second target (same drv, different requester)
     println!("\n=== Creating second build of same target ===");
     let requester2 = RequesterId(2);
+    state.register_requester(requester2);
     let target2_id = state.create_target(target_ref.clone(), root_drv.clone(), requester2);
 
     // Verify different target IDs

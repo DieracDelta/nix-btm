@@ -86,6 +86,7 @@ mod tests {
             },
             already_built_drvs: Default::default(),
             version: 0,
+            active_requesters: Default::default(),
         }
     }
 

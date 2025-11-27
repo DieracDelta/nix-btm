@@ -116,6 +116,7 @@ fn make_test_state() -> JobsStateInner {
         },
         already_built_drvs: Default::default(),
         version: 0,
+        active_requesters: Default::default(),
     }
 }
 

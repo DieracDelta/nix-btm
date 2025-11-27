@@ -281,9 +281,17 @@ pub struct JobsStateInner {
     /// Version counter incremented on every state change
     /// Used for tree caching to detect when rebuild is needed
     pub version: u64,
+
+    /// Set of currently active requester IDs (connected clients)
+    /// Used to detect if a target is created after its requester has disconnected
+    pub active_requesters: HashSet<RequesterId>,
 }
 
 impl JobsStateInner {
+    pub fn register_requester(&mut self, rid: RequesterId) {
+        self.active_requesters.insert(rid);
+    }
+
     /// Get global status of a drv (not target-specific)
     /// For target-specific status, use get_drv_status_for_target instead
     /// Increment the version counter to invalidate cached trees
@@ -398,14 +406,22 @@ impl JobsStateInner {
         // Compute transitive closure from dep_tree
         let transitive_closure = self.compute_transitive_closure(&root_drv);
 
+        // Check if requester is still active
+        let is_active = self.active_requesters.contains(&requester_id);
+        let status = if is_active {
+            TargetStatus::Evaluating
+        } else {
+            TargetStatus::Cancelled
+        };
+
         let target = BuildTarget {
             id: target_id,
             reference,
             root_drv,
             transitive_closure,
             requester_id,
-            status: TargetStatus::Evaluating,
-            was_cancelled: false,
+            status,
+            was_cancelled: !is_active,
         };
 
         // Update reverse index: map each drv to this target
@@ -457,6 +473,9 @@ impl JobsStateInner {
     /// This is the inner (non-async) logic called by JobsState::cleanup_requester
     /// Can also be called directly from tests
     pub fn cleanup_requester_inner(&mut self, rid: RequesterId) {
+        // Mark requester as inactive/disconnected
+        self.active_requesters.remove(&rid);
+
         // Find all targets for this requester
         let target_ids: Vec<BuildTargetId> = self
             .targets
@@ -504,9 +523,21 @@ impl JobsStateInner {
 
         let cancelled_count = jobs_to_remove.len();
 
-        // If there are incomplete jobs being removed, the build was cancelled/interrupted
-        // This is true whether jobs are explicitly marked Cancelled or just interrupted
-        let had_cancelled_jobs = !jobs_to_remove.is_empty();
+        // Check if any targets are in a non-terminal status
+        // Non-terminal statuses (Evaluating, Queued, Active) mean the build was in progress
+        // If cleanup is called while target is non-terminal, the build was interrupted/cancelled
+        let has_non_terminal_targets = target_ids.iter().any(|tid| {
+            self.targets.get(tid).map(|t| {
+                !matches!(t.status,
+                    TargetStatus::Cancelled | TargetStatus::Cached | TargetStatus::Completed
+                )
+            }).unwrap_or(false)
+        });
+
+        // Build was cancelled if:
+        // 1. There are incomplete jobs being removed, OR
+        // 2. Targets are in non-terminal status (Evaluating, Queued, Active)
+        let had_cancelled_jobs = !jobs_to_remove.is_empty() || has_non_terminal_targets;
 
         // Remove jobs from both jid_to_job and drv_to_jobs
         for (jid, drv) in jobs_to_remove {
@@ -772,6 +803,12 @@ impl JobsState {
             Entry::Vacant(_vacant_entry) => {}
         }
     }
+
+    pub async fn register_requester(&self, rid: RequesterId) {
+        let mut state = self.write().await;
+        state.register_requester(rid);
+    }
+
     pub async fn insert_idle_drv(&self, drv: Drv) {
         let mut state = self.write().await;
         // Only query Nix for real derivations (32-char base32 hashes)
@@ -873,6 +910,15 @@ impl JobsState {
         let drv = new_job.drv.clone();
 
         let mut state = self.write().await;
+
+        // Safeguard: don't add jobs for disconnected requesters
+        if !state.active_requesters.contains(&new_job.rid) {
+            tracing::debug!(
+                "Skipping job for disconnected requester {:?}",
+                new_job.rid
+            );
+            return;
+        }
 
         // Remove from already_built set if it was previously in there
         // (this is a new job for this drv)
@@ -1021,6 +1067,9 @@ pub async fn handle_daemon_info(
                             {
                                 let rid = next_rid;
                                 error!("ACCEPTED SOCKET {next_rid:?}");
+                                // Register requester as active
+                                cur_state.register_requester(rid).await;
+
                                 next_rid = (*next_rid + 1).into();
                                 ticks_without_connection = 0;
                                 warned_no_connection = false;
