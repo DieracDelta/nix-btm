@@ -1,21 +1,21 @@
 [package]
 name = "json-parsing-nix"
 description = "Fork of twix/snix's nix-compat/log module"
-version = { workspace = true }
-edition = { workspace = true }
-authors =  { workspace = true }
-license-file =  { workspace = true }
-readme =  { workspace = true }
-repository =  { workspace = true }
-keywords =  { workspace = true }
-categories =  { workspace = true }
-exclude =  { workspace = true }
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license-file.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+exclude.workspace = true
 
 [dependencies]
-serde = {workspace = true}
-serde_json = {workspace = true}
-num_enum = {workspace = true}
-thiserror = {workspace = true}
-serde_bytes = {workspace = true}
-bstr = {workspace = true}
+serde.workspace = true
+serde_json.workspace = true
+num_enum.workspace = true
+thiserror.workspace = true
+serde_bytes.workspace = true
+bstr.workspace = true
 

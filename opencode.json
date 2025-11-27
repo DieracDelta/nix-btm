@@ -1,0 +1,59 @@
+{
+  "tools": {
+    "write": true,
+    "bash": true,
+    "read": true,
+    "edit": true,
+    "grep": true,
+    "glob": true,
+    "list": true,
+    "patch": true,
+    "todowrite": true,
+    "todolist": true,
+    "todoread": true,
+    "webfetch": true
+  },
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "Qwen3-Coder:30b": {
+          "name": "Qwen3 Coder 30B (local)",
+          "tools": true,
+          "reasoning": true,
+          "options": {
+            "num_ctx": 655360
+          }
+        }
+      }
+    }
+  },
+  "model": "ollama/Qwen3-Coder:30b",
+  "agent": {
+    "build": {
+      "description": "Default coding mode with only Opencode tools.",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "grep": true,
+        "glob": true,
+        "list": true,
+        "webfetch": true,
+        "patch": true,
+        "todoread": true,
+        "todowrite": true
+      },
+      "prompt": "{file:./AGENTS.md}"
+    }
+  },
+  "instructions": [
+    "AGENTS.md"
+  ]
+}
