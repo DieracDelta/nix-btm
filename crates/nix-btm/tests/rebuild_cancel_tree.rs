@@ -134,26 +134,33 @@ async fn test_rebuild_cancel_tree_display() {
         );
     }
 
-    // Simulate cancellation - mark job as cancelled
+    // Simulate cancellation - mark job as cancelled and cleanup requester
     println!("\n=== Simulating cancellation of first build ===");
     if let Some(job) = state.jid_to_job.get_mut(&JobId(1)) {
         job.status = JobStatus::Cancelled;
         job.stop_time_ns = Some(2000);
     }
-    state.update_target_status(target1_id);
 
-    println!("\n=== After cancellation ===");
+    // Call cleanup_requester_inner to simulate what happens when user cancels
+    // This is the CRITICAL part that was missing - this is what causes the bug!
+    state.cleanup_requester_inner(requester1);
+
+    println!("\n=== After cancellation and cleanup ===");
     {
         let target1 = state.targets.get(&target1_id).expect("Target 1 should exist");
         println!("Target 1 status: {:?}", target1.status);
+        println!("Target 1 was_cancelled: {:?}", target1.was_cancelled);
         assert_eq!(
             target1.status,
             TargetStatus::Cancelled,
-            "Target 1 should be Cancelled"
+            "Target 1 should be Cancelled (not Queued!)"
+        );
+        assert!(
+            target1.was_cancelled,
+            "Target 1 was_cancelled flag should be true"
         );
 
-        // CRITICAL TEST: Root drv should show Cancelled (not AlreadyBuilt)
-        // even though it's in already_built_drvs
+        // After cleanup, jobs are removed, so drv status should be derived from was_cancelled flag
         let root_status = state.get_drv_status_for_target(&root_drv, target1_id);
         println!("Root drv status: {:?}", root_status);
         assert_eq!(
@@ -241,7 +248,8 @@ async fn test_rebuild_cancel_tree_display() {
         job.status = JobStatus::Cancelled;
         job.stop_time_ns = Some(4000);
     }
-    state.update_target_status(target2_id);
+    // Call cleanup_requester_inner for second requester
+    state.cleanup_requester_inner(requester2);
 
     println!("\n=== Both builds cancelled ===");
     {

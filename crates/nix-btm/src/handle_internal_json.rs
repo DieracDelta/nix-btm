@@ -149,6 +149,10 @@ pub struct BuildTarget {
 
     /// Current status of the target
     pub status: TargetStatus,
+
+    /// Flag indicating if this target was ever cancelled
+    /// Once set to true, it stays true - the target will always show as Cancelled
+    pub was_cancelled: bool,
 }
 
 impl BuildTarget {
@@ -181,6 +185,12 @@ impl BuildTarget {
         already_built_drvs: &HashSet<Drv>,
         dep_tree: &DrvRelations,
     ) -> TargetStatus {
+        // If this target was ever cancelled, it stays cancelled
+        // This flag is set during cleanup_requester() and never cleared
+        if self.was_cancelled {
+            return TargetStatus::Cancelled;
+        }
+
         // Recompute transitive closure from current dep_tree state
         // This ensures we capture all dependencies discovered since target creation
         let transitive_closure = Self::compute_transitive_closure_static(&self.root_drv, dep_tree);
@@ -395,6 +405,7 @@ impl JobsStateInner {
             transitive_closure,
             requester_id,
             status: TargetStatus::Evaluating,
+            was_cancelled: false,
         };
 
         // Update reverse index: map each drv to this target
@@ -440,6 +451,131 @@ impl JobsStateInner {
             // Increment version to invalidate TreeCache
             self.version += 1;
         }
+    }
+
+    /// Mark incomplete jobs for a given requester as cancelled or already built
+    /// This is the inner (non-async) logic called by JobsState::cleanup_requester
+    /// Can also be called directly from tests
+    pub fn cleanup_requester_inner(&mut self, rid: RequesterId) {
+        // Find all targets for this requester
+        let target_ids: Vec<BuildTargetId> = self
+            .targets
+            .values()
+            .filter(|t| t.requester_id == rid)
+            .map(|t| t.id)
+            .collect();
+
+        if target_ids.is_empty() {
+            tracing::info!("cleanup requester {:?}: no targets found", rid);
+            return;
+        }
+
+        tracing::info!(
+            "cleanup requester {:?}: cleaning up {} targets",
+            rid,
+            target_ids.len()
+        );
+
+        // Collect jobs to remove for this requester
+        // These are incomplete jobs (not completed) that need cleanup
+        let jobs_to_remove: Vec<(JobId, Drv)> = self
+            .jid_to_job
+            .iter()
+            .filter_map(|(jid, job)| {
+                if job.rid == rid
+                    && !matches!(
+                        job.status,
+                        JobStatus::CompletedBuild
+                            | JobStatus::CompletedDownload
+                            | JobStatus::CompletedSubstitute
+                            | JobStatus::CompletedCopy
+                            | JobStatus::CompletedQuery
+                            | JobStatus::CompletedEvaluation
+                            | JobStatus::CompletedSourceCopy
+                            | JobStatus::AlreadyBuilt
+                    )
+                {
+                    Some((*jid, job.drv.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let cancelled_count = jobs_to_remove.len();
+
+        // If there are incomplete jobs being removed, the build was cancelled/interrupted
+        // This is true whether jobs are explicitly marked Cancelled or just interrupted
+        let had_cancelled_jobs = !jobs_to_remove.is_empty();
+
+        // Remove jobs from both jid_to_job and drv_to_jobs
+        for (jid, drv) in jobs_to_remove {
+            self.jid_to_job.remove(&jid);
+
+            // Remove this job from drv_to_jobs
+            if let Some(job_set) = self.drv_to_jobs.get_mut(&drv) {
+                job_set.remove(&jid);
+                // If the set is now empty, remove the drv entry entirely
+                if job_set.is_empty() {
+                    self.drv_to_jobs.remove(&drv);
+                }
+            }
+        }
+
+        // Update status for each target
+        for target_id in &target_ids {
+            // Clone data we need before mutating state
+            let (target_ref, transitive_closure) = if let Some(target) =
+                self.targets.get(target_id)
+            {
+                (target.reference.clone(), target.transitive_closure.clone())
+            } else {
+                continue;
+            };
+
+            // Determine target status based on whether jobs were cancelled
+            if had_cancelled_jobs {
+                // Target was cancelled - set the flag and update status
+                tracing::info!(
+                    "Target '{}' cancelled ({} drvs, {} were already built)",
+                    target_ref,
+                    transitive_closure.len(),
+                    transitive_closure.iter().filter(|d| self.already_built_drvs.contains(d)).count()
+                );
+
+                // Set the was_cancelled flag (this persists forever)
+                if let Some(target) = self.targets.get_mut(target_id) {
+                    target.was_cancelled = true;
+                }
+            } else {
+                // Build completed (from cache or successfully built)
+                // Mark all drvs as already built
+                tracing::info!(
+                    "Target '{}' completed from cache ({} drvs)",
+                    target_ref,
+                    transitive_closure.len()
+                );
+
+                for drv in &transitive_closure {
+                    if !self.already_built_drvs.contains(drv) {
+                        self.already_built_drvs.insert(drv.clone());
+                    }
+                }
+            }
+
+            // Update target status using compute_status logic
+            // This will check was_cancelled flag and return Cancelled if set
+            self.update_target_status(*target_id);
+        }
+
+        tracing::info!(
+            "cleanup requester {:?}: {} jobs cancelled",
+            rid,
+            cancelled_count
+        );
+
+        // Increment version to invalidate UI caches
+        self.version += 1;
     }
 
     /// Get the status of a drv within a specific target's context
@@ -807,147 +943,7 @@ impl JobsState {
     /// Called when a connection is terminated
     pub async fn cleanup_requester(&self, rid: RequesterId) {
         let mut state = self.write().await;
-
-        // Find all targets for this requester
-        let target_ids: Vec<BuildTargetId> = state
-            .targets
-            .values()
-            .filter(|t| t.requester_id == rid)
-            .map(|t| t.id)
-            .collect();
-
-        if target_ids.is_empty() {
-            tracing::info!("cleanup requester {:?}: no targets found", rid);
-            return;
-        }
-
-        tracing::info!(
-            "cleanup requester {:?}: cleaning up {} targets",
-            rid,
-            target_ids.len()
-        );
-
-        // Check if any jobs were created for this requester
-        let _requester_had_jobs =
-            state.jid_to_job.values().any(|j| j.rid == rid);
-
-        // Check if any jobs are still active (not completed)
-        let _has_active_jobs = state.jid_to_job.values().any(|j| {
-            j.rid == rid
-                && !matches!(
-                    j.status,
-                    JobStatus::Cancelled
-                        | JobStatus::CompletedBuild
-                        | JobStatus::CompletedDownload
-                        | JobStatus::CompletedSubstitute
-                        | JobStatus::CompletedCopy
-                        | JobStatus::CompletedQuery
-                        | JobStatus::CompletedEvaluation
-                        | JobStatus::CompletedSourceCopy
-                        | JobStatus::AlreadyBuilt
-                )
-        });
-
-        // Collect jobs to remove for this requester
-        let jobs_to_remove: Vec<(JobId, Drv)> = state
-            .jid_to_job
-            .iter()
-            .filter_map(|(jid, job)| {
-                if job.rid == rid
-                    && !matches!(
-                        job.status,
-                        JobStatus::CompletedBuild
-                            | JobStatus::CompletedDownload
-                            | JobStatus::CompletedSubstitute
-                            | JobStatus::CompletedCopy
-                            | JobStatus::CompletedQuery
-                            | JobStatus::CompletedEvaluation
-                            | JobStatus::CompletedSourceCopy
-                            | JobStatus::AlreadyBuilt
-                    )
-                {
-                    Some((*jid, job.drv.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let cancelled_count = jobs_to_remove.len();
-
-        // Remove jobs from both jid_to_job and drv_to_jobs
-        for (jid, drv) in jobs_to_remove {
-            state.jid_to_job.remove(&jid);
-
-            // Remove this job from drv_to_jobs
-            if let Some(job_set) = state.drv_to_jobs.get_mut(&drv) {
-                job_set.remove(&jid);
-                // If the set is now empty, remove the drv entry entirely
-                if job_set.is_empty() {
-                    state.drv_to_jobs.remove(&drv);
-                }
-            }
-        }
-
-        // Update status for each target
-        for target_id in &target_ids {
-            // Clone data we need before mutating state
-            let (target_ref, transitive_closure) = if let Some(target) =
-                state.targets.get(target_id)
-            {
-                (target.reference.clone(), target.transitive_closure.clone())
-            } else {
-                continue;
-            };
-
-            // Check if all drvs in target's closure are already built
-            let all_already_built = transitive_closure
-                .iter()
-                .all(|drv| state.already_built_drvs.contains(drv));
-
-            // Only mark as "completed from cache" if ALL drvs were already in store
-            // Don't check has_active_jobs - after removing jobs it's always false!
-            if all_already_built {
-                // Build completed from cache - mark all drvs as already built
-                tracing::info!(
-                    "Target '{}' completed from cache ({} drvs)",
-                    target_ref,
-                    transitive_closure.len()
-                );
-
-                for drv in &transitive_closure {
-                    if !state.already_built_drvs.contains(drv) {
-                        state.already_built_drvs.insert(drv.clone());
-                    }
-                }
-
-                // Update status to Cached
-                state.update_target_status(*target_id);
-            } else {
-                // Target was cancelled - don't mark drvs as already built
-                tracing::info!(
-                    "Target '{}' cancelled ({} drvs, {} were already built)",
-                    target_ref,
-                    transitive_closure.len(),
-                    transitive_closure.iter().filter(|d| state.already_built_drvs.contains(d)).count()
-                );
-
-                // Explicitly set target status to Cancelled
-                // We can't rely on compute_status() because we already removed the jobs
-                if let Some(target) = state.targets.get_mut(target_id) {
-                    target.status = TargetStatus::Cancelled;
-                }
-            }
-        }
-
-        tracing::info!(
-            "cleanup requester {:?}: {} jobs cancelled",
-            rid,
-            cancelled_count
-        );
-
-        // Increment version to invalidate UI caches
-        state.version += 1;
+        state.cleanup_requester_inner(rid);
     }
 }
 
