@@ -152,17 +152,42 @@ pub struct BuildTarget {
 }
 
 impl BuildTarget {
+    /// Compute transitive closure of a drv from the dep_tree (static method)
+    fn compute_transitive_closure_static(root: &Drv, dep_tree: &DrvRelations) -> HashSet<Drv> {
+        let mut closure = HashSet::new();
+        let mut stack = vec![root.clone()];
+
+        while let Some(drv) = stack.pop() {
+            if closure.insert(drv.clone()) {
+                if let Some(node) = dep_tree.nodes.get(&drv) {
+                    for dep in &node.deps {
+                        stack.push(dep.clone());
+                    }
+                }
+            }
+        }
+
+        closure
+    }
+
     /// Compute the target's status from the jobs in state
     /// This should be called whenever jobs change
+    ///
+    /// Recomputes transitive closure fresh from dep_tree to capture newly discovered dependencies
     pub fn compute_status(
         &self,
         jid_to_job: &HashMap<JobId, BuildJob>,
         drv_to_jobs: &HashMap<Drv, HashSet<JobId>>,
         already_built_drvs: &HashSet<Drv>,
+        dep_tree: &DrvRelations,
     ) -> TargetStatus {
+        // Recompute transitive closure from current dep_tree state
+        // This ensures we capture all dependencies discovered since target creation
+        let transitive_closure = Self::compute_transitive_closure_static(&self.root_drv, dep_tree);
+
         // Collect all jobs for drvs in this target's closure
         let mut all_jobs = Vec::new();
-        for drv in &self.transitive_closure {
+        for drv in &transitive_closure {
             if let Some(jobs) = drv_to_jobs.get(drv) {
                 for jid in jobs {
                     if let Some(job) = jid_to_job.get(jid) {
@@ -177,12 +202,11 @@ impl BuildTarget {
 
         // If no jobs exist yet, check if everything is already built
         if all_jobs.is_empty() {
-            let all_already_built = self
-                .transitive_closure
+            let all_already_built = transitive_closure
                 .iter()
                 .all(|drv| already_built_drvs.contains(drv));
 
-            if all_already_built && !self.transitive_closure.is_empty() {
+            if all_already_built && !transitive_closure.is_empty() {
                 return TargetStatus::Cached;
             } else {
                 return TargetStatus::Queued;
@@ -410,8 +434,11 @@ impl JobsStateInner {
                 &self.jid_to_job,
                 &self.drv_to_jobs,
                 &self.already_built_drvs,
+                &self.dep_tree,
             );
             target.status = new_status;
+            // Increment version to invalidate TreeCache
+            self.version += 1;
         }
     }
 
@@ -427,13 +454,8 @@ impl JobsStateInner {
             return JobStatus::NotEnoughInfo;
         };
 
-        // FIRST: Check target status for cancelled
-        // If target is cancelled, ALL its drvs show as cancelled
-        if target.status == TargetStatus::Cancelled {
-            return JobStatus::Cancelled;
-        }
-
-        // SECOND: Check if this drv has jobs from this target's requester
+        // FIRST: Check if this drv has jobs from this target's requester
+        // Active/completed jobs take precedence
         if let Some(jobs) = self.drv_to_jobs.get(drv) {
             for job in jobs {
                 if let Some(bj) = self.jid_to_job.get(job) {
@@ -444,9 +466,23 @@ impl JobsStateInner {
             }
         }
 
+        // SECOND: If target is cancelled and this is the root drv, show Cancelled
+        // The root drv is always being built/rebuilt (that's why the target exists)
+        // Even if it was already in store, --rebuild forces a rebuild
+        if target.status == TargetStatus::Cancelled && drv == &target.root_drv {
+            return JobStatus::Cancelled;
+        }
+
         // THIRD: Check if this drv was already built (cached)
+        // Already-built drvs keep their status even if target is cancelled
         if self.already_built_drvs.contains(drv) {
             return JobStatus::AlreadyBuilt;
+        }
+
+        // FOURTH: Check target status for cancelled
+        // Only drvs that weren't already built and aren't root show as cancelled
+        if target.status == TargetStatus::Cancelled {
+            return JobStatus::Cancelled;
         }
 
         // If drv is in the dependency tree, it's queued to be built
@@ -731,6 +767,13 @@ impl JobsState {
             }
         }
 
+        // Update status of all targets that contain this drv
+        if let Some(target_ids) = state.drv_to_targets.get(&drv) {
+            for target_id in target_ids.clone() {
+                state.update_target_status(target_id);
+            }
+        }
+
         // Increment version to invalidate tree cache
         state.version += 1;
     }
@@ -743,7 +786,16 @@ impl JobsState {
         match state.jid_to_job.entry(id) {
             Entry::Occupied(mut occupied_entry) => {
                 let job = occupied_entry.get_mut();
+                let drv = job.drv.clone();
                 mutator(job);
+
+                // Update status of all targets that contain this drv
+                if let Some(target_ids) = state.drv_to_targets.get(&drv) {
+                    for target_id in target_ids.clone() {
+                        state.update_target_status(target_id);
+                    }
+                }
+
                 // Increment version to invalidate tree cache
                 state.version += 1;
             }
