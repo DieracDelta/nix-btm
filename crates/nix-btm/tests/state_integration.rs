@@ -329,7 +329,8 @@ fn test_tree_generation_with_targets() {
 
     // Generate tree with no pruning
     let mut cache = nix_btm::tree_generation::TreeCache::default();
-    let tree = gen_drv_tree_leaves_from_state(&mut cache, &state, PruneType::None);
+    let tree =
+        gen_drv_tree_leaves_from_state(&mut cache, &state, PruneType::None);
 
     // Should have at least one root (the target)
     assert!(!tree.is_empty(), "Tree should not be empty");

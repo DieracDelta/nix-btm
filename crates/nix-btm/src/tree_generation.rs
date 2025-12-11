@@ -37,7 +37,8 @@ impl TreeCache {
 
         if needs_rebuild {
             // Rebuild the tree
-            self.cached_tree = gen_drv_tree_leaves_from_state_uncached(state, prune_mode);
+            self.cached_tree =
+                gen_drv_tree_leaves_from_state_uncached(state, prune_mode);
             self.cached_state_version = state.version;
             self.cached_prune_mode = prune_mode;
         }
@@ -288,12 +289,9 @@ pub fn explore_root(
                         format!("{}/{}", path_str, base_ident)
                     };
 
-                    let node = TreeItem::new(
-                        ident,
-                        make_description(&vis),
-                        vec![],
-                    )
-                    .expect("TreeItem::new failed");
+                    let node =
+                        TreeItem::new(ident, make_description(&vis), vec![])
+                            .expect("TreeItem::new failed");
 
                     if ui.add_child(node).is_ok() {
                         if let Some(next) = push_drv {
@@ -426,12 +424,14 @@ fn gen_drv_tree_leaves_from_state_uncached(
     // Use target ID to ensure uniqueness even if multiple builds of same ref
     for target in &all_targets {
         // Skip if Normal pruning and root not in active closure
-        if let Some(ref ac) = active {
-            if !ac.contains(&target.root_drv) {
-                error!("  SKIPPING target '{}' - not in closure", target.reference);
+        if let Some(ref ac) = active
+            && !ac.contains(&target.root_drv) {
+                error!(
+                    "  SKIPPING target '{}' - not in closure",
+                    target.reference
+                );
                 continue;
             }
-        }
 
         error!(
             "Creating tree node for target '{}' (ID: {:?}, root drv: {})",
@@ -488,7 +488,8 @@ fn gen_drv_tree_leaves_from_state_uncached(
         // Use target ID in the identifier to ensure uniqueness
         let target_identifier = format!("{}:{:?}", target.reference, target.id);
         // Use target-level status instead of drv-level status
-        let target_display = format!("{} - {:?}", target.reference, target.status);
+        let target_display =
+            format!("{} - {:?}", target.reference, target.status);
 
         let target_node =
             TreeItem::new(target_identifier, target_display, vec![drv_node])
@@ -505,7 +506,14 @@ fn gen_drv_tree_leaves_from_state_uncached(
             vec![],
         )
         .unwrap();
-        explore_root(&mut new_root, state, a_root, do_prune, active.as_ref(), None);
+        explore_root(
+            &mut new_root,
+            state,
+            a_root,
+            do_prune,
+            active.as_ref(),
+            None,
+        );
 
         // For Normal pruning, only include if root has children or is itself
         // active or completed

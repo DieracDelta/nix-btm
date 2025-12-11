@@ -175,7 +175,7 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
                 SelectedTab::EagleEyeView => {
                     app.eagle_eye_view.state.key_down();
                 }
-                SelectedTab::BuildJobView => todo!(),
+                SelectedTab::BuildJobView => {}
             },
             KeyCode::Char('k') | KeyCode::Up => match app.tab_selected {
                 SelectedTab::BuilderView => {

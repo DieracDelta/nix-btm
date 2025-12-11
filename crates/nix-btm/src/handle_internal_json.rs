@@ -151,24 +151,27 @@ pub struct BuildTarget {
     pub status: TargetStatus,
 
     /// Flag indicating if this target was ever cancelled
-    /// Once set to true, it stays true - the target will always show as Cancelled
+    /// Once set to true, it stays true - the target will always show as
+    /// Cancelled
     pub was_cancelled: bool,
 }
 
 impl BuildTarget {
     /// Compute transitive closure of a drv from the dep_tree (static method)
-    fn compute_transitive_closure_static(root: &Drv, dep_tree: &DrvRelations) -> HashSet<Drv> {
+    fn compute_transitive_closure_static(
+        root: &Drv,
+        dep_tree: &DrvRelations,
+    ) -> HashSet<Drv> {
         let mut closure = HashSet::new();
         let mut stack = vec![root.clone()];
 
         while let Some(drv) = stack.pop() {
-            if closure.insert(drv.clone()) {
-                if let Some(node) = dep_tree.nodes.get(&drv) {
+            if closure.insert(drv.clone())
+                && let Some(node) = dep_tree.nodes.get(&drv) {
                     for dep in &node.deps {
                         stack.push(dep.clone());
                     }
                 }
-            }
         }
 
         closure
@@ -177,7 +180,8 @@ impl BuildTarget {
     /// Compute the target's status from the jobs in state
     /// This should be called whenever jobs change
     ///
-    /// Recomputes transitive closure fresh from dep_tree to capture newly discovered dependencies
+    /// Recomputes transitive closure fresh from dep_tree to capture newly
+    /// discovered dependencies
     pub fn compute_status(
         &self,
         jid_to_job: &HashMap<JobId, BuildJob>,
@@ -192,8 +196,10 @@ impl BuildTarget {
         }
 
         // Recompute transitive closure from current dep_tree state
-        // This ensures we capture all dependencies discovered since target creation
-        let transitive_closure = Self::compute_transitive_closure_static(&self.root_drv, dep_tree);
+        // This ensures we capture all dependencies discovered since target
+        // creation
+        let transitive_closure =
+            Self::compute_transitive_closure_static(&self.root_drv, dep_tree);
 
         // Collect all jobs for drvs in this target's closure
         let mut all_jobs = Vec::new();
@@ -283,7 +289,8 @@ pub struct JobsStateInner {
     pub version: u64,
 
     /// Set of currently active requester IDs (connected clients)
-    /// Used to detect if a target is created after its requester has disconnected
+    /// Used to detect if a target is created after its requester has
+    /// disconnected
     pub active_requesters: HashSet<RequesterId>,
 }
 
@@ -295,16 +302,18 @@ impl JobsStateInner {
     /// Get global status of a drv (not target-specific)
     /// For target-specific status, use get_drv_status_for_target instead
     /// Increment the version counter to invalidate cached trees
-    /// Call this whenever state changes (new jobs, status updates, new nodes, etc.)
+    /// Call this whenever state changes (new jobs, status updates, new nodes,
+    /// etc.)
     pub fn increment_version(&mut self) {
         self.version = self.version.wrapping_add(1);
     }
 
     pub fn get_status(&self, drv: &Drv) -> JobStatus {
         // FIRST: Check if drv belongs to cancelled targets
-        // Cancellation takes precedence over ALL other statuses (even active jobs)
-        if self.dep_tree.nodes.contains_key(drv) {
-            if let Some(target_ids) = self.drv_to_targets.get(drv) {
+        // Cancellation takes precedence over ALL other statuses (even active
+        // jobs)
+        if self.dep_tree.nodes.contains_key(drv)
+            && let Some(target_ids) = self.drv_to_targets.get(drv) {
                 let has_active_target = target_ids.iter().any(|tid| {
                     self.targets
                         .get(tid)
@@ -317,7 +326,6 @@ impl JobsStateInner {
                     return JobStatus::Cancelled;
                 }
             }
-        }
 
         // SECOND: Check if this drv has explicit jobs
         if let Some(jobs) = self.drv_to_jobs.get(drv) {
@@ -365,7 +373,8 @@ impl JobsStateInner {
     }
 
     /// Create a tree description for a drv within a specific target's context
-    /// Uses target-specific status to avoid mixing statuses across different builds
+    /// Uses target-specific status to avoid mixing statuses across different
+    /// builds
     pub fn make_tree_description_for_target(
         &self,
         drv: &Drv,
@@ -442,13 +451,12 @@ impl JobsStateInner {
         let mut stack = vec![root.clone()];
 
         while let Some(drv) = stack.pop() {
-            if closure.insert(drv.clone()) {
-                if let Some(node) = self.dep_tree.nodes.get(&drv) {
+            if closure.insert(drv.clone())
+                && let Some(node) = self.dep_tree.nodes.get(&drv) {
                     for dep in &node.deps {
                         stack.push(dep.clone());
                     }
                 }
-            }
         }
 
         closure
@@ -470,8 +478,8 @@ impl JobsStateInner {
     }
 
     /// Mark incomplete jobs for a given requester as cancelled or already built
-    /// This is the inner (non-async) logic called by JobsState::cleanup_requester
-    /// Can also be called directly from tests
+    /// This is the inner (non-async) logic called by
+    /// JobsState::cleanup_requester Can also be called directly from tests
     pub fn cleanup_requester_inner(&mut self, rid: RequesterId) {
         // Mark requester as inactive/disconnected
         self.active_requesters.remove(&rid);
@@ -524,20 +532,28 @@ impl JobsStateInner {
         let cancelled_count = jobs_to_remove.len();
 
         // Check if any targets are in a non-terminal status
-        // Non-terminal statuses (Evaluating, Queued, Active) mean the build was in progress
-        // If cleanup is called while target is non-terminal, the build was interrupted/cancelled
+        // Non-terminal statuses (Evaluating, Queued, Active) mean the build was
+        // in progress If cleanup is called while target is
+        // non-terminal, the build was interrupted/cancelled
         let has_non_terminal_targets = target_ids.iter().any(|tid| {
-            self.targets.get(tid).map(|t| {
-                !matches!(t.status,
-                    TargetStatus::Cancelled | TargetStatus::Cached | TargetStatus::Completed
-                )
-            }).unwrap_or(false)
+            self.targets
+                .get(tid)
+                .map(|t| {
+                    !matches!(
+                        t.status,
+                        TargetStatus::Cancelled
+                            | TargetStatus::Cached
+                            | TargetStatus::Completed
+                    )
+                })
+                .unwrap_or(false)
         });
 
         // Build was cancelled if:
         // 1. There are incomplete jobs being removed, OR
         // 2. Targets are in non-terminal status (Evaluating, Queued, Active)
-        let had_cancelled_jobs = !jobs_to_remove.is_empty() || has_non_terminal_targets;
+        let had_cancelled_jobs =
+            !jobs_to_remove.is_empty() || has_non_terminal_targets;
 
         // Remove jobs from both jid_to_job and drv_to_jobs
         for (jid, drv) in jobs_to_remove {
@@ -571,7 +587,10 @@ impl JobsStateInner {
                     "Target '{}' cancelled ({} drvs, {} were already built)",
                     target_ref,
                     transitive_closure.len(),
-                    transitive_closure.iter().filter(|d| self.already_built_drvs.contains(d)).count()
+                    transitive_closure
+                        .iter()
+                        .filter(|d| self.already_built_drvs.contains(d))
+                        .count()
                 );
 
                 // Set the was_cancelled flag (this persists forever)
@@ -625,17 +644,17 @@ impl JobsStateInner {
         // Active/completed jobs take precedence
         if let Some(jobs) = self.drv_to_jobs.get(drv) {
             for job in jobs {
-                if let Some(bj) = self.jid_to_job.get(job) {
-                    if bj.rid == target.requester_id {
+                if let Some(bj) = self.jid_to_job.get(job)
+                    && bj.rid == target.requester_id {
                         return bj.status.clone();
                     }
-                }
             }
         }
 
-        // SECOND: If target is cancelled and this is the root drv, show Cancelled
-        // The root drv is always being built/rebuilt (that's why the target exists)
-        // Even if it was already in store, --rebuild forces a rebuild
+        // SECOND: If target is cancelled and this is the root drv, show
+        // Cancelled The root drv is always being built/rebuilt (that's
+        // why the target exists) Even if it was already in store,
+        // --rebuild forces a rebuild
         if target.status == TargetStatus::Cancelled && drv == &target.root_drv {
             return JobStatus::Cancelled;
         }
@@ -647,7 +666,8 @@ impl JobsStateInner {
         }
 
         // FOURTH: Check target status for cancelled
-        // Only drvs that weren't already built and aren't root show as cancelled
+        // Only drvs that weren't already built and aren't root show as
+        // cancelled
         if target.status == TargetStatus::Cancelled {
             return JobStatus::Cancelled;
         }
@@ -1454,14 +1474,10 @@ pub fn format_duration(dur_ns: u64) -> String {
 async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
     match LogMessage::from_json_str(&line) {
         Ok(msg) => {
-            //println!("{:?}", msg);
-            //let msg_ = msg.clone();
             match msg {
                 LogMessage::Start {
                     fields,
                     id,
-                    //level,
-                    //parent,
                     text,
                     r#type,
                     ..
@@ -1512,8 +1528,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                                     "📝 About to call insert_idle_drv_for_requester for '{}'",
                                                     target_owned
                                                 );
-                                                state_clone
-                                                    .insert_idle_drv_for_requester(
+                                                state_clone.insert_idle_drv_for_requester (
                                                         drv,
                                                         rid,
                                                         Some(target_owned.clone()),

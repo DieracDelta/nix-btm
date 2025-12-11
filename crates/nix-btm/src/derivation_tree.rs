@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet},
     sync::LazyLock,
     time::Instant,
 };
@@ -70,7 +70,8 @@ impl DrvRelations {
     }
 
     /// Recursively insert a drv and all its dependencies into the graph
-    /// required_outputs: which outputs of this drv are needed (None means default to "out")
+    /// required_outputs: which outputs of this drv are needed (None means
+    /// default to "out")
     async fn insert_recursive(
         &mut self,
         drv: Drv,
@@ -87,9 +88,13 @@ impl DrvRelations {
                 // First, recursively process dependencies
                 // Pass down which outputs each dependency needs
                 for (dep_drv, input_drv) in &derivation.input_drvs {
-                    let dep_outputs = input_drv.outputs.iter().cloned().collect();
+                    let dep_outputs =
+                        input_drv.outputs.iter().cloned().collect();
                     Box::pin(
-                        self.insert_recursive(dep_drv.clone(), Some(dep_outputs)),
+                        self.insert_recursive(
+                            dep_drv.clone(),
+                            Some(dep_outputs),
+                        ),
                     )
                     .await;
                 }
@@ -103,7 +108,8 @@ impl DrvRelations {
                 });
 
                 // Extract output paths for required outputs
-                // parse_drv_file gets these directly from .drv file (works for FODs!)
+                // parse_drv_file gets these directly from .drv file (works for
+                // FODs!)
                 let required_output_paths: BTreeSet<String> = required_outputs
                     .iter()
                     .filter_map(|output_name| {
@@ -135,29 +141,6 @@ impl DrvRelations {
         } else {
             error!("COULD NOT FIND DRV {} IN NIX STORE??", drv);
         }
-    }
-
-    // TODO benchmark perf vs why-depends, cuz this might be lowkey slower
-    // ofc profile first
-    fn is_child_of(&self, parent_drv: &Drv, child_drv: &Drv) -> bool {
-        // unwrap fine b/c impossible for the node to be in the roots but not in
-        // nodes
-        let parent_node = self.nodes.get(parent_drv).unwrap();
-        let mut stack = parent_node.deps.iter().collect::<Vec<_>>();
-        let mut visited: HashSet<&Drv> = HashSet::new();
-
-        while let Some(node) = stack.pop() {
-            if node == child_drv {
-                return true;
-            }
-            visited.insert(node);
-            if let Some(children) = self.nodes.get(node).map(|x| &x.deps) {
-                let f_children: Vec<&Drv> =
-                    children.iter().filter(|x| !visited.contains(x)).collect();
-                stack.extend(f_children);
-            }
-        }
-        false
     }
 
     // Updates roots when a new node is added
@@ -229,26 +212,6 @@ impl DrvRelations {
             );
         }
     }
-
-    // Check if child_drv is a dependency of parent_drv (directly or
-    // recursively)
-    fn is_child_of_direct_or_recursive(
-        &self,
-        parent_drv: &Drv,
-        child_drv: &Drv,
-    ) -> bool {
-        if let Some(parent_node) = self.nodes.get(parent_drv) {
-            if parent_node.deps.contains(child_drv) {
-                return true;
-            }
-            for dep in &parent_node.deps {
-                if self.is_child_of_direct_or_recursive(dep, child_drv) {
-                    return true;
-                }
-            }
-        }
-        false
-    }
 }
 
 impl StoreOutput {
@@ -313,7 +276,9 @@ impl Drv {
         let mut input_drvs = BTreeMap::new();
         for (input_drv_path, outputs) in nix_drv.input_derivations {
             // Parse the drv path to get our Drv type
-            if let Left(drv) = parse_store_path(&input_drv_path.to_absolute_path()) {
+            if let Left(drv) =
+                parse_store_path(&input_drv_path.to_absolute_path())
+            {
                 input_drvs.insert(
                     drv,
                     InputDrv {
@@ -338,7 +303,9 @@ impl Drv {
         let derivation = Derivation {
             name: self.name.clone(),
             // TODO: extract system from nix_drv.environment or another field
-            system: nix_drv.environment.get("system")
+            system: nix_drv
+                .environment
+                .get("system")
                 .and_then(|v| std::str::from_utf8(v).ok())
                 .unwrap_or("")
                 .to_string(),

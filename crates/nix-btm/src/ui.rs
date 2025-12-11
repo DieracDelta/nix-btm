@@ -159,8 +159,11 @@ pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
     let state = &app.cur_info_builds;
 
     error!("getting items for eagle eye ui");
-    let items: &[TreeItem<'_, String>] =
-        gen_drv_tree_leaves_from_state(&mut app.eagle_eye_view.tree_cache, state, app.eagle_eye_view.active_only);
+    let items: &[TreeItem<'_, String>] = gen_drv_tree_leaves_from_state(
+        &mut app.eagle_eye_view.tree_cache,
+        state,
+        app.eagle_eye_view.active_only,
+    );
 
     if !items.is_empty() && app.eagle_eye_view.perform_toggle {
         match app.eagle_eye_view.last_toggle {
@@ -169,7 +172,7 @@ pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
                 app.eagle_eye_view.last_toggle = TreeToggle::Closed;
             }
             TreeToggle::Closed | TreeToggle::Never => {
-                expand_all(&mut app.eagle_eye_view.state, &items);
+                expand_all(&mut app.eagle_eye_view.state, items);
                 app.eagle_eye_view.last_toggle = TreeToggle::Open;
             }
         }
@@ -189,7 +192,7 @@ pub fn draw_eagle_eye_ui(f: &mut Frame, size: Rect, app: &mut App) {
     .split(size);
     // TODO don't draw if there are no derivations in progress?
 
-    let drv_tree_widget = Tree::new(&items)
+    let drv_tree_widget = Tree::new(items)
         .expect("all item id")
         .block(
             Block::bordered()

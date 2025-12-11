@@ -657,7 +657,7 @@ pub(crate) async fn run_debug(
     // Start listening on socket if provided
     let maybe_jh = socket.map(|socket| {
         spawn_named("listening for new connections", async move {
-            handle_daemon_info(socket.into(), 0o660, shutdown_, tx_jobs).await;
+            handle_daemon_info(socket, 0o660, shutdown_, tx_jobs).await;
             eprintln!("[DEBUG] Socket listener exited");
         })
     });
@@ -702,7 +702,9 @@ pub(crate) async fn run_debug(
 }
 
 fn dump_state(state: &JobsStateInner) {
-    use nix_btm::tree_generation::{PruneType, TreeCache, gen_drv_tree_leaves_from_state};
+    use nix_btm::tree_generation::{
+        PruneType, TreeCache, gen_drv_tree_leaves_from_state,
+    };
 
     println!("\n{:=<80}", "");
     println!("TIMESTAMP: {:?}", std::time::SystemTime::now());
@@ -759,7 +761,8 @@ fn dump_state(state: &JobsStateInner) {
     {
         println!("TREE (PruneType::{:?}):", prune_mode);
         let mut cache = TreeCache::default();
-        let tree = gen_drv_tree_leaves_from_state(&mut cache, state, prune_mode);
+        let tree =
+            gen_drv_tree_leaves_from_state(&mut cache, state, prune_mode);
         if tree.is_empty() {
             println!("  (empty)");
         } else {

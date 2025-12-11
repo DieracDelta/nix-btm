@@ -61,7 +61,7 @@ lint: fmt
     cargo clippy --workspace --release
 
 [doc('lint-fix')]
-lint-fix: fmt
+lint-fix:
     cargo clippy --fix --workspace --profile dev --allow-dirty
 
 [doc('run-debug')]

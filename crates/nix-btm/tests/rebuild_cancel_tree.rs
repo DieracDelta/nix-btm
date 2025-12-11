@@ -1,18 +1,22 @@
+use std::fs;
+
 /// Integration test for rebuild + cancel scenarios
 /// Tests that tree display shows correct statuses after cancellation
 use nix_btm::derivation_tree::DrvNode;
-use nix_btm::handle_internal_json::{
-    Drv, JobId, JobStatus, JobsStateInner, RequesterId, TargetStatus,
+use nix_btm::{
+    handle_internal_json::{
+        Drv, JobId, JobStatus, JobsStateInner, RequesterId, TargetStatus,
+    },
+    tree_generation::{PruneType, TreeCache, gen_drv_tree_leaves_from_state},
 };
-use nix_btm::tree_generation::{gen_drv_tree_leaves_from_state, PruneType, TreeCache};
-use std::fs;
 
 /// Simulate parsing a log file by extracting target reference and root drv
 /// Returns (target_reference, root_drv)
 fn extract_target_info(log_content: &str) -> Option<(String, Drv)> {
     for line in log_content.lines() {
         if line.contains("evaluating derivation") {
-            // Extract target reference like "github:nixos/nix/2.19.1#packages.aarch64-darwin.default"
+            // Extract target reference like
+            // "github:nixos/nix/2.19.1#packages.aarch64-darwin.default"
             if let Some(start_idx) = line.find("evaluating derivation '") {
                 let after = &line[start_idx + 23..]; // len("evaluating derivation '")
                 if let Some(end_idx) = after.find('\'') {
@@ -21,13 +25,21 @@ fn extract_target_info(log_content: &str) -> Option<(String, Drv)> {
                     // Find the root drv in subsequent lines
                     for drv_line in log_content.lines() {
                         if drv_line.contains("checking outputs") {
-                            // Extract drv like "/nix/store/70w0z89sspbw633dscf2idk6r95ziimf-nix-2.19.1.drv"
-                            if let Some(drv_start) = drv_line.find("/nix/store/") {
+                            // Extract drv like
+                            // "/nix/store/
+                            // 70w0z89sspbw633dscf2idk6r95ziimf-nix-2.19.1.drv"
+                            if let Some(drv_start) =
+                                drv_line.find("/nix/store/")
+                            {
                                 let drv_str = &drv_line[drv_start..];
                                 if let Some(drv_end) = drv_str.find(".drv") {
                                     let full_drv = &drv_str[..=drv_end + 3];
-                                    if let Some(drv) = parse_drv_path(full_drv) {
-                                        return Some((target_ref.to_string(), drv));
+                                    if let Some(drv) = parse_drv_path(full_drv)
+                                    {
+                                        return Some((
+                                            target_ref.to_string(),
+                                            drv,
+                                        ));
                                     }
                                 }
                             }
@@ -40,8 +52,9 @@ fn extract_target_info(log_content: &str) -> Option<(String, Drv)> {
     None
 }
 
-/// Parse drv path like "/nix/store/70w0z89sspbw633dscf2idk6r95ziimf-nix-2.19.1.drv"
-/// Returns Drv with name="nix-2.19.1" and hash="70w0z89sspbw633dscf2idk6r95ziimf"
+/// Parse drv path like
+/// "/nix/store/70w0z89sspbw633dscf2idk6r95ziimf-nix-2.19.1.drv" Returns Drv
+/// with name="nix-2.19.1" and hash="70w0z89sspbw633dscf2idk6r95ziimf"
 fn parse_drv_path(path: &str) -> Option<Drv> {
     // Path format: /nix/store/{hash}-{name}.drv
     let parts: Vec<&str> = path.split('/').collect();
@@ -77,8 +90,10 @@ async fn test_rebuild_cancel_tree_display() {
         .unwrap()
         .join("OUT2");
 
-    let log1_content = fs::read_to_string(&log1_path).expect("Failed to read OUT1");
-    let _log2_content = fs::read_to_string(&log2_path).expect("Failed to read OUT2");
+    let log1_content =
+        fs::read_to_string(&log1_path).expect("Failed to read OUT1");
+    let _log2_content =
+        fs::read_to_string(&log2_path).expect("Failed to read OUT2");
 
     let (target_ref, root_drv) = extract_target_info(&log1_content)
         .expect("Failed to extract target info from OUT1");
@@ -99,7 +114,8 @@ async fn test_rebuild_cancel_tree_display() {
     // Create first target and simulate it being built
     let requester1 = RequesterId(1);
     state.register_requester(requester1);
-    let target1_id = state.create_target(target_ref.clone(), root_drv.clone(), requester1);
+    let target1_id =
+        state.create_target(target_ref.clone(), root_drv.clone(), requester1);
 
     // Simulate an active build job for the root drv (rebuilding)
     let job1 = nix_btm::handle_internal_json::BuildJob {
@@ -123,11 +139,19 @@ async fn test_rebuild_cancel_tree_display() {
 
     println!("\n=== Before cancellation ===");
     {
-        let target1 = state.targets.get(&target1_id).expect("Target 1 should exist");
+        let target1 = state
+            .targets
+            .get(&target1_id)
+            .expect("Target 1 should exist");
         println!("Target 1 status: {:?}", target1.status);
-        assert_eq!(target1.status, TargetStatus::Active, "Should be Active while building");
+        assert_eq!(
+            target1.status,
+            TargetStatus::Active,
+            "Should be Active while building"
+        );
 
-        let root_status = state.get_drv_status_for_target(&root_drv, target1_id);
+        let root_status =
+            state.get_drv_status_for_target(&root_drv, target1_id);
         println!("Root drv status: {:?}", root_status);
         assert!(
             matches!(root_status, JobStatus::BuildPhaseType(_)),
@@ -148,7 +172,10 @@ async fn test_rebuild_cancel_tree_display() {
 
     println!("\n=== After cancellation and cleanup ===");
     {
-        let target1 = state.targets.get(&target1_id).expect("Target 1 should exist");
+        let target1 = state
+            .targets
+            .get(&target1_id)
+            .expect("Target 1 should exist");
         println!("Target 1 status: {:?}", target1.status);
         println!("Target 1 was_cancelled: {:?}", target1.was_cancelled);
         assert_eq!(
@@ -161,8 +188,10 @@ async fn test_rebuild_cancel_tree_display() {
             "Target 1 was_cancelled flag should be true"
         );
 
-        // After cleanup, jobs are removed, so drv status should be derived from was_cancelled flag
-        let root_status = state.get_drv_status_for_target(&root_drv, target1_id);
+        // After cleanup, jobs are removed, so drv status should be derived from
+        // was_cancelled flag
+        let root_status =
+            state.get_drv_status_for_target(&root_drv, target1_id);
         println!("Root drv status: {:?}", root_status);
         assert_eq!(
             root_status,
@@ -175,7 +204,8 @@ async fn test_rebuild_cancel_tree_display() {
     println!("\n=== Generating tree for cancelled target 1 ===");
     {
         let mut cache = TreeCache::default();
-        let tree_items = gen_drv_tree_leaves_from_state(&mut cache, &state, PruneType::None);
+        let tree_items =
+            gen_drv_tree_leaves_from_state(&mut cache, &state, PruneType::None);
 
         assert!(!tree_items.is_empty(), "Tree should have items");
         println!("Tree items:");
@@ -195,7 +225,8 @@ async fn test_rebuild_cancel_tree_display() {
     println!("\n=== Creating second build of same target ===");
     let requester2 = RequesterId(2);
     state.register_requester(requester2);
-    let target2_id = state.create_target(target_ref.clone(), root_drv.clone(), requester2);
+    let target2_id =
+        state.create_target(target_ref.clone(), root_drv.clone(), requester2);
 
     // Verify different target IDs
     assert_ne!(target1_id, target2_id, "Should be different target IDs");
@@ -234,8 +265,10 @@ async fn test_rebuild_cancel_tree_display() {
         assert_eq!(target2.status, TargetStatus::Active);
 
         // Root drv status should be different for each target
-        let root1_status = state.get_drv_status_for_target(&root_drv, target1_id);
-        let root2_status = state.get_drv_status_for_target(&root_drv, target2_id);
+        let root1_status =
+            state.get_drv_status_for_target(&root_drv, target1_id);
+        let root2_status =
+            state.get_drv_status_for_target(&root_drv, target2_id);
 
         println!("Root status in target1: {:?}", root1_status);
         println!("Root status in target2: {:?}", root2_status);
@@ -262,8 +295,10 @@ async fn test_rebuild_cancel_tree_display() {
         assert_eq!(target2.status, TargetStatus::Cancelled);
 
         // Both should show root drv as Cancelled
-        let root1_status = state.get_drv_status_for_target(&root_drv, target1_id);
-        let root2_status = state.get_drv_status_for_target(&root_drv, target2_id);
+        let root1_status =
+            state.get_drv_status_for_target(&root_drv, target1_id);
+        let root2_status =
+            state.get_drv_status_for_target(&root_drv, target2_id);
 
         assert_eq!(root1_status, JobStatus::Cancelled);
         assert_eq!(root2_status, JobStatus::Cancelled);
@@ -279,7 +314,8 @@ async fn test_rebuild_cancel_tree_display() {
         }
 
         let mut cache = TreeCache::default();
-        let tree_items = gen_drv_tree_leaves_from_state(&mut cache, &state, PruneType::None);
+        let tree_items =
+            gen_drv_tree_leaves_from_state(&mut cache, &state, PruneType::None);
 
         // Should have 2 targets in the tree (both cancelled)
         assert_eq!(tree_items.len(), 2, "Should have 2 targets in tree");
@@ -290,15 +326,18 @@ async fn test_rebuild_cancel_tree_display() {
             println!("  {}", id);
         }
 
-        // The fix: update_target_status now increments state.version, which invalidates
-        // the TreeCache. This ensures that when the tree is re-generated, it uses the
-        // updated Cancelled status from the state.
+        // The fix: update_target_status now increments state.version, which
+        // invalidates the TreeCache. This ensures that when the tree is
+        // re-generated, it uses the updated Cancelled status from the
+        // state.
         //
-        // The tree generation logic at tree_generation.rs:491 creates display text as:
-        //   format!("{} - {:?}", target.reference, target.status)
+        // The tree generation logic at tree_generation.rs:491 creates display
+        // text as:   format!("{} - {:?}", target.reference,
+        // target.status)
         //
-        // So with the cache properly invalidated, both targets will show "Cancelled"
-        // in their display text (which we verified manually shows correct state above)
+        // So with the cache properly invalidated, both targets will show
+        // "Cancelled" in their display text (which we verified manually
+        // shows correct state above)
     }
 
     println!("\n=== Test passed! ===");
