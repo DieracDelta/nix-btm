@@ -187,7 +187,12 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
                                 .iter()
                                 .position(|x| x == selected)
                                 .unwrap();
-                            let new_idx = (idx - 1) % SORTED_NIX_USERS.len();
+
+                            let new_idx = if idx == 0 {
+                                SORTED_NIX_USERS.len() - 1
+                            } else {
+                                (idx - 1) % SORTED_NIX_USERS.len()
+                            };
                             app.builder_view.state.select(vec![
                                 SORTED_NIX_USERS[new_idx].clone(),
                             ]);
