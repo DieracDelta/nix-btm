@@ -53,7 +53,7 @@ pub struct JobId(pub u64);
 
 impl From<u64> for JobId {
     fn from(value: u64) -> Self {
-        JobId(value)
+        Self(value)
     }
 }
 
@@ -85,7 +85,7 @@ pub struct BuildTargetId(pub u64);
 
 impl From<u64> for BuildTargetId {
     fn from(value: u64) -> Self {
-        BuildTargetId(value)
+        Self(value)
     }
 }
 
@@ -117,12 +117,12 @@ pub enum TargetStatus {
 impl Display for TargetStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TargetStatus::Evaluating => write!(f, "Evaluating"),
-            TargetStatus::Queued => write!(f, "Queued"),
-            TargetStatus::Active => write!(f, "Active"),
-            TargetStatus::Completed => write!(f, "Completed"),
-            TargetStatus::Cached => write!(f, "Cached"),
-            TargetStatus::Cancelled => write!(f, "Cancelled"),
+            Self::Evaluating => write!(f, "Evaluating"),
+            Self::Queued => write!(f, "Queued"),
+            Self::Active => write!(f, "Active"),
+            Self::Completed => write!(f, "Completed"),
+            Self::Cached => write!(f, "Cached"),
+            Self::Cancelled => write!(f, "Cancelled"),
         }
     }
 }
@@ -157,7 +157,7 @@ pub struct BuildTarget {
 }
 
 impl BuildTarget {
-    /// Compute transitive closure of a drv from the dep_tree (static method)
+    /// Compute transitive closure of a drv from the `dep_tree` (static method)
     fn compute_transitive_closure_static(
         root: &Drv,
         dep_tree: &DrvRelations,
@@ -180,8 +180,9 @@ impl BuildTarget {
     /// Compute the target's status from the jobs in state
     /// This should be called whenever jobs change
     ///
-    /// Recomputes transitive closure fresh from dep_tree to capture newly
+    /// Recomputes transitive closure fresh from `dep_tree` to capture newly
     /// discovered dependencies
+    #[must_use] 
     pub fn compute_status(
         &self,
         jid_to_job: &HashMap<JobId, BuildJob>,
@@ -224,9 +225,8 @@ impl BuildTarget {
 
             if all_already_built && !transitive_closure.is_empty() {
                 return TargetStatus::Cached;
-            } else {
-                return TargetStatus::Queued;
             }
+            return TargetStatus::Queued;
         }
 
         // Check for evaluation/fetching activities
@@ -262,7 +262,7 @@ impl BuildTarget {
 #[derive(Clone, Debug, Default)]
 pub struct JobsStateInner {
     /// All known build targets, indexed by unique ID
-    /// BTreeMap for stable iteration order
+    /// `BTreeMap` for stable iteration order
     pub targets: BTreeMap<BuildTargetId, BuildTarget>,
 
     /// Reverse index: which targets contain each drv
@@ -300,14 +300,15 @@ impl JobsStateInner {
     }
 
     /// Get global status of a drv (not target-specific)
-    /// For target-specific status, use get_drv_status_for_target instead
+    /// For target-specific status, use `get_drv_status_for_target` instead
     /// Increment the version counter to invalidate cached trees
     /// Call this whenever state changes (new jobs, status updates, new nodes,
     /// etc.)
-    pub fn increment_version(&mut self) {
+    pub const fn increment_version(&mut self) {
         self.version = self.version.wrapping_add(1);
     }
 
+    #[must_use] 
     pub fn get_status(&self, drv: &Drv) -> JobStatus {
         // FIRST: Check if drv belongs to cancelled targets
         // Cancellation takes precedence over ALL other statuses (even active
@@ -317,8 +318,7 @@ impl JobsStateInner {
                 let has_active_target = target_ids.iter().any(|tid| {
                     self.targets
                         .get(tid)
-                        .map(|t| !matches!(t.status, TargetStatus::Cancelled))
-                        .unwrap_or(false)
+                        .is_some_and(|t| !matches!(t.status, TargetStatus::Cancelled))
                 });
 
                 if !has_active_target {
@@ -349,6 +349,7 @@ impl JobsStateInner {
         }
     }
 
+    #[must_use] 
     pub fn make_tree_description(&self, drv: &Drv) -> String {
         let status = self.get_status(drv);
         // Get required outputs for this drv if available
@@ -357,7 +358,7 @@ impl JobsStateInner {
                 String::new()
             } else {
                 let outputs: Vec<&str> =
-                    node.required_outputs.iter().map(|s| s.as_str()).collect();
+                    node.required_outputs.iter().map(std::string::String::as_str).collect();
                 format!(" [{}]", outputs.join(", "))
             }
         } else {
@@ -375,6 +376,7 @@ impl JobsStateInner {
     /// Create a tree description for a drv within a specific target's context
     /// Uses target-specific status to avoid mixing statuses across different
     /// builds
+    #[must_use] 
     pub fn make_tree_description_for_target(
         &self,
         drv: &Drv,
@@ -387,7 +389,7 @@ impl JobsStateInner {
                 String::new()
             } else {
                 let outputs: Vec<&str> =
-                    node.required_outputs.iter().map(|s| s.as_str()).collect();
+                    node.required_outputs.iter().map(std::string::String::as_str).collect();
                 format!(" [{}]", outputs.join(", "))
             }
         } else {
@@ -445,7 +447,7 @@ impl JobsStateInner {
         target_id
     }
 
-    /// Compute transitive closure of a drv from the dep_tree
+    /// Compute transitive closure of a drv from the `dep_tree`
     fn compute_transitive_closure(&self, root: &Drv) -> HashSet<Drv> {
         let mut closure = HashSet::new();
         let mut stack = vec![root.clone()];
@@ -479,7 +481,7 @@ impl JobsStateInner {
 
     /// Mark incomplete jobs for a given requester as cancelled or already built
     /// This is the inner (non-async) logic called by
-    /// JobsState::cleanup_requester Can also be called directly from tests
+    /// `JobsState::cleanup_requester` Can also be called directly from tests
     pub fn cleanup_requester_inner(&mut self, rid: RequesterId) {
         // Mark requester as inactive/disconnected
         self.active_requesters.remove(&rid);
@@ -538,7 +540,7 @@ impl JobsStateInner {
         let has_non_terminal_targets = target_ids.iter().any(|tid| {
             self.targets
                 .get(tid)
-                .map(|t| {
+                .is_some_and(|t| {
                     !matches!(
                         t.status,
                         TargetStatus::Cancelled
@@ -546,7 +548,6 @@ impl JobsStateInner {
                             | TargetStatus::Completed
                     )
                 })
-                .unwrap_or(false)
         });
 
         // Build was cancelled if:
@@ -630,6 +631,7 @@ impl JobsStateInner {
 
     /// Get the status of a drv within a specific target's context
     /// This allows different targets to have different views of the same drv
+    #[must_use] 
     pub fn get_drv_status_for_target(
         &self,
         drv: &Drv,
@@ -681,6 +683,7 @@ impl JobsStateInner {
     }
 
     /// Get all targets for a given requester
+    #[must_use] 
     pub fn get_targets_for_requester(
         &self,
         rid: RequesterId,
@@ -700,7 +703,7 @@ async fn eval_flake_to_drv(flake_ref: &str) -> Option<Drv> {
     let output = Command::new("nix")
         .arg("eval")
         .arg("--raw")
-        .arg(format!("{}.drvPath", flake_ref))
+        .arg(format!("{flake_ref}.drvPath"))
         .output()
         .await
         .ok()?;
@@ -880,7 +883,9 @@ impl JobsState {
 
             for (d, node) in &state.dep_tree.nodes {
                 // Check if all required output paths exist
-                if !node.required_output_paths.is_empty() {
+                if node.required_output_paths.is_empty() {
+                    empty_paths_count += 1;
+                } else {
                     checked_count += 1;
                     let all_exist = node
                         .required_output_paths
@@ -889,8 +894,6 @@ impl JobsState {
                     if all_exist {
                         built_drvs.insert(d.clone());
                     }
-                } else {
-                    empty_paths_count += 1;
                 }
             }
 
@@ -1066,7 +1069,7 @@ pub async fn handle_daemon_info(
     let cur_state__ = cur_state.clone();
     let shutdown__ = shutdown.clone();
     spawn_named("line-handler", async move {
-        handle_lines(r, cur_state__, shutdown__).await
+        handle_lines(r, cur_state__, shutdown__).await;
     });
     loop {
         let accept_fut = listener.accept();
@@ -1182,7 +1185,7 @@ pub struct RequesterId(pub u64);
 
 impl From<u64> for RequesterId {
     fn from(value: u64) -> Self {
-        RequesterId(value)
+        Self(value)
     }
 }
 
@@ -1196,7 +1199,7 @@ impl Deref for RequesterId {
 
 impl BuildJob {
     pub fn new(jid: JobId, rid: RequesterId, drv: Drv) -> Self {
-        BuildJob {
+        Self {
             rid,
             jid,
             drv,
@@ -1206,6 +1209,7 @@ impl BuildJob {
         }
     }
 
+    #[must_use] 
     pub fn runtime(&self) -> u64 {
         let end_ns = self
             .stop_time_ns
@@ -1214,8 +1218,9 @@ impl BuildJob {
     }
 }
 
-pub fn parse_to_str<'a>(
-    fields: Option<&Vec<Field<'a>>>,
+#[must_use] 
+pub fn parse_to_str(
+    fields: Option<&Vec<Field<'_>>>,
     idx: usize,
 ) -> Option<String> {
     fields.and_then(|v| v.get(idx)).and_then(|f| match f {
@@ -1293,62 +1298,66 @@ pub enum JobStatus {
 }
 
 impl JobStatus {
-    pub fn is_active(&self) -> bool {
+    #[must_use] 
+    pub const fn is_active(&self) -> bool {
         matches!(
             self,
-            JobStatus::BuildPhaseType(_)
-                | JobStatus::Starting
-                | JobStatus::Querying(_)
-                | JobStatus::Downloading { .. }
-                | JobStatus::Substituting { .. }
-                | JobStatus::Copying { .. }
-                | JobStatus::WaitingForLock
-                | JobStatus::PostBuildHook
-                | JobStatus::FetchingTree(_)
-                | JobStatus::Evaluating
-                | JobStatus::CopyingSource
+            Self::BuildPhaseType(_)
+                | Self::Starting
+                | Self::Querying(_)
+                | Self::Downloading { .. }
+                | Self::Substituting { .. }
+                | Self::Copying { .. }
+                | Self::WaitingForLock
+                | Self::PostBuildHook
+                | Self::FetchingTree(_)
+                | Self::Evaluating
+                | Self::CopyingSource
         )
     }
 
     /// Returns true if this job is queued/pending (will be built but hasn't
     /// started)
-    pub fn is_pending(&self) -> bool {
-        matches!(self, JobStatus::Queued)
+    #[must_use] 
+    pub const fn is_pending(&self) -> bool {
+        matches!(self, Self::Queued)
     }
 
     /// Returns true if this job is active OR pending (i.e., not completed and
     /// not unknown)
+    #[must_use] 
     pub fn is_in_progress(&self) -> bool {
         self.is_active() || self.is_pending()
     }
 
-    pub fn is_completed(&self) -> bool {
+    #[must_use] 
+    pub const fn is_completed(&self) -> bool {
         matches!(
             self,
-            JobStatus::CompletedBuild
-                | JobStatus::CompletedQuery
-                | JobStatus::CompletedDownload
-                | JobStatus::CompletedSubstitute
-                | JobStatus::CompletedCopy
-                | JobStatus::AlreadyBuilt
-                | JobStatus::CompletedEvaluation
-                | JobStatus::CompletedSourceCopy
+            Self::CompletedBuild
+                | Self::CompletedQuery
+                | Self::CompletedDownload
+                | Self::CompletedSubstitute
+                | Self::CompletedCopy
+                | Self::AlreadyBuilt
+                | Self::CompletedEvaluation
+                | Self::CompletedSourceCopy
         )
     }
 
     pub fn mark_complete(&mut self) -> Self {
         match self {
-            JobStatus::BuildPhaseType(_) | JobStatus::Starting => {
-                JobStatus::CompletedBuild
+            Self::BuildPhaseType(_) | Self::Starting => {
+                Self::CompletedBuild
             }
-            JobStatus::Querying(_) => JobStatus::CompletedQuery,
-            JobStatus::Downloading { .. } => JobStatus::CompletedDownload,
-            JobStatus::Substituting { .. } => JobStatus::CompletedSubstitute,
-            JobStatus::Copying { .. } => JobStatus::CompletedCopy,
-            JobStatus::FetchingTree(_) => JobStatus::CompletedDownload,
-            JobStatus::PostBuildHook => JobStatus::CompletedBuild,
-            JobStatus::Evaluating => JobStatus::CompletedEvaluation,
-            JobStatus::CopyingSource => JobStatus::CompletedSourceCopy,
+            Self::Querying(_) => Self::CompletedQuery,
+            Self::Downloading { .. } => Self::CompletedDownload,
+            Self::Substituting { .. } => Self::CompletedSubstitute,
+            Self::Copying { .. } => Self::CompletedCopy,
+            Self::FetchingTree(_) => Self::CompletedDownload,
+            Self::PostBuildHook => Self::CompletedBuild,
+            Self::Evaluating => Self::CompletedEvaluation,
+            Self::CopyingSource => Self::CompletedSourceCopy,
             _ => self.clone(),
         }
     }
@@ -1357,16 +1366,16 @@ impl JobStatus {
 impl Display for JobStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JobStatus::BuildPhaseType(s) => {
+            Self::BuildPhaseType(s) => {
                 write!(f, "Building: {s}")
             }
-            JobStatus::Starting => write!(f, "Starting"),
-            JobStatus::CompletedBuild => write!(f, "Built"),
-            JobStatus::Querying(s) => {
+            Self::Starting => write!(f, "Starting"),
+            Self::CompletedBuild => write!(f, "Built"),
+            Self::Querying(s) => {
                 write!(f, "Querying {s}")
             }
-            JobStatus::CompletedQuery => write!(f, "Query done"),
-            JobStatus::Downloading {
+            Self::CompletedQuery => write!(f, "Query done"),
+            Self::Downloading {
                 url,
                 done_bytes,
                 total_bytes,
@@ -1390,15 +1399,15 @@ impl Display for JobStatus {
                     )
                 }
             }
-            JobStatus::CompletedDownload => write!(f, "Downloaded"),
-            JobStatus::Substituting {
+            Self::CompletedDownload => write!(f, "Downloaded"),
+            Self::Substituting {
                 store_path: _,
                 cache_name,
             } => {
                 write!(f, "Substituting from {cache_name}")
             }
-            JobStatus::CompletedSubstitute => write!(f, "Substituted"),
-            JobStatus::Copying {
+            Self::CompletedSubstitute => write!(f, "Substituted"),
+            Self::Copying {
                 path: _,
                 done_bytes,
                 total_bytes,
@@ -1417,18 +1426,18 @@ impl Display for JobStatus {
                     write!(f, "Copying ({})", format_bytes(*done_bytes))
                 }
             }
-            JobStatus::CompletedCopy => write!(f, "Copied"),
-            JobStatus::AlreadyBuilt => write!(f, "Already built"),
-            JobStatus::WaitingForLock => write!(f, "Waiting for lock"),
-            JobStatus::PostBuildHook => write!(f, "Post-build hook"),
-            JobStatus::FetchingTree(url) => write!(f, "Fetching {url}"),
-            JobStatus::Evaluating => write!(f, "Evaluating"),
-            JobStatus::CompletedEvaluation => write!(f, "Evaluated"),
-            JobStatus::CopyingSource => write!(f, "Copying source"),
-            JobStatus::CompletedSourceCopy => write!(f, "Source copied"),
-            JobStatus::Queued => write!(f, "Queued"),
-            JobStatus::NotEnoughInfo => write!(f, "Unknown"),
-            JobStatus::Cancelled => write!(f, "Cancelled"),
+            Self::CompletedCopy => write!(f, "Copied"),
+            Self::AlreadyBuilt => write!(f, "Already built"),
+            Self::WaitingForLock => write!(f, "Waiting for lock"),
+            Self::PostBuildHook => write!(f, "Post-build hook"),
+            Self::FetchingTree(url) => write!(f, "Fetching {url}"),
+            Self::Evaluating => write!(f, "Evaluating"),
+            Self::CompletedEvaluation => write!(f, "Evaluated"),
+            Self::CopyingSource => write!(f, "Copying source"),
+            Self::CompletedSourceCopy => write!(f, "Source copied"),
+            Self::Queued => write!(f, "Queued"),
+            Self::NotEnoughInfo => write!(f, "Unknown"),
+            Self::Cancelled => write!(f, "Cancelled"),
         }
     }
 }
@@ -1441,10 +1450,11 @@ fn format_bytes(bytes: u64) -> String {
     } else if bytes >= 1024 {
         format!("{:.1}KB", bytes as f64 / 1024.0)
     } else {
-        format!("{}B", bytes)
+        format!("{bytes}B")
     }
 }
 
+#[must_use] 
 pub fn format_secs(secs: u64) -> String {
     let days = secs / 86_400;
     let hours = (secs % 86_400) / 3_600;
@@ -1466,6 +1476,7 @@ pub fn format_secs(secs: u64) -> String {
     parts.join(" ")
 }
 
+#[must_use] 
 pub fn format_duration(dur_ns: u64) -> String {
     let secs = Duration::from_nanos(dur_ns).as_secs();
     format_secs(secs)
@@ -1553,7 +1564,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
 
                             // Evaluation activity - create a job to track it
                             let drv = Drv {
-                                hash: format!("{:016x}", id),
+                                hash: format!("{id:016x}"),
                                 name: "evaluation".to_string(),
                             };
                             let new_job = BuildJob {
@@ -1578,7 +1589,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                                 .unwrap_or_else(|| "source".to_string());
 
                             let drv = Drv {
-                                hash: format!("{:016x}", id),
+                                hash: format!("{id:016x}"),
                                 name,
                             };
                             let new_job = BuildJob {
@@ -1738,7 +1749,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
                             .unwrap_or_else(|| text.to_string());
                         // Create a pseudo-drv for the fetch
                         let drv = Drv {
-                            hash: format!("{:016x}", id),
+                            hash: format!("{id:016x}"),
                             name: "fetch-tree".to_string(),
                         };
                         let new_job = BuildJob {
@@ -1874,7 +1885,7 @@ async fn handle_line(line: String, state: JobsState, rid: RequesterId) {
             }
         }
         Err(e) => {
-            eprintln!("JSON error: {e}\n\tline was: {line}")
+            eprintln!("JSON error: {e}\n\tline was: {line}");
         }
     }
 }
@@ -1917,12 +1928,13 @@ fn parse_msg_info_sync(msg: &str) -> MsgParseResult {
     tracing::debug!(
         "parsed {} planned builds, last (top-level): {}",
         drvs.len(),
-        drvs.last().map(|d| d.name.as_str()).unwrap_or("?")
+        drvs.last().map_or("?", |d| d.name.as_str())
     );
 
     MsgParseResult::PlannedBuilds(drvs)
 }
 
+#[must_use] 
 pub fn parse_store_path(path: &str) -> Either<Drv, StoreOutput> {
     let s = path.strip_prefix("/nix/store/").unwrap_or(path);
 
@@ -1933,15 +1945,15 @@ pub fn parse_store_path(path: &str) -> Either<Drv, StoreOutput> {
 
     if name.ends_with(".drv") {
         name.truncate(name.len() - 4);
-        Either::Left(Drv { hash, name })
+        Either::Left(Drv { name, hash })
     } else {
-        Either::Right(StoreOutput { hash, name })
+        Either::Right(StoreOutput { name, hash })
     }
 }
 
 /// Extract a Nix store hash from a URL like:
-/// - https://cache.nixos.org/abc123def456.narinfo
-/// - https://cache.nixos.org/nar/abc123def456.nar.xz
+/// - <https://cache.nixos.org/abc123def456.narinfo>
+/// - <https://cache.nixos.org/nar/abc123def456.nar.xz>
 fn extract_hash_from_url(url: &str) -> Option<String> {
     // Try to find a 32-character base32 hash in the URL
     let re = Regex::new(r"/([a-z0-9]{32})(?:\.narinfo|\.nar)").ok()?;
@@ -1966,7 +1978,7 @@ async fn read_stream(
 
     loop {
         tokio::select! {
-            _ = &mut shutdown_fut => {
+            () = &mut shutdown_fut => {
                 break;
 
             }
@@ -2003,30 +2015,27 @@ pub async fn handle_lines(
     tokio::pin!(shutdown_fut);
     loop {
         tokio::select!(
-            _ = &mut shutdown_fut => {
+            () = &mut shutdown_fut => {
                 error!("handle_lines shutting down");
                 return;
             }
             res = chan.recv() => {
-                match res {
-                    Some((rid, msg)) => {
-                        match msg {
-                            Either::Left(line) => {
-                                handle_line(line, state.clone(), rid).await;
-                            }
-                            // Stream closed or error on that UnixStream
-                            Either::Right(()) => {
-                                error!("stopped being able to read socket on {rid:?}");
-                                // Clean up jobs for this requester on connection close
-                                state.cleanup_requester(rid).await;
-                            }
+                if let Some((rid, msg)) = res {
+                    match msg {
+                        Either::Left(line) => {
+                            handle_line(line, state.clone(), rid).await;
                         }
+                        // Stream closed or error on that UnixStream
+                        Either::Right(()) => {
+                            error!("stopped being able to read socket on {rid:?}");
+                            // Clean up jobs for this requester on connection close
+                            state.cleanup_requester(rid).await;
+                        }
+                    }
 
-                    },
-                    None => {
-                        error!("handle_lines channel closed");
-                        return;
-                    },
+                } else {
+                    error!("handle_lines channel closed");
+                    return;
                 }
             }
         );

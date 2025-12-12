@@ -59,7 +59,7 @@ pub enum ProtocolError {
 
 impl From<rustix::io::Errno> for ProtocolError {
     fn from(source: rustix::io::Errno) -> Self {
-        ProtocolError::RustixIo {
+        Self::RustixIo {
             source,
             backtrace: Backtrace::capture(),
         }
@@ -68,7 +68,7 @@ impl From<rustix::io::Errno> for ProtocolError {
 
 impl From<std::io::Error> for ProtocolError {
     fn from(source: std::io::Error) -> Self {
-        ProtocolError::Io {
+        Self::Io {
             source,
             backtrace: Backtrace::capture(),
         }
@@ -77,7 +77,7 @@ impl From<std::io::Error> for ProtocolError {
 
 impl From<serde_cbor::Error> for ProtocolError {
     fn from(source: serde_cbor::Error) -> Self {
-        ProtocolError::Cbor {
+        Self::Cbor {
             source,
             backtrace: Backtrace::capture(),
         }
@@ -86,7 +86,7 @@ impl From<serde_cbor::Error> for ProtocolError {
 
 impl From<nix::Error> for ProtocolError {
     fn from(source: nix::Error) -> Self {
-        ProtocolError::Io {
+        Self::Io {
             source: source.into(),
             backtrace: Backtrace::capture(),
         }
@@ -104,7 +104,7 @@ pub enum DrvWire {
 
 impl From<Drv> for DrvWire {
     fn from(d: Drv) -> Self {
-        DrvWire::Parts {
+        Self::Parts {
             hash: d.hash,
             name: d.name,
         }
@@ -116,7 +116,7 @@ impl TryFrom<DrvWire> for Drv {
     fn try_from(w: DrvWire) -> Result<Self, Self::Error> {
         match w {
             DrvWire::Str(s) => s.parse(), // via FromStr
-            DrvWire::Parts { hash, name } => Ok(Drv { hash, name }),
+            DrvWire::Parts { hash, name } => Ok(Self { name, hash }),
         }
     }
 }
@@ -137,11 +137,12 @@ impl SnapshotHeader {
     pub const MAGIC: u64 = u64::from_be_bytes(*b"FOOBAR42");
     pub const VERSION: u64 = 1;
 
-    pub fn new(payload_len: u64, snap_seq_uid: u64) -> Self {
+    #[must_use] 
+    pub const fn new(payload_len: u64, snap_seq_uid: u64) -> Self {
         Self {
             magic: Self::MAGIC,
             version: Self::VERSION,
-            header_len: std::mem::size_of::<SnapshotHeader>() as u64,
+            header_len: std::mem::size_of::<Self>() as u64,
             payload_len,
             snap_seq_uid,
         }
@@ -177,8 +178,8 @@ pub(crate) struct ShmHeaderView<'a> {
     _pd: PhantomData<&'a ShmHeader>,
 }
 
-impl<'a> ShmHeaderView<'a> {
-    pub(crate) fn new(hdr: *const ShmHeader) -> Self {
+impl ShmHeaderView<'_> {
+    pub(crate) const fn new(hdr: *const ShmHeader) -> Self {
         Self {
             hdr,
             _pd: PhantomData,
@@ -192,10 +193,9 @@ impl<'a> ShmHeaderView<'a> {
         next_entry_offset: u32,
     ) {
         let encoded_val: u64 =
-            ((write_seq as u64) << 32) | (next_entry_offset as u64);
+            (u64::from(write_seq) << 32) | u64::from(next_entry_offset);
         let write_loc = unsafe {
-            &*(std::ptr::addr_of!((*self.hdr).end_seq_and_offset)
-                as *const AtomicU64)
+            &*std::ptr::addr_of!((*self.hdr).end_seq_and_offset).cast::<AtomicU64>()
         };
         write_loc.store(encoded_val, Ordering::SeqCst);
     }
@@ -203,8 +203,7 @@ impl<'a> ShmHeaderView<'a> {
     #[inline]
     pub fn read_seq_and_next_entry_offset(&self) -> (u32, u32) {
         let write_loc = unsafe {
-            &*(std::ptr::addr_of!((*self.hdr).end_seq_and_offset)
-                as *const AtomicU64)
+            &*std::ptr::addr_of!((*self.hdr).end_seq_and_offset).cast::<AtomicU64>()
         };
         let encoded_val = write_loc.load(Ordering::Acquire);
         let write_seq = (encoded_val >> 32) as u32;
@@ -213,9 +212,9 @@ impl<'a> ShmHeaderView<'a> {
     }
 
     // for the futex
-    pub fn get_seq_ptr(&self) -> *const u32 {
+    pub const fn get_seq_ptr(&self) -> *const u32 {
         unsafe {
-            std::ptr::addr_of!((*self.hdr).end_seq_and_offset) as *const u32
+            std::ptr::addr_of!((*self.hdr).end_seq_and_offset).cast::<u32>()
         }
     }
 
@@ -226,10 +225,9 @@ impl<'a> ShmHeaderView<'a> {
         start_offset: u32,
     ) {
         let encoded_val: u64 =
-            ((start_seq as u64) << 32) | (start_offset as u64);
+            (u64::from(start_seq) << 32) | u64::from(start_offset);
         let write_loc = unsafe {
-            &*(std::ptr::addr_of!((*self.hdr).start_seq_and_offset)
-                as *const AtomicU64)
+            &*std::ptr::addr_of!((*self.hdr).start_seq_and_offset).cast::<AtomicU64>()
         };
         write_loc.store(encoded_val, Ordering::SeqCst);
     }
@@ -237,8 +235,7 @@ impl<'a> ShmHeaderView<'a> {
     #[inline]
     pub fn read_start_seq_and_offset(&self) -> (u32, u32) {
         let write_loc = unsafe {
-            &*(std::ptr::addr_of!((*self.hdr).start_seq_and_offset)
-                as *const AtomicU64)
+            &*std::ptr::addr_of!((*self.hdr).start_seq_and_offset).cast::<AtomicU64>()
         };
         let encoded_val = write_loc.load(Ordering::Acquire);
         let start_seq = (encoded_val >> 32) as u32;
@@ -248,7 +245,7 @@ impl<'a> ShmHeaderView<'a> {
 
     /// safe because this should never change
     #[inline]
-    pub fn ring_len(&self) -> u32 {
+    pub const fn ring_len(&self) -> u32 {
         unsafe { (*self.hdr).ring_len }
     }
 }
@@ -320,12 +317,12 @@ impl TryFrom<u32> for Kind {
     type Error = ();
     fn try_from(v: u32) -> Result<Self, ()> {
         Ok(match v {
-            0 => Kind::Padding,
-            1 => Kind::JobNew,
-            2 => Kind::JobUpdate,
-            3 => Kind::JobFinish,
-            4 => Kind::DepGraphUpdate,
-            5 => Kind::Heartbeat,
+            0 => Self::Padding,
+            1 => Self::JobNew,
+            2 => Self::JobUpdate,
+            3 => Self::JobFinish,
+            4 => Self::DepGraphUpdate,
+            5 => Self::Heartbeat,
             _ => return Err(()),
         })
     }
@@ -333,7 +330,7 @@ impl TryFrom<u32> for Kind {
 
 impl From<Kind> for u32 {
     fn from(value: Kind) -> Self {
-        value as u32
+        value as Self
     }
 }
 
@@ -363,7 +360,7 @@ impl From<JobsStateInner> for JobsStateInnerWire {
 
         let roots: Vec<Drv> = state.dep_tree.tree_roots.into_iter().collect();
 
-        JobsStateInnerWire { jobs, nodes, roots }
+        Self { jobs, nodes, roots }
     }
 }
 impl From<JobsStateInnerWire> for JobsStateInner {
@@ -375,7 +372,7 @@ impl From<JobsStateInnerWire> for JobsStateInner {
         }
 
         let mut drv_to_jobs: HashMap<Drv, HashSet<JobId>> = HashMap::new();
-        for (jid, job) in jid_to_job.iter() {
+        for (jid, job) in &jid_to_job {
             drv_to_jobs.entry(job.drv.clone()).or_default().insert(*jid);
         }
 
@@ -387,7 +384,7 @@ impl From<JobsStateInnerWire> for JobsStateInner {
             tree_roots: roots_set,
         };
 
-        JobsStateInner {
+        Self {
             targets: BTreeMap::new(),
             drv_to_targets: HashMap::new(),
             next_target_id: BuildTargetId(0),

@@ -95,6 +95,7 @@ const MAN_PAGE_BUILD_JOB_VIEW: [&str; 4] = [
     "n - NEXT TAB",
 ];
 
+#[must_use] 
 pub fn format_bytes(size: usize) -> String {
     const MB: usize = 1024 * 1024;
     const GB: usize = 1024 * 1024 * 1024; // 1024 * 1024 * 1024
@@ -104,7 +105,7 @@ pub fn format_bytes(size: usize) -> String {
     } else if size >= MB {
         format!("{:.2} MB", size as f64 / MB as f64)
     } else {
-        format!("{} bytes", size)
+        format!("{size} bytes")
     }
 }
 
@@ -281,12 +282,12 @@ pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
             run_time,
             cmd,
             owner: _name,
-        } in user_map.get(selected).unwrap().iter()
+        } in user_map.get(selected).unwrap()
         {
             rows.push(
                 [
                     &id.to_string(),
-                    &env.to_vec().join(" "),
+                    &env.clone().join(" "),
                     &(*parent).unwrap().to_string(),
                     &format_bytes(*p_mem as usize),
                     &format_bytes(*v_mem as usize),
@@ -297,9 +298,9 @@ pub fn draw_builder_ui(f: &mut Frame, size: Rect, app: &mut App) {
                     ),
                 ]
                 .into_iter()
-                .map(|content| Cell::from(Text::from(content.to_string())))
+                .map(|content| Cell::from(Text::from(content.clone())))
                 .collect::<Row>(),
-            )
+            );
         }
     }
 
@@ -387,7 +388,7 @@ pub fn render_tab(f: &mut Frame, area: Rect, app: &mut App) {
 }
 
 pub fn ui(f: &mut Frame, app: &mut App) {
-    use Constraint::*;
+    use Constraint::{Length, Min};
     let size = f.area();
     let vertical = Layout::vertical([Length(2), Min(0)]);
     let [header_area, inner_area] = vertical.areas(size);
@@ -401,7 +402,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
             if app.builder_view.man_toggle {
                 draw_man_page(f, inner_area, app);
             } else {
-                draw_builder_ui(f, inner_area, app)
+                draw_builder_ui(f, inner_area, app);
             }
         }
         SelectedTab::EagleEyeView => {

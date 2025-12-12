@@ -11,31 +11,22 @@ pub fn init_tracing(args: &Args) {
     let log_path: &str = match args {
         Args::Daemon {
             daemon_log_path, ..
-        } => match daemon_log_path {
-            Some(path) => path,
-            None => {
-                let pid = getpid();
-                &format!("/tmp/nixbtm-daemon-{pid}.log")
-            }
+        } => if let Some(path) = daemon_log_path { path } else {
+            let pid = getpid();
+            &format!("/tmp/nixbtm-daemon-{pid}.log")
         },
         Args::Client {
             client_log_path, ..
-        } => match client_log_path {
-            Some(path) => path,
-            None => {
-                let pid = getpid();
-                &format!("/tmp/nixbtm-client-{pid}.log")
-            }
+        } => if let Some(path) = client_log_path { path } else {
+            let pid = getpid();
+            &format!("/tmp/nixbtm-client-{pid}.log")
         },
         Args::Standalone {
             standalone_log_path,
             ..
-        } => match standalone_log_path {
-            Some(path) => path,
-            None => {
-                let pid = getpid();
-                &format!("/tmp/nixbtm-standalone-{pid}.log")
-            }
+        } => if let Some(path) = standalone_log_path { path } else {
+            let pid = getpid();
+            &format!("/tmp/nixbtm-standalone-{pid}.log")
         },
         Args::Debug { .. } => {
             // Debug mode uses stderr logging

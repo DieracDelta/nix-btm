@@ -10,7 +10,7 @@ use std::{
 //use procfs::process::Process as ProcFsProcess;
 
 #[allow(clippy::unnecessary_literal_unwrap)]
-pub fn nll_todo<T>() -> T {
+pub const fn nll_todo<T>() -> T {
     None.unwrap()
 }
 
@@ -32,6 +32,7 @@ lazy_static! {
     };
 }
 
+#[must_use]
 pub fn get_nix_users(users: &Users) -> HashSet<String> {
     users
         .list()
@@ -41,9 +42,9 @@ pub fn get_nix_users(users: &Users) -> HashSet<String> {
         .collect()
 }
 
+#[must_use]
 pub fn get_sorted_nix_users() -> Vec<String> {
-    let mut nix_users: Vec<_> =
-        Deref::deref(&NIX_USERS).iter().cloned().collect();
+    let mut nix_users: Vec<_> = NIX_USERS.iter().cloned().collect();
     nix_users.sort_by(|x, y| {
         let offset = if x.starts_with('_') { 7 } else { 6 };
         let x_num: usize = x[offset..].parse().unwrap();
@@ -72,10 +73,12 @@ pub struct DrvRoot {
 }
 
 impl DrvRoot {
-    pub fn new(drv: Drv, procs: TreeNode) -> Self {
-        DrvRoot { drv, procs }
+    #[must_use]
+    pub const fn new(drv: Drv, procs: TreeNode) -> Self {
+        Self { drv, procs }
     }
 
+    #[must_use]
     pub fn print_drv_root(&self) -> String {
         format!("{}^*", self.drv.drv)
     }
@@ -120,6 +123,7 @@ impl Ord for ProcMetadata {
 
 impl Eq for ProcMetadata {}
 
+#[must_use]
 pub fn construct_pid_map(
     set: HashSet<ProcMetadata>,
 ) -> HashMap<Pid, ProcMetadata> {
@@ -130,9 +134,10 @@ pub fn construct_pid_map(
     r_map
 }
 
+#[must_use]
 pub fn from_proc(proc: &Process) -> Option<ProcMetadata> {
     let user_id = proc.effective_user_id()?;
-    let user = Deref::deref(&USERS).get_user_by_id(user_id)?;
+    let user = USERS.get_user_by_id(user_id)?;
     let uname = user.name().to_string();
     let pid = proc.pid();
     Some(ProcMetadata {
@@ -156,10 +161,11 @@ pub fn from_proc(proc: &Process) -> Option<ProcMetadata> {
     })
 }
 
+#[must_use]
 pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
     let mut map = HashMap::<String, BTreeSet<ProcMetadata>>::new();
-    for user in Deref::deref(&NIX_USERS) {
-        map.insert(user.to_string(), BTreeSet::default());
+    for user in &*NIX_USERS {
+        map.insert(user.clone(), BTreeSet::default());
     }
     let system = System::new_all();
 
@@ -189,7 +195,7 @@ pub fn get_active_users_and_pids() -> HashMap<String, BTreeSet<ProcMetadata>> {
                 Entry::Vacant(_v) => {
                     unreachable!("How did this happen");
                 }
-            };
+            }
         });
     map
 }
@@ -228,15 +234,15 @@ pub struct ThickerTreeNode<'a> {
     children: HashSet<ThickerTreeNode<'a>>,
 }
 
-impl<'a> PartialEq for ThickerTreeNode<'a> {
+impl PartialEq for ThickerTreeNode<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.proc.id == other.proc.id
     }
 }
 
-impl<'a> Eq for ThickerTreeNode<'a> {}
+impl Eq for ThickerTreeNode<'_> {}
 
-impl<'a> Hash for ThickerTreeNode<'a> {
+impl Hash for ThickerTreeNode<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.proc.hash(state);
     }
@@ -285,25 +291,24 @@ pub fn get_parent(
     // TODO a bit more finnicking.
     // Make pid_map mutable reference
     // perform a query if not in the pid map
-    match pid_map.get(&pid) {
-        Some(proc) => match proc.parent {
+    if let Some(proc) = pid_map.get(&pid) {
+        match proc.parent {
             Some(parent) => PidParent::IsAlive(parent),
             None => PidParent::DoesntExist,
-        },
-        None => {
-            let mut system = System::new_all();
-            system.refresh_all();
-            match system.process(pid) {
-                Some(proc) => {
-                    // TODO sus to unwrap here. Should just have less info
-                    pid_map.insert(pid, from_proc(proc).unwrap());
-                    match proc.parent() {
-                        Some(parent) => PidParent::IsAlive(parent),
-                        None => PidParent::DoesntExist,
-                    }
+        }
+    } else {
+        let mut system = System::new_all();
+        system.refresh_all();
+        match system.process(pid) {
+            Some(proc) => {
+                // TODO sus to unwrap here. Should just have less info
+                pid_map.insert(pid, from_proc(proc).unwrap());
+                match proc.parent() {
+                    Some(parent) => PidParent::IsAlive(parent),
+                    None => PidParent::DoesntExist,
                 }
-                None => PidParent::IsDead,
             }
+            None => PidParent::IsDead,
         }
     }
 
@@ -365,6 +370,7 @@ pub fn update_nix_builder_set(
 ) {
 }
 
+#[must_use]
 pub fn gen_ui_by_parent_proc(_root: &TreeNode) -> Vec<TreeItem<'_, String>> {
     todo!()
 }
@@ -372,6 +378,7 @@ pub fn gen_ui_by_parent_proc(_root: &TreeNode) -> Vec<TreeItem<'_, String>> {
 // TODO there's definitely some optimization here to not query/process every
 // time probably need to introduce some global state that we tweak every time
 // utilizing refcell
+#[must_use]
 pub fn gen_ui_by_nix_builder(
     user_map: &HashMap<String, BTreeSet<ProcMetadata>>,
 ) -> Vec<TreeItem<'_, String>> {
@@ -402,6 +409,7 @@ pub fn gen_ui_by_nix_builder(
     r_vec
 }
 
+#[must_use]
 pub fn convert_to_thicker_tree_node<'a>(
     tree_node: &TreeNode,
     map: &'a HashMap<Pid, ProcMetadata>,
@@ -427,6 +435,7 @@ pub fn dump_pids(
     }
 }
 
+#[must_use]
 pub fn strip_tf_outta_tree(
     tree_node: TreeNode,
     _pid_map: &HashMap<Pid, ProcMetadata>,
@@ -461,7 +470,7 @@ fn bz2_to_drv(input: &str) -> String {
 }
 
 fn drv_to_readable_drv(input: &str, has_postfix: bool) -> String {
-    let mut result = "".to_string();
+    let mut result = String::new();
     for ele in input.split('/') {
         // println!("ele: {}", ele);
         match ele {
@@ -470,12 +479,10 @@ fn drv_to_readable_drv(input: &str, has_postfix: bool) -> String {
                 let mut start_recording = false;
                 for c in s.chars() {
                     // println!("C: {}", c);
-                    if !start_recording {
-                        if c == '-' {
-                            start_recording = true;
-                        }
-                    } else {
+                    if start_recording {
                         result.push(c);
+                    } else if c == '-' {
+                        start_recording = true;
                     }
                 }
                 let offset = if has_postfix { 4 } else { 0 };
@@ -533,6 +540,7 @@ impl Deref for DrvPath {
 }
 
 // might be better longer term to either make a query or statically link
+#[must_use]
 pub fn invoke_why_depends(
     drv1: &Drv,
     drv2: &Drv,
@@ -552,7 +560,6 @@ pub fn invoke_why_depends(
         let path = strip_ansi_escapes::strip_str(
             String::from_utf8_lossy(&output.stdout).trim(),
         )
-        .to_string()
         .replace(['└', '─'], "")
         .trim()
         .to_string();
@@ -562,29 +569,26 @@ pub fn invoke_why_depends(
 
         for line in path.lines() {
             let drv = parse_drv(line);
-            match cur_node_id {
-                Some(tree_inner) => {
-                    let new_node = DrvNode {
-                        drv,
-                        children: HashSet::default(),
-                    };
-                    let mut cur_node: DrvNode =
-                        all_nodes.remove(&tree_inner).unwrap();
-                    cur_node.children.insert(new_node.drv.drv.clone());
-                    all_nodes.insert(tree_inner, cur_node);
+            if let Some(tree_inner) = cur_node_id {
+                let new_node = DrvNode {
+                    drv,
+                    children: HashSet::default(),
+                };
+                let mut cur_node: DrvNode =
+                    all_nodes.remove(&tree_inner).unwrap();
+                cur_node.children.insert(new_node.drv.drv.clone());
+                all_nodes.insert(tree_inner, cur_node);
 
-                    cur_node_id = Some(new_node.drv.drv.clone());
-                    all_nodes.insert(new_node.drv.drv.clone(), new_node);
-                }
-                None => {
-                    root = Some(drv.drv.clone());
-                    let new_node = DrvNode {
-                        drv,
-                        children: HashSet::new(),
-                    };
-                    cur_node_id = Some(new_node.drv.drv.clone());
-                    all_nodes.insert(new_node.drv.drv.clone(), new_node);
-                }
+                cur_node_id = Some(new_node.drv.drv.clone());
+                all_nodes.insert(new_node.drv.drv.clone(), new_node);
+            } else {
+                root = Some(drv.drv.clone());
+                let new_node = DrvNode {
+                    drv,
+                    children: HashSet::new(),
+                };
+                cur_node_id = Some(new_node.drv.drv.clone());
+                all_nodes.insert(new_node.drv.drv.clone(), new_node);
             }
         }
     }
@@ -622,6 +626,7 @@ fn dump_dep_tree((nodes, root_id): &(HashMap<String, DrvNode>, String)) {
 }
 
 // passed in a bunch of drvs, want to construct graph
+#[must_use]
 pub fn create_dep_tree(
     input_drvs: HashSet<&Drv>,
 ) -> Vec<(HashMap<String, DrvNode>, String)> {
@@ -658,6 +663,7 @@ pub fn create_dep_tree(
 
 // if drv2 is a subtree of drv1, create a new subtree that is the two subtrees
 // merged together otherwise return None
+#[must_use]
 pub fn merge_drv_trees(
     (drv1_nodes, drv1_root): &(HashMap<String, DrvNode>, String),
     (drv2_nodes, drv2_root): &(HashMap<String, DrvNode>, String),

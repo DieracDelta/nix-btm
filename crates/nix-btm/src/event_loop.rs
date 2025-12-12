@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    ops::Deref,
     panic,
 };
 
@@ -114,8 +113,8 @@ pub async fn handle_keeb_event(event: Event, app: &mut App) -> bool {
                     if num_open == NIX_USERS.len() {
                         app.builder_view.state.close_all();
                     } else {
-                        for user in Deref::deref(&NIX_USERS) {
-                            app.builder_view.state.open(vec![user.to_string()]);
+                        for user in &*NIX_USERS {
+                            app.builder_view.state.open(vec![user.clone()]);
                         }
                     }
                 }

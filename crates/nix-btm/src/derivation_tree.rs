@@ -70,7 +70,7 @@ impl DrvRelations {
     }
 
     /// Recursively insert a drv and all its dependencies into the graph
-    /// required_outputs: which outputs of this drv are needed (None means
+    /// `required_outputs`: which outputs of this drv are needed (None means
     /// default to "out")
     async fn insert_recursive(
         &mut self,
@@ -224,15 +224,15 @@ impl StoreOutput {
             .await
             .ok()?;
 
-        if !output.status.success() {
-            None
-        } else {
+        if output.status.success() {
             let tmp = String::from_utf8_lossy(&output.stdout);
             let stdout = tmp.trim();
             match parse_store_path(stdout) {
                 Left(drv) => Some(drv),
                 Right(_) => None,
             }
+        } else {
+            None
         }
     }
 }
@@ -241,7 +241,7 @@ impl Drv {
     // call with the recursive flag. Do the necessary insertions.
     pub async fn query_nix_about_drv(
         &self,
-    ) -> Option<BTreeMap<Drv, Derivation>> {
+    ) -> Option<BTreeMap<Self, Derivation>> {
         let path = format!("/nix/store/{}-{}.drv", self.hash, self.name);
         let output = Command::new("nix")
             .arg("derivation")
@@ -254,14 +254,14 @@ impl Drv {
         if !output.status.success() {
             return None;
         }
-        let parsed: BTreeMap<Drv, Derivation> =
+        let parsed: BTreeMap<Self, Derivation> =
             serde_json::from_slice(&output.stdout).ok()?;
         Some(parsed)
     }
 
     /// Parse a single .drv file directly (non-recursive, fast)
     /// This replaces the recursive nix derivation show approach
-    pub async fn parse_drv_file(&self) -> Option<BTreeMap<Drv, Derivation>> {
+    pub async fn parse_drv_file(&self) -> Option<BTreeMap<Self, Derivation>> {
         use nix_compat::derivation::Derivation as NixDerivation;
 
         let path = format!("/nix/store/{}-{}.drv", self.hash, self.name);

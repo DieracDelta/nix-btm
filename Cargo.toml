@@ -74,5 +74,19 @@ lto = "fat"
 codegen-units = 1
 strip = true
 
+[workspace.lints.clippy]
+pedantic = { level = "warn"}
+# correctness = { level = "warn"}
+# perf = { level = "warn", priority = 1}
+# complexity = { level = "warn", priority = 1}
+# restriction = { level = "warn", priority = 1}
+# # cargo = { level = "warn", priority = 1} causes lint to hang ??
+# style = { level = "warn", priority = 1}
+# nursery = { level = "warn", priority = 1}
+cast_possible_truncation = { level = "allow"}
+cast_possible_wrap = { level = "allow"}
+too_many_lines = { level = "allow"}
+
 [workspace.lints.rust]
+too_many_lines = { level = "allow"}
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }

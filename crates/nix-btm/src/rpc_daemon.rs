@@ -47,7 +47,7 @@ pub async fn handle_rpc_connection(
                 let total_len = std::mem::size_of::<
                     crate::protocol_common::ShmHeader,
                 >() as u64
-                    + writer.ring_len as u64;
+                    + u64::from(writer.ring_len);
 
                 DaemonResponse::RingReady {
                     ring_name: writer.name.clone(),
@@ -69,12 +69,12 @@ pub async fn handle_rpc_connection(
                 // Create snapshot
                 match create_shmem_and_write_snapshot(
                     &state_guard,
-                    snap_seq as u64,
+                    u64::from(snap_seq),
                     client_pid,
                 ) {
                     Ok(snapshot) => {
                         let snapshot_name =
-                            format!("nix-btm-snapshot-p{}", client_pid);
+                            format!("nix-btm-snapshot-p{client_pid}");
                         let response = DaemonResponse::SnapshotReady {
                             snapshot_name,
                             total_len: snapshot.total_len_bytes,
@@ -85,7 +85,7 @@ pub async fn handle_rpc_connection(
                         response
                     }
                     Err(e) => DaemonResponse::Error {
-                        message: format!("Failed to create snapshot: {:?}", e),
+                        message: format!("Failed to create snapshot: {e:?}"),
                     },
                 }
             }

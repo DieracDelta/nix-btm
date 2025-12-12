@@ -56,11 +56,12 @@ pub enum PruneType {
 }
 
 impl PruneType {
-    pub fn increment(self) -> Self {
+    #[must_use] 
+    pub const fn increment(self) -> Self {
         match self {
-            PruneType::None => PruneType::Normal,
-            PruneType::Normal => PruneType::Aggressive,
-            PruneType::Aggressive => PruneType::None,
+            Self::None => Self::Normal,
+            Self::Normal => Self::Aggressive,
+            Self::Aggressive => Self::None,
         }
     }
 }
@@ -225,10 +226,10 @@ pub fn explore_root(
 
                         (PruneType::Normal, Some(ac)) => {
                             if get_status(child).is_active() {
-                                if !printed_leaves.insert(child.clone()) {
-                                    (None, None)
-                                } else {
+                                if printed_leaves.insert(child.clone()) {
                                     (Some(child.clone()), None)
+                                } else {
+                                    (None, None)
                                 }
                             } else {
                                 let mut leaves = reachable_active_leaves(
@@ -254,10 +255,10 @@ pub fn explore_root(
                                 &mut leaves_memo,
                             );
                             if get_status(&vis).is_active() {
-                                if !printed_leaves.insert(vis.clone()) {
-                                    (None, None)
-                                } else {
+                                if printed_leaves.insert(vis.clone()) {
                                     (Some(vis.clone()), None)
+                                } else {
+                                    (None, None)
                                 }
                             } else {
                                 (Some(vis.clone()), Some(vis))
@@ -283,10 +284,10 @@ pub fn explore_root(
                     } else {
                         let path_str = path
                             .iter()
-                            .map(|i| i.to_string())
+                            .map(std::string::ToString::to_string)
                             .collect::<Vec<_>>()
                             .join("/");
-                        format!("{}/{}", path_str, base_ident)
+                        format!("{path_str}/{base_ident}")
                     };
 
                     let node =
@@ -540,6 +541,7 @@ fn gen_drv_tree_leaves_from_state_uncached(
     roots
 }
 
+#[must_use] 
 pub fn compute_active_closure(state: &JobsStateInner) -> HashSet<Drv> {
     // Build reverse adjacency: child -> parents
     let mut rev: HashMap<&Drv, Vec<&Drv>> = HashMap::new();

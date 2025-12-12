@@ -14,6 +14,7 @@ use crate::{
 
 /// Align `x` up to the next multiple of 2^`align_pow` bytes.
 #[inline]
+#[must_use] 
 pub const fn align_up_pow2(num_bytes: u32, align_pow: u32) -> u32 {
     let align = 1u32 << align_pow; // the actual alignment
     (num_bytes + (align - 1)/* round up */) & !(align - 1/* truncate down */)
@@ -21,6 +22,7 @@ pub const fn align_up_pow2(num_bytes: u32, align_pow: u32) -> u32 {
 
 // align to a multiple of the page size
 #[inline]
+#[must_use] 
 pub fn round_up_page(num_bytes: u64) -> u64 {
     #[cfg(target_os = "linux")]
     let num_bytes_page = rustix::param::page_size() as u64;
@@ -33,7 +35,7 @@ pub fn round_up_page(num_bytes: u64) -> u64 {
 }
 
 /// Get the peer process ID from a Unix stream socket.
-/// This is platform-specific: Linux uses SO_PEERCRED, macOS uses LOCAL_PEERPID.
+/// This is platform-specific: Linux uses `SO_PEERCRED`, macOS uses `LOCAL_PEERPID`.
 #[allow(dead_code)]
 fn get_pid(stream: &UnixStream) -> Option<i32> {
     #[cfg(target_os = "linux")]
@@ -56,8 +58,8 @@ fn get_pid(stream: &UnixStream) -> Option<i32> {
                 fd,
                 libc::SOL_LOCAL,
                 libc::LOCAL_PEERPID,
-                &mut pid as *mut _ as *mut libc::c_void,
-                &mut len,
+                (&raw mut pid).cast::<libc::c_void>(),
+                &raw mut len,
             )
         };
 
@@ -94,7 +96,7 @@ pub fn create_shmem_and_write_snapshot(
 
     // this is just in case the page size is < 4 required for the struct (how??)
     let total_len_struct_aligned =
-        align_up_pow2(header_len + len_state_blob, SC_HDR_ALIGN) as u64;
+        u64::from(align_up_pow2(header_len + len_state_blob, SC_HDR_ALIGN));
     let total_len_snapshot = round_up_page(total_len_struct_aligned);
 
     let name = format!("nix-btm-snapshot-p{pid}");
@@ -111,7 +113,7 @@ pub fn create_shmem_and_write_snapshot(
     let mut mappedmem = unsafe { shmem.map(0x0)? };
     let buf = mappedmem.map();
 
-    let hdr = SnapshotHeader::new(len_state_blob as u64, snap_seq_uid);
+    let hdr = SnapshotHeader::new(u64::from(len_state_blob), snap_seq_uid);
     let hdr_bytes = bytemuck::bytes_of(&hdr);
     buf[..hdr_bytes.len()].copy_from_slice(hdr_bytes);
     let start_state_blob = header_len as usize;

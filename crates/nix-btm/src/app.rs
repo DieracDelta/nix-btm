@@ -56,21 +56,24 @@ pub enum SelectedTab {
 }
 
 impl SelectedTab {
+    #[must_use] 
     pub fn title(self) -> Line<'static> {
         format!("  {self}  ").into()
     }
 
+    #[must_use] 
     pub fn previous(self) -> Self {
         let current_index: usize = self as usize;
-        let previous_index = (current_index + SelectedTab::COUNT)
+        let previous_index = (current_index + Self::COUNT)
             .saturating_sub(1)
-            % SelectedTab::COUNT;
+            % Self::COUNT;
         Self::from_repr(previous_index).unwrap_or(self)
     }
 
+    #[must_use] 
     pub fn next(self) -> Self {
         let current_index = self as usize;
-        let next_index = current_index.saturating_add(1) % SelectedTab::COUNT;
+        let next_index = current_index.saturating_add(1) % Self::COUNT;
         Self::from_repr(next_index).unwrap_or(self)
     }
 }
@@ -121,6 +124,7 @@ pub struct BuilderViewState {
 }
 
 impl BuilderViewState {
+    #[must_use] 
     pub fn gen_title_style(&self, this_pane: Pane) -> Style {
         if self.selected_pane == this_pane {
             *TITLE_STYLE_SELECTED
@@ -129,6 +133,7 @@ impl BuilderViewState {
         }
     }
 
+    #[must_use] 
     pub fn gen_border_style(&self, this_pane: Pane) -> Style {
         if self.selected_pane == this_pane {
             *BORDER_STYLE_SELECTED

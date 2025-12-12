@@ -52,7 +52,7 @@ impl RingReader {
         let fd = shm.as_fd();
         let mmaped_region: Mmap = unsafe { Mmap::map(fd.as_raw_fd())? };
 
-        let hdr_ptr = mmaped_region.as_ptr() as *const ShmHeader;
+        let hdr_ptr = mmaped_region.as_ptr().cast::<ShmHeader>();
         let ring_len = {
             std::sync::atomic::fence(Ordering::Acquire);
             let hv = ShmHeaderView::new(hdr_ptr);
@@ -82,7 +82,7 @@ impl RingReader {
 
         Ok(Self {
             map: mmaped_region,
-            hdr_ptr: (hdr_ptr as *mut ShmHeader),
+            hdr_ptr: hdr_ptr.cast_mut(),
             ring_len,
             off: init_off,
             next_seq: init_seq,
@@ -99,7 +99,7 @@ impl RingReader {
 
     /// Sync reader to the current end of the ring buffer.
     /// This should be called after loading a snapshot so the client waits for
-    /// new data. The snapshot already contains all state up to snap_seq, so
+    /// new data. The snapshot already contains all state up to `snap_seq`, so
     /// we start from the current end.
     pub fn sync_to_snapshot(&mut self, _snap_seq: u64) {
         std::sync::atomic::fence(Ordering::Acquire);
@@ -123,7 +123,7 @@ impl RingReader {
     }
 
     /// Try to read the next update from the ring buffer.
-    /// Returns NeedCatchup if the reader has fallen too far behind.
+    /// Returns `NeedCatchup` if the reader has fallen too far behind.
     pub fn try_read(&mut self) -> ReadResult {
         std::sync::atomic::fence(Ordering::Acquire);
 
@@ -176,7 +176,8 @@ impl RingReader {
     }
 
     /// Check if this reader has a waiter available for efficient blocking.
-    pub fn has_waiter(&self) -> bool {
+    #[must_use] 
+    pub const fn has_waiter(&self) -> bool {
         self.waiter.is_some()
     }
 
@@ -215,12 +216,11 @@ impl RingReader {
                 // record on next call
                 self.next_seq = rec_hdr.seq;
                 return Ok(Some(ReadResult::Lost { from, to }));
-            } else {
-                // seq < next_seq shouldn't happen, data is stale/corrupted
-                return Err(ProtocolError::MisMatchError {
-                    backtrace: snafu::Backtrace::generate(),
-                });
             }
+            // seq < next_seq shouldn't happen, data is stale/corrupted
+            return Err(ProtocolError::MisMatchError {
+                backtrace: snafu::Backtrace::generate(),
+            });
         }
 
         let payload_start = self.off as usize + SHM_RECORD_HDR_SIZE as usize;

@@ -62,7 +62,7 @@ impl RingWriter {
 
         let mut mapped = unsafe { shm.map(0x0)? };
         let base = mapped.map().as_mut_ptr();
-        let hdr = base as *mut ShmHeader;
+        let hdr = base.cast::<ShmHeader>();
 
         unsafe {
             (*hdr).magic = ShmHeader::MAGIC;
@@ -121,10 +121,10 @@ impl RingWriter {
 
     #[inline]
     pub(crate) fn header_view(&self) -> ShmHeaderView<'_> {
-        unsafe { ShmHeaderView::new(&*self.hdr) }
+        unsafe { ShmHeaderView::new(&raw const *self.hdr) }
     }
 
-    fn ring_mut(&mut self) -> &mut [u8] {
+    const fn ring_mut(&mut self) -> &mut [u8] {
         let hdr_sz = SHM_HDR_SIZE;
         unsafe {
             std::slice::from_raw_parts_mut(
@@ -204,7 +204,7 @@ impl RingWriter {
                     payload_len: 0,
                     seq,
                 };
-                self.put_pod_at(offset_to_new_update as u64, &pad_hdr)?;
+                self.put_pod_at(u64::from(offset_to_new_update), &pad_hdr)?;
             }
             std::sync::atomic::fence(Ordering::Release);
 
@@ -227,11 +227,11 @@ impl RingWriter {
 
         // write payload THEN header
         self.put_bytes_at(
-            SHM_RECORD_HDR_SIZE as u64 + offset_to_new_update as u64,
+            u64::from(SHM_RECORD_HDR_SIZE) + u64::from(offset_to_new_update),
             payload,
         )?;
         // write header
-        self.put_pod_at(offset_to_new_update as u64, &header)?;
+        self.put_pod_at(u64::from(offset_to_new_update), &header)?;
         std::sync::atomic::fence(Ordering::Release);
 
         // finally update header

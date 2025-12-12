@@ -1,4 +1,6 @@
-use std::{panic, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap, panic, path::PathBuf, sync::Arc, time::Duration,
+};
 
 use clap::Parser;
 use futures::{FutureExt, future::join_all};
@@ -82,10 +84,10 @@ pub(crate) fn init_async_runtime() {
                     _res = fut1 => { },
                     _res2 = fut2 => { }
 
-                )
+                );
             }
             .boxed(),
-        )
+        );
 }
 
 // MUST call this with daemon variant
@@ -98,8 +100,7 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
     } = args
     {
         let nix_socket_path = nix_json_file_path
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/tmp/nixbtm.sock"));
+            .map_or_else(|| PathBuf::from("/tmp/nixbtm.sock"), PathBuf::from);
         let rpc_socket_path = PathBuf::from(&daemon_socket_path);
 
         error!("Starting nix-btm daemon");
@@ -116,7 +117,7 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
 
         // Create the ring buffer writer with unique name per daemon instance
         let daemon_pid = std::process::id();
-        let shm_name = format!("nix-btm-ring-{}", daemon_pid);
+        let shm_name = format!("nix-btm-ring-{daemon_pid}");
         let ring_size: u32 = 1024 * 1024; // 1MB
         let ring_writer = match RingWriter::create(&shm_name, ring_size) {
             Ok(w) => w,
@@ -174,7 +175,7 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
                             }
                         }
                     }
-                    _ = &mut rpc_shutdown_fut => {
+                    () = &mut rpc_shutdown_fut => {
                         error!("rpc listener shut down!");
                         return;
                     }
@@ -199,7 +200,7 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
 
             loop {
                 tokio::select!(
-                    _ = &mut shutdown_fut => {
+                    () = &mut shutdown_fut => {
                         break;
                     }
                     had_change = streamer_state_rx.changed() => {
@@ -238,8 +239,7 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
                             if let Some(stop_time) = job.stop_time_ns
                                 && last_jobs
                                     .get(jid)
-                                    .map(|j| j.stop_time_ns.is_none())
-                                    .unwrap_or(false)
+                                    .is_some_and(|j| j.stop_time_ns.is_none())
                             {
                                 let update = Update::JobFinish {
                                     jid: jid.0,
@@ -264,7 +264,7 @@ pub(crate) async fn run_daemon(args: Args, shutdown: Shutdown) {
                             }
                         }
 
-                        last_jobs = current_state.jid_to_job.clone();
+                        last_jobs.clone_from(&current_state.jid_to_job);
                         last_dep_nodes =
                             current_state.dep_tree.nodes.keys().cloned()
                                 .collect();
@@ -343,8 +343,8 @@ pub(crate) async fn run_client(args: Args, is_shutdown: Shutdown) {
                 error!("Daemon error: {message}");
                 return;
             }
-            _ => {
-                error!("Unexpected response from daemon");
+            res @ DaemonResponse::SnapshotReady { .. } => {
+                error!("Unexpected ring response from daemon {res:?}");
                 return;
             }
         };
@@ -376,8 +376,8 @@ pub(crate) async fn run_client(args: Args, is_shutdown: Shutdown) {
                 error!("Daemon error: {message}");
                 return;
             }
-            _ => {
-                error!("Unexpected response from daemon");
+            res @ DaemonResponse::RingReady { .. } => {
+                error!("Unexpected response from daemon {res:?}");
                 return;
             }
         };
@@ -458,7 +458,7 @@ pub(crate) async fn run_client(args: Args, is_shutdown: Shutdown) {
         });
 
         // Spawn process stats poller
-        let (tx, recv_proc_updates) = watch::channel(Default::default());
+        let (tx, recv_proc_updates) = watch::channel(HashMap::default());
         let shutdown__ = is_shutdown.clone();
         spawn_named("proc info handler", async move {
             let mut interval = interval(Duration::from_secs(1));
@@ -467,7 +467,7 @@ pub(crate) async fn run_client(args: Args, is_shutdown: Shutdown) {
             tokio::pin!(shutdown_fut);
             loop {
                 tokio::select! {
-                    _ = &mut shutdown_fut => {
+                    () = &mut shutdown_fut => {
                         error!("proc info task returned (shutdown)!");
                         break;
                     }
@@ -539,7 +539,7 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
             };
 
             // Insert node into tree
-            state.dep_tree.nodes.insert(drv.clone(), node.clone());
+            state.dep_tree.nodes.insert(drv, node.clone());
 
             // Use insert_node which properly handles tree_roots
             // by checking if this node is a child of existing roots
@@ -554,9 +554,7 @@ fn apply_update(state: &mut JobsStateInner, update: Update) {
 }
 
 pub fn main() {
-    if !sysinfo::IS_SUPPORTED_SYSTEM {
-        panic!("This OS is supported!");
-    }
+    //assert!(sysinfo::IS_SUPPORTED_SYSTEM, "This OS is supported!");
 
     init_async_runtime();
 
@@ -591,7 +589,7 @@ async fn run_standalone(
     let shutdown__ = shutdown.clone();
 
     let (tx_jobs, recv_job_updates): (_, watch::Receiver<JobsStateInner>) =
-        watch::channel(Default::default());
+        watch::channel(JobsStateInner::default());
     let maybe_jh = socket.map(|socket| {
         spawn_named("listening for new connections", async move {
             handle_daemon_info(socket.into(), 0o660, shutdown_, tx_jobs).await;
@@ -602,7 +600,7 @@ async fn run_standalone(
     // create app and run it
     let app = Box::new(App::default());
 
-    let (tx, recv_proc_updates) = watch::channel(Default::default());
+    let (tx, recv_proc_updates) = watch::channel(HashMap::default());
     let t_handle = spawn_named("proc info handler", async move {
         let mut interval = interval(Duration::from_secs(1));
 
@@ -610,7 +608,7 @@ async fn run_standalone(
         tokio::pin!(shutdown_fut);
         loop {
             tokio::select! {
-                _ = &mut shutdown_fut => {
+                () = &mut shutdown_fut => {
                     error!("proc info task returned (shutdown)!");
                     break;
                 }
@@ -652,7 +650,7 @@ pub(crate) async fn run_debug(
     let socket = nix_json_file_path.map(PathBuf::from);
 
     let (tx_jobs, mut recv_job_updates): (_, watch::Receiver<JobsStateInner>) =
-        watch::channel(Default::default());
+        watch::channel(JobsStateInner::default());
 
     // Start listening on socket if provided
     let maybe_jh = socket.map(|socket| {
@@ -670,14 +668,14 @@ pub(crate) async fn run_debug(
 
         eprintln!("=== NIX-BTM DEBUG MODE ===");
         eprintln!(
-            "Listening on socket, will dump state every {} seconds",
-            dump_interval
+            "Listening on socket, will dump state every {dump_interval} \
+             seconds"
         );
         eprintln!("Press Ctrl+C to exit\n");
 
         loop {
             tokio::select! {
-                _ = &mut shutdown_fut => {
+                () = &mut shutdown_fut => {
                     eprintln!("[DEBUG] Dumper shutting down");
                     break;
                 }
@@ -759,7 +757,7 @@ fn dump_state(state: &JobsStateInner) {
     for prune_mode in
         [PruneType::None, PruneType::Normal, PruneType::Aggressive]
     {
-        println!("TREE (PruneType::{:?}):", prune_mode);
+        println!("TREE (PruneType::{prune_mode:?}):");
         let mut cache = TreeCache::default();
         let tree =
             gen_drv_tree_leaves_from_state(&mut cache, state, prune_mode);

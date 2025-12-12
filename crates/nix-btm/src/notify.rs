@@ -1,7 +1,7 @@
 //! Platform-specific notification system for ring buffer readers.
 //!
-//! - Linux: Uses io_uring with FutexWake/FutexWait
-//! - macOS: Uses kqueue with EVFILT_USER
+//! - Linux: Uses `io_uring` with FutexWake/FutexWait
+//! - macOS: Uses kqueue with `EVFILT_USER`
 
 #[cfg(target_os = "linux")]
 mod platform {
@@ -156,7 +156,7 @@ mod platform {
 
     use crate::protocol_common::ProtocolError;
 
-    /// Notifier using kqueue's EVFILT_USER for macOS
+    /// Notifier using kqueue's `EVFILT_USER` for macOS
     pub struct Notifier {
         kq: OwnedFd,
     }
@@ -195,7 +195,7 @@ mod platform {
             let ret = unsafe {
                 libc::kevent(
                     kq.as_raw_fd(),
-                    &event,
+                    &raw const event,
                     1,
                     std::ptr::null_mut(),
                     0,
@@ -229,7 +229,7 @@ mod platform {
             let ret = unsafe {
                 libc::kevent(
                     self.kq.as_raw_fd(),
-                    &event,
+                    &raw const event,
                     1,
                     std::ptr::null_mut(),
                     0,
@@ -287,7 +287,7 @@ mod platform {
             let ret = unsafe {
                 libc::kevent(
                     kq.as_raw_fd(),
-                    &event,
+                    &raw const event,
                     1,
                     std::ptr::null_mut(),
                     0,
@@ -308,7 +308,7 @@ mod platform {
 
         /// Wait for a notification from the daemon.
         /// The `addr` and `expected` parameters are ignored on macOS since
-        /// we use EVFILT_USER instead of futex.
+        /// we use `EVFILT_USER` instead of futex.
         pub fn wait(
             &mut self,
             _addr: *const u32,
@@ -328,7 +328,7 @@ mod platform {
                     self.kq.as_raw_fd(),
                     std::ptr::null(),
                     0,
-                    &mut event_out,
+                    &raw mut event_out,
                     1,
                     std::ptr::null(), // No timeout - block indefinitely
                 )

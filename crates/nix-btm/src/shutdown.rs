@@ -22,6 +22,7 @@ impl Default for Shutdown {
 }
 
 impl Shutdown {
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -52,6 +53,7 @@ impl Shutdown {
         notified.await;
     }
 
+    #[must_use] 
     pub fn is_shutdown(&self) -> bool {
         self.inner.is_shutdown.load(Ordering::SeqCst)
     }

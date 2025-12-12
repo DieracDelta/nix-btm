@@ -14,10 +14,10 @@ pub enum ClientRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DaemonResponse {
     /// Ring buffer is ready at the given shared memory name
-    /// Client should open: /dev/shm/{ring_name}
+    /// Client should open: /`dev/shm/{ring_name`}
     RingReady { ring_name: String, total_len: u64 },
     /// Snapshot is ready in shared memory at the given name
-    /// Client should open: /dev/shm/{snapshot_name}
+    /// Client should open: /`dev/shm/{snapshot_name`}
     SnapshotReady {
         snapshot_name: String,
         total_len: u64,
@@ -44,7 +44,7 @@ pub fn serialize_message<T: Serialize>(
 }
 
 /// Deserialize a message from wire format
-/// Returns (message, bytes_consumed)
+/// Returns (message, `bytes_consumed`)
 pub fn deserialize_message<T: for<'de> Deserialize<'de>>(
     buf: &[u8],
 ) -> Result<Option<(T, usize)>, serde_cbor::Error> {
