@@ -40,6 +40,8 @@ pub fn round_up_page(num_bytes: u64) -> u64 {
 fn get_pid(stream: &UnixStream) -> Option<i32> {
     #[cfg(target_os = "linux")]
     {
+        use std::os::fd::AsFd;
+
         use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
         getsockopt(&stream.as_fd(), PeerCredentials)
             .ok()
