@@ -28,7 +28,7 @@ procfs = "0.18.0"
 strip-ansi-escapes = "0.2.1"
 strum = {version = "0.27.2", features = ["derive"]}
 serde = { version = "1.0.228", features = [ "derive", "alloc" ]}
-serde_json = { version = "1.0.145"}
+serde_json = { version = "1.0.146"}
 mimalloc = { version = "0.1.48" }
 either = { version = "1.15.0" }
 nix-compat = { git = "https://git.snix.dev/snix/snix.git", features = ["serde", "daemon"] }
@@ -40,7 +40,7 @@ bstr = { version = "1.12.1" }
 futures = { version = "0.3.31"}
 tokio-stream = { version = "0.1.17", features = ["sync"]}
 regex = { version = "1.12.2" }
-tracing = "0.1.43"
+tracing = "0.1.44"
 tracing-subscriber = {version = "0.3.22", features = ["fmt", "env-filter"]}
 console-subscriber = { version = "0.5.0" }
 color-eyre = "0.6.5"
