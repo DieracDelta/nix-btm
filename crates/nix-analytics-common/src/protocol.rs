@@ -212,6 +212,7 @@ mod tests {
                 recent_history: Vec::new(),
                 machines: Vec::new(),
                 dep_graphs: Vec::new(),
+                build_processes: HashMap::new(),
             },
         });
     }

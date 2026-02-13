@@ -99,6 +99,21 @@ pub struct RemoteMachine {
     pub active_build_ids: Vec<u64>,
 }
 
+/// Info about an OS process inside a build's cgroup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub ppid: u32,
+    /// comm from /proc/PID/stat.
+    pub name: String,
+    /// Full command line from /proc/PID/cmdline (space-joined).
+    pub cmdline: String,
+    /// Process state char (R/S/D/Z/T) from /proc/PID/stat.
+    pub state: char,
+    /// Resident set size in bytes (VmRSS from /proc/PID/status).
+    pub rss_bytes: u64,
+}
+
 /// Full snapshot of the analytics state, used for TUI queries.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalyticsSnapshot {
@@ -108,6 +123,9 @@ pub struct AnalyticsSnapshot {
     /// Dependency graphs for each active nix command.
     #[serde(default)]
     pub dep_graphs: Vec<crate::dep_graph::DepGraph>,
+    /// Processes running inside each build's cgroup, keyed by activity_id.
+    #[serde(default)]
+    pub build_processes: HashMap<u64, Vec<ProcessInfo>>,
 }
 
 #[cfg(test)]
@@ -202,6 +220,7 @@ mod tests {
             recent_history: Vec::new(),
             machines: Vec::new(),
             dep_graphs: Vec::new(),
+            build_processes: HashMap::new(),
         };
         let json = serde_json::to_string(&snapshot).unwrap();
         let parsed: AnalyticsSnapshot = serde_json::from_str(&json).unwrap();
@@ -214,6 +233,7 @@ mod tests {
             active_builds: HashMap::new(),
             recent_history: Vec::new(),
             dep_graphs: Vec::new(),
+            build_processes: HashMap::new(),
             machines: vec![RemoteMachine {
                 store_uri: "ssh-ng://builder".to_string(),
                 system_types: vec!["x86_64-linux".to_string()],

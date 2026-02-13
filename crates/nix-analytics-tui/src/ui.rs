@@ -7,9 +7,9 @@ use ratatui::widgets::*;
 
 use nix_analytics_common::dep_graph::DrvStatus;
 use nix_analytics_common::event::ActivityType;
-use nix_analytics_common::types::{Build, BuildMachine, Progress};
+use nix_analytics_common::types::{AnalyticsSnapshot, Build, BuildMachine, Progress};
 
-use crate::app::App;
+use crate::app::{App, ProcRow};
 
 // Gruvbox dark palette.
 #[allow(dead_code)]
@@ -53,13 +53,19 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     // Header.
     let active_count = app.builds.len();
-    let view_indicator = if app.show_dep_tree { " [DEPS]" } else { "" };
+    let view_indicator = if app.show_processes {
+        " [PROC]"
+    } else if app.show_dep_tree {
+        " [DEPS]"
+    } else {
+        ""
+    };
     let visual_indicator = if app.visual_mode { " [VISUAL]" } else { "" };
     let show_all_indicator = if app.show_all_roots { " [ALL]" } else { "" };
     let filter_indicator = if !app.builds_filter.is_empty() { " [FILTER]" } else { "" };
     let header = Paragraph::new(format!(
         " nix-analytics | {active_count} active{view_indicator}{visual_indicator}{show_all_indicator}{filter_indicator} | \
-         [q]uit [d]eps [K]ill/sig [V]isual [l]og [h]ist [a]ll [/]search [f]ilter | j/k ^u/^d gg/G zc/zo n/N"
+         [q]uit [d]eps [p]roc [K]ill/sig [V]isual [l]og [h]ist [a]ll [/]search [f]ilter | j/k ^u/^d gg/G zc/zo n/N"
     ))
     .style(Style::default().fg(GRV_FG4))
     .block(Block::default().borders(Borders::ALL).title("nix-analytics")
@@ -69,8 +75,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // Update visible_rows for half-page scrolling (area height minus borders and header).
     app.visible_rows = chunks[1].height.saturating_sub(3) as usize;
 
-    // Builds table or dependency tree view.
-    if app.show_dep_tree {
+    // Builds table, dependency tree, or processes view.
+    if app.show_processes {
+        render_processes_table(frame, app, chunks[1]);
+    } else if app.show_dep_tree {
         render_dep_tree_table(frame, app, chunks[1]);
     } else {
         render_builds_table(frame, app, chunks[1]);
@@ -1150,6 +1158,292 @@ fn format_dep_status(status: &DrvStatus) -> (String, Style) {
         DrvStatus::Done => ("done".to_string(), Style::default().fg(GRV_GREEN)),
         DrvStatus::Failed => ("FAILED".to_string(), Style::default().fg(GRV_RED).bold()),
     }
+}
+
+/// Build a flattened process tree from snapshot data.
+///
+/// Groups active builds by `user_pid` (nix command roots), then for each build
+/// lists the processes from `build_processes`.
+pub fn build_process_tree(
+    snapshot: &AnalyticsSnapshot,
+    builds: &[Build],
+    command_root_ids: &HashSet<u64>,
+) -> Vec<ProcRow> {
+    let mut rows = Vec::new();
+
+    // Group non-command-root builds by user_pid.
+    let mut pid_groups: HashMap<u32, Vec<&Build>> = HashMap::new();
+    let mut pid_cmdline: HashMap<u32, String> = HashMap::new();
+
+    for build in builds {
+        if command_root_ids.contains(&build.activity_id) {
+            // Extract PID and command_line from command roots for the NixCommand row.
+            if let (Some(pid), Some(ref cmd)) = (build.user_pid, &build.command_line) {
+                pid_cmdline.entry(pid).or_insert_with(|| cmd.clone());
+            }
+            continue;
+        }
+        if let Some(pid) = build.user_pid {
+            pid_groups.entry(pid).or_default().push(build);
+        }
+    }
+
+    // Also discover PIDs from builds that have no command root.
+    for build in builds {
+        if command_root_ids.contains(&build.activity_id) {
+            continue;
+        }
+        if let Some(pid) = build.user_pid {
+            if !pid_cmdline.contains_key(&pid) {
+                pid_cmdline.insert(pid, format!("nix (pid {})", pid));
+            }
+        }
+    }
+
+    // Sort PIDs for stable ordering.
+    let mut pids: Vec<u32> = pid_cmdline.keys().copied().collect();
+    pids.sort_unstable();
+
+    for pid in pids {
+        let cmdline = pid_cmdline.get(&pid).cloned().unwrap_or_default();
+        rows.push(ProcRow::NixCommand { pid, cmdline });
+
+        if let Some(group) = pid_groups.get(&pid) {
+            let mut group_sorted: Vec<&&Build> = group.iter().collect();
+            group_sorted.sort_by_key(|b| b.started_at_us);
+
+            for build in group_sorted {
+                let drv = drv_display_name(build);
+                rows.push(ProcRow::Derivation {
+                    activity_id: build.activity_id,
+                    drv,
+                    is_frozen: build.is_frozen,
+                });
+
+                // Add processes for this build.
+                if let Some(procs) = snapshot.build_processes.get(&build.activity_id) {
+                    let mut sorted_procs: Vec<_> = procs.iter().collect();
+                    sorted_procs.sort_by_key(|p| p.pid);
+                    for info in sorted_procs {
+                        rows.push(ProcRow::Process {
+                            info: info.clone(),
+                            activity_id: build.activity_id,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    rows
+}
+
+/// Map a process state char to a full word.
+fn process_state_label(state: char) -> &'static str {
+    match state {
+        'R' => "running",
+        'S' => "sleeping",
+        'D' => "disk",
+        'Z' => "zombie",
+        'T' => "stopped",
+        'I' => "idle",
+        'X' => "dead",
+        _ => "?",
+    }
+}
+
+/// Render the processes table view.
+fn render_processes_table(frame: &mut Frame, app: &mut App, area: Rect) {
+    let header = Row::new(vec![
+        Cell::from(" PID"),
+        Cell::from("Status"),
+        Cell::from("Command"),
+    ])
+    .style(Style::default().bold());
+
+    // Precompute tree structure on the FULL proc_rows (before folding), since
+    // visible_proc_indices references into the full list.
+    let proc_rows = &app.proc_rows;
+
+    let mut is_last_deriv_vis = HashMap::new(); // row_idx → bool
+    let mut has_children_vis = HashMap::new();  // row_idx → bool (has visible children)
+    let mut parent_deriv_last_vis = HashMap::new();
+    let mut is_last_proc_vis = HashMap::new();
+    let mut is_folded_map = HashMap::new();     // row_idx → bool
+
+    // Work from visible_proc_indices to compute tree structure among visible rows.
+    let vis = &app.visible_proc_indices;
+    for (vi, &ri) in vis.iter().enumerate() {
+        match &proc_rows[ri] {
+            ProcRow::NixCommand { pid, .. } => {
+                is_folded_map.insert(ri, app.folded_proc_pids.contains(pid));
+            }
+            ProcRow::Derivation { activity_id, .. } => {
+                let folded = app.folded_proc_builds.contains(activity_id);
+                is_folded_map.insert(ri, folded);
+
+                // Is this the last Derivation before the next NixCommand (in visible rows)?
+                let mut found_next_deriv = false;
+                let mut found_child = false;
+                for &rj in vis[(vi + 1)..].iter() {
+                    match &proc_rows[rj] {
+                        ProcRow::NixCommand { .. } => break,
+                        ProcRow::Derivation { .. } => { found_next_deriv = true; break; }
+                        ProcRow::Process { .. } => { found_child = true; }
+                    }
+                }
+                is_last_deriv_vis.insert(ri, !found_next_deriv);
+                // has_children: true if folded (children exist but hidden) or visible children found
+                has_children_vis.insert(ri, found_child || folded);
+            }
+            ProcRow::Process { activity_id, .. } => {
+                // Find parent derivation's is_last among visible rows.
+                let mut parent_last = false;
+                for &rk in vis[..vi].iter().rev() {
+                    match &proc_rows[rk] {
+                        ProcRow::Derivation { .. } => {
+                            parent_last = *is_last_deriv_vis.get(&rk).unwrap_or(&false);
+                            break;
+                        }
+                        ProcRow::NixCommand { .. } => break,
+                        _ => {}
+                    }
+                }
+                parent_deriv_last_vis.insert(ri, parent_last);
+
+                // Is this the last Process with the same activity_id in visible rows?
+                let mut found_next = false;
+                for &rj in vis[(vi + 1)..].iter() {
+                    match &proc_rows[rj] {
+                        ProcRow::Process { activity_id: aid, .. } if aid == activity_id => {
+                            found_next = true;
+                            break;
+                        }
+                        _ => break,
+                    }
+                }
+                is_last_proc_vis.insert(ri, !found_next);
+            }
+        }
+    }
+
+    let rows: Vec<Row> = vis
+        .iter()
+        .enumerate()
+        .map(|(vi, &ri)| {
+            let row = &proc_rows[ri];
+            let style = if vi == app.proc_selected {
+                Style::default().bg(GRV_BG1).fg(GRV_FG)
+            } else {
+                Style::default()
+            };
+
+            match row {
+                ProcRow::NixCommand { pid, cmdline } => {
+                    let folded = is_folded_map.get(&ri).copied().unwrap_or(false);
+                    let indicator = if folded { "\u{25b6}" } else { "\u{25b8}" }; // ▶ / ▸
+                    Row::new(vec![
+                        Cell::from(format!(" {indicator} {pid}")),
+                        Cell::from(""),
+                        Cell::from(format!("{cmdline} (root)")),
+                    ])
+                    .style(style.bold())
+                }
+                ProcRow::Derivation { activity_id: _, drv, is_frozen } => {
+                    let st = if *is_frozen {
+                        Cell::from("frozen").style(Style::default().fg(GRV_YELLOW))
+                    } else {
+                        Cell::from("")
+                    };
+                    let is_last = is_last_deriv_vis.get(&ri).copied().unwrap_or(false);
+                    let has_kids = has_children_vis.get(&ri).copied().unwrap_or(false);
+                    let folded = is_folded_map.get(&ri).copied().unwrap_or(false);
+                    let cap = if has_kids {
+                        if folded { "\u{25b6}" } else { "\u{2510}" } // ▶ or ┐
+                    } else {
+                        " "
+                    };
+                    let branch_char = if is_last { "\u{2514}\u{2500}" } else { "\u{251c}\u{2500}" };
+                    Row::new(vec![
+                        Cell::from(format!("   {branch_char}{cap}")),
+                        st,
+                        Cell::from(drv.clone()),
+                    ])
+                    .style(style)
+                }
+                ProcRow::Process { info, .. } => {
+                    let (st_label, st_style) = match info.state {
+                        'T' => (process_state_label('T'), Style::default().fg(GRV_YELLOW)),
+                        'R' => (process_state_label('R'), Style::default().fg(GRV_GREEN)),
+                        'D' => (process_state_label('D'), Style::default().fg(GRV_RED)),
+                        'Z' => (process_state_label('Z'), Style::default().fg(GRV_RED)),
+                        other => (process_state_label(other), Style::default()),
+                    };
+                    let cmd = if info.cmdline.is_empty() {
+                        format!("[{}]", info.name)
+                    } else {
+                        info.cmdline.clone()
+                    };
+                    let parent_last = parent_deriv_last_vis.get(&ri).copied().unwrap_or(false);
+                    let is_last = is_last_proc_vis.get(&ri).copied().unwrap_or(true);
+                    let outer = if parent_last { "    " } else { "   \u{2502}" };
+                    let inner = if is_last { "\u{2514} " } else { "\u{251c} " };
+                    Row::new(vec![
+                        Cell::from(format!("{outer} {inner}{}", info.pid)),
+                        Cell::from(st_label).style(st_style),
+                        Cell::from(cmd),
+                    ])
+                    .style(style)
+                }
+            }
+        })
+        .collect();
+
+    if rows.is_empty() {
+        let empty_rows = vec![Row::new(vec![
+            Cell::from(" No processes data (waiting for cgroup assignment)"),
+            Cell::from(""),
+            Cell::from(""),
+        ])
+        .style(Style::default().fg(GRV_GRAY))];
+        let table = Table::new(
+            empty_rows,
+            [
+                Constraint::Length(14),
+                Constraint::Length(10),
+                Constraint::Min(30),
+            ],
+        )
+        .header(header)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Processes (p to go back)")
+                .border_style(Style::default().fg(GRV_GRAY)),
+        );
+        frame.render_widget(table, area);
+        return;
+    }
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(14),
+            Constraint::Length(10),
+            Constraint::Min(30),
+        ],
+    )
+    .header(header)
+    .row_highlight_style(Style::default().bg(GRV_BG1).fg(GRV_FG))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Processes (p to go back)")
+            .border_style(Style::default().fg(GRV_GRAY)),
+    );
+
+    let mut table_state = TableState::default().with_selected(Some(app.proc_selected));
+    frame.render_stateful_widget(table, area, &mut table_state);
 }
 
 fn render_machines(frame: &mut Frame, app: &App, area: Rect) {

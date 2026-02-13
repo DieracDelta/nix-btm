@@ -13,6 +13,8 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use nix_analytics_common::types::ProcessInfo;
+
 use crate::state::SharedState;
 
 /// Interval between cgroup stat polls.
@@ -67,6 +69,20 @@ pub async fn poll_loop(state: SharedState) {
                         )
                         .await;
                 }
+            }
+
+            // Read processes from cgroup.procs for each assigned cgroup.
+            let pids = read_cgroup_procs(path).await;
+            let mut procs = Vec::with_capacity(pids.len());
+            for pid in pids {
+                if let Some(info) = read_process_info(pid).await {
+                    procs.push(info);
+                }
+            }
+            for &activity_id in activity_ids {
+                state
+                    .update_build_processes(activity_id, procs.clone())
+                    .await;
             }
         }
     }
@@ -196,5 +212,72 @@ async fn read_cgroup_stats(cgroup: &Path) -> Option<CgroupStats> {
         cpu_system_us,
         memory_current,
         is_frozen,
+    })
+}
+
+/// Read the list of PIDs from a cgroup's `cgroup.procs` file.
+async fn read_cgroup_procs(cgroup: &Path) -> Vec<u32> {
+    let content = match tokio::fs::read_to_string(cgroup.join("cgroup.procs")).await {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    content
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .collect()
+}
+
+/// Read process info from /proc for a single PID.
+async fn read_process_info(pid: u32) -> Option<ProcessInfo> {
+    // Parse /proc/PID/stat for comm, ppid, state.
+    let stat = tokio::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .await
+        .ok()?;
+    // Format: "PID (comm) S PPID ..."
+    // comm can contain spaces and parens, so find the last ')'.
+    let comm_start = stat.find('(')?;
+    let comm_end = stat.rfind(')')?;
+    let name = stat[comm_start + 1..comm_end].to_string();
+    let rest = &stat[comm_end + 2..]; // skip ") "
+    let mut fields = rest.split_whitespace();
+    let state = fields.next()?.chars().next()?;
+    let ppid: u32 = fields.next()?.parse().ok()?;
+
+    // Read /proc/PID/cmdline for the full command.
+    let cmdline = tokio::fs::read(format!("/proc/{pid}/cmdline"))
+        .await
+        .ok()
+        .map(|bytes| {
+            bytes
+                .split(|&b| b == 0)
+                .filter(|s| !s.is_empty())
+                .map(|s| String::from_utf8_lossy(s).to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+
+    // Read VmRSS from /proc/PID/status.
+    let rss_bytes = tokio::fs::read_to_string(format!("/proc/{pid}/status"))
+        .await
+        .ok()
+        .and_then(|status| {
+            for line in status.lines() {
+                if let Some(rest) = line.strip_prefix("VmRSS:") {
+                    let kb: u64 = rest.trim().split_whitespace().next()?.parse().ok()?;
+                    return Some(kb * 1024);
+                }
+            }
+            None
+        })
+        .unwrap_or(0);
+
+    Some(ProcessInfo {
+        pid,
+        ppid,
+        name,
+        cmdline,
+        state,
+        rss_bytes,
     })
 }

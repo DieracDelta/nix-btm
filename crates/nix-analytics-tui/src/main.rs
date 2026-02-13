@@ -108,7 +108,14 @@ async fn run_loop(
                 // Handle pending `z` for `z-c`/`z-o` fold chords.
                 if app.pending_z {
                     app.pending_z = false;
-                    if app.show_dep_tree {
+                    if app.show_processes {
+                        match key.code {
+                            KeyCode::Char('c') => { app.proc_fold_close(); continue; }
+                            KeyCode::Char('o') => { app.proc_fold_open(); continue; }
+                            KeyCode::Char('a') => { app.proc_toggle_fold(); continue; }
+                            _ => {}
+                        }
+                    } else if app.show_dep_tree {
                         match key.code {
                             KeyCode::Char('c') => { app.fold_close(); continue; }
                             KeyCode::Char('o') => { app.fold_open(); continue; }
@@ -151,10 +158,18 @@ async fn run_loop(
                         }
                     }
                     (KeyCode::Char('a'), KeyModifiers::NONE) => app.toggle_show_all(),
-                    (KeyCode::Char(' '), _) => {
-                        if app.show_dep_tree {
+                    (KeyCode::Char(' '), _) | (KeyCode::Tab, _) => {
+                        if app.show_processes {
+                            app.proc_toggle_fold();
+                        } else if app.show_dep_tree {
                             app.toggle_fold();
                         }
+                    }
+                    (KeyCode::Char('p'), KeyModifiers::NONE) => {
+                        if app.visual_mode {
+                            app.exit_visual();
+                        }
+                        app.toggle_processes();
                     }
                     (KeyCode::Char('d'), KeyModifiers::NONE) => {
                         if app.visual_mode {

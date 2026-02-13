@@ -4,10 +4,20 @@ use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
 
 use nix_analytics_common::dep_graph::DepGraph;
-use nix_analytics_common::types::{AnalyticsSnapshot, Build, CompletedBuild, Progress, RemoteMachine};
+use nix_analytics_common::types::{AnalyticsSnapshot, Build, CompletedBuild, ProcessInfo, Progress, RemoteMachine};
 
 use crate::client::AnalyticsClient;
 use crate::ui;
+
+/// A row in the flattened processes tree view.
+pub enum ProcRow {
+    /// Top-level nix command (level 0).
+    NixCommand { pid: u32, cmdline: String },
+    /// A derivation under a nix command (level 1).
+    Derivation { activity_id: u64, drv: String, is_frozen: bool },
+    /// An OS process inside a build's cgroup (level 2+).
+    Process { info: ProcessInfo, activity_id: u64 },
+}
 
 pub struct App {
     pub snapshot: Option<AnalyticsSnapshot>,
@@ -73,6 +83,18 @@ pub struct App {
     pub visual_anchor: usize,
     /// Whether the signal prompt is showing (waiting for signal key after K).
     pub action_prompt: bool,
+    /// Whether to show the processes view.
+    pub show_processes: bool,
+    /// Currently selected index in the processes view (into visible rows).
+    pub proc_selected: usize,
+    /// Flattened process tree rows for rendering.
+    pub proc_rows: Vec<ProcRow>,
+    /// Visible proc row indices (after folding).
+    pub visible_proc_indices: Vec<usize>,
+    /// Folded NixCommand PIDs in processes view.
+    pub folded_proc_pids: HashSet<u32>,
+    /// Folded derivation activity_ids in processes view.
+    pub folded_proc_builds: HashSet<u64>,
 }
 
 impl App {
@@ -110,6 +132,12 @@ impl App {
             visual_mode: false,
             visual_anchor: 0,
             action_prompt: false,
+            show_processes: false,
+            proc_selected: 0,
+            proc_rows: Vec::new(),
+            visible_proc_indices: Vec::new(),
+            folded_proc_pids: HashSet::new(),
+            folded_proc_builds: HashSet::new(),
         }
     }
 
@@ -132,11 +160,23 @@ impl App {
         self.hoisted_progress = tree_result.hoisted_progress;
         self.command_root_ids = tree_result.command_root_ids;
         self.dep_graphs = snapshot.dep_graphs.clone();
+
+        // Build process tree rows from snapshot data.
+        self.proc_rows = ui::build_process_tree(&snapshot, &self.builds, &self.command_root_ids);
+
         self.snapshot = Some(snapshot);
 
         // Keep selection in bounds.
         if !self.builds.is_empty() && self.selected >= self.builds.len() {
             self.selected = self.builds.len() - 1;
+        }
+
+        // Recompute visible proc indices (applying fold state).
+        self.recompute_visible_procs();
+
+        // Keep proc_selected in bounds.
+        if !self.visible_proc_indices.is_empty() && self.proc_selected >= self.visible_proc_indices.len() {
+            self.proc_selected = self.visible_proc_indices.len() - 1;
         }
 
         // Refresh log if panel is open.
@@ -150,7 +190,9 @@ impl App {
     }
 
     pub fn select_prev(&mut self) {
-        if self.show_dep_tree {
+        if self.show_processes {
+            self.proc_selected = self.proc_selected.saturating_sub(1);
+        } else if self.show_dep_tree {
             if self.dep_tree_selected > 0 {
                 self.dep_tree_selected -= 1;
             }
@@ -160,7 +202,12 @@ impl App {
     }
 
     pub fn select_next(&mut self) {
-        if self.show_dep_tree {
+        if self.show_processes {
+            let len = self.visible_proc_indices.len();
+            if len > 0 && self.proc_selected < len - 1 {
+                self.proc_selected += 1;
+            }
+        } else if self.show_dep_tree {
             if self.dep_tree_row_count > 0 && self.dep_tree_selected < self.dep_tree_row_count - 1 {
                 self.dep_tree_selected += 1;
             }
@@ -173,7 +220,9 @@ impl App {
     }
 
     pub fn select_top(&mut self) {
-        if self.show_dep_tree {
+        if self.show_processes {
+            self.proc_selected = 0;
+        } else if self.show_dep_tree {
             self.dep_tree_selected = 0;
         } else {
             self.selected = 0;
@@ -181,7 +230,12 @@ impl App {
     }
 
     pub fn select_bottom(&mut self) {
-        if self.show_dep_tree {
+        if self.show_processes {
+            let len = self.visible_proc_indices.len();
+            if len > 0 {
+                self.proc_selected = len - 1;
+            }
+        } else if self.show_dep_tree {
             if self.dep_tree_row_count > 0 {
                 self.dep_tree_selected = self.dep_tree_row_count - 1;
             }
@@ -195,7 +249,9 @@ impl App {
 
     pub fn half_page_up(&mut self) {
         let delta = self.visible_rows / 2;
-        if self.show_dep_tree {
+        if self.show_processes {
+            self.proc_selected = self.proc_selected.saturating_sub(delta);
+        } else if self.show_dep_tree {
             self.dep_tree_selected = self.dep_tree_selected.saturating_sub(delta);
         } else {
             self.selected = self.selected.saturating_sub(delta);
@@ -204,7 +260,12 @@ impl App {
 
     pub fn half_page_down(&mut self) {
         let delta = self.visible_rows / 2;
-        if self.show_dep_tree {
+        if self.show_processes {
+            let len = self.visible_proc_indices.len();
+            if len > 0 {
+                self.proc_selected = (self.proc_selected + delta).min(len - 1);
+            }
+        } else if self.show_dep_tree {
             let max = if self.dep_tree_row_count > 0 {
                 self.dep_tree_row_count - 1
             } else {
@@ -270,6 +331,144 @@ impl App {
 
     pub fn toggle_dep_tree(&mut self) {
         self.show_dep_tree = !self.show_dep_tree;
+    }
+
+    pub fn toggle_processes(&mut self) {
+        self.show_processes = !self.show_processes;
+        if self.show_processes {
+            self.show_dep_tree = false;
+            self.proc_selected = 0;
+        }
+    }
+
+    /// Recompute which proc rows are visible after applying fold state.
+    pub fn recompute_visible_procs(&mut self) {
+        let mut visible = Vec::new();
+        let mut skip_under_pid: Option<u32> = None;
+        let mut skip_under_build: Option<u64> = None;
+
+        for (i, row) in self.proc_rows.iter().enumerate() {
+            match row {
+                ProcRow::NixCommand { pid, .. } => {
+                    skip_under_pid = None;
+                    skip_under_build = None;
+                    visible.push(i);
+                    if self.folded_proc_pids.contains(pid) {
+                        skip_under_pid = Some(*pid);
+                    }
+                }
+                ProcRow::Derivation { activity_id, .. } => {
+                    skip_under_build = None;
+                    if skip_under_pid.is_some() {
+                        continue;
+                    }
+                    visible.push(i);
+                    if self.folded_proc_builds.contains(activity_id) {
+                        skip_under_build = Some(*activity_id);
+                    }
+                }
+                ProcRow::Process { .. } => {
+                    if skip_under_pid.is_some() || skip_under_build.is_some() {
+                        continue;
+                    }
+                    visible.push(i);
+                }
+            }
+        }
+
+        self.visible_proc_indices = visible;
+    }
+
+    /// Toggle fold on the currently selected proc row.
+    pub fn proc_toggle_fold(&mut self) {
+        if let Some(&row_idx) = self.visible_proc_indices.get(self.proc_selected) {
+            match &self.proc_rows[row_idx] {
+                ProcRow::NixCommand { pid, .. } => {
+                    if !self.folded_proc_pids.remove(pid) {
+                        self.folded_proc_pids.insert(*pid);
+                    }
+                }
+                ProcRow::Derivation { activity_id, .. } => {
+                    if !self.folded_proc_builds.remove(activity_id) {
+                        self.folded_proc_builds.insert(*activity_id);
+                    }
+                }
+                ProcRow::Process { .. } => {}
+            }
+            self.recompute_visible_procs();
+            // Clamp selection.
+            if !self.visible_proc_indices.is_empty() && self.proc_selected >= self.visible_proc_indices.len() {
+                self.proc_selected = self.visible_proc_indices.len() - 1;
+            }
+        }
+    }
+
+    /// Fold close the currently selected proc row.
+    pub fn proc_fold_close(&mut self) {
+        if let Some(&row_idx) = self.visible_proc_indices.get(self.proc_selected) {
+            match &self.proc_rows[row_idx] {
+                ProcRow::NixCommand { pid, .. } => {
+                    self.folded_proc_pids.insert(*pid);
+                }
+                ProcRow::Derivation { activity_id, .. } => {
+                    self.folded_proc_builds.insert(*activity_id);
+                }
+                ProcRow::Process { .. } => {}
+            }
+            self.recompute_visible_procs();
+            if !self.visible_proc_indices.is_empty() && self.proc_selected >= self.visible_proc_indices.len() {
+                self.proc_selected = self.visible_proc_indices.len() - 1;
+            }
+        }
+    }
+
+    /// Fold open the currently selected proc row.
+    pub fn proc_fold_open(&mut self) {
+        if let Some(&row_idx) = self.visible_proc_indices.get(self.proc_selected) {
+            match &self.proc_rows[row_idx] {
+                ProcRow::NixCommand { pid, .. } => {
+                    self.folded_proc_pids.remove(pid);
+                }
+                ProcRow::Derivation { activity_id, .. } => {
+                    self.folded_proc_builds.remove(activity_id);
+                }
+                ProcRow::Process { .. } => {}
+            }
+            self.recompute_visible_procs();
+        }
+    }
+
+    /// Get the activity_id for the currently selected process row (for K actions).
+    /// NixCommand rows return all child build activity_ids.
+    /// Derivation rows return their own activity_id.
+    /// Process rows return their parent build's activity_id.
+    pub fn selected_proc_activity_ids(&self) -> Vec<u64> {
+        let row_idx = match self.visible_proc_indices.get(self.proc_selected) {
+            Some(&i) => i,
+            None => return Vec::new(),
+        };
+        match self.proc_rows.get(row_idx) {
+            Some(ProcRow::NixCommand { pid, .. }) => {
+                // Return all derivation activity_ids under this nix command.
+                let mut ids = Vec::new();
+                for row in &self.proc_rows {
+                    if let ProcRow::Derivation { activity_id, .. } = row {
+                        // Check if this derivation belongs to the same nix command.
+                        if let Some(snapshot) = &self.snapshot {
+                            if let Some(build) = snapshot.active_builds.get(activity_id) {
+                                if build.user_pid == Some(*pid) {
+                                    ids.push(*activity_id);
+                                }
+                            }
+                        }
+                    }
+                }
+                ids
+            }
+            Some(ProcRow::Derivation { activity_id, .. }) => vec![*activity_id],
+            Some(ProcRow::Process { activity_id, .. }) => vec![*activity_id],
+            None => Vec::new(),
+        }
     }
 
     pub fn machines(&self) -> &[RemoteMachine] {
@@ -365,6 +564,9 @@ impl App {
 
     /// Collect activity IDs of selected builds (skip command roots).
     pub fn selected_activity_ids(&self) -> Vec<u64> {
+        if self.show_processes {
+            return self.selected_proc_activity_ids();
+        }
         if self.visual_mode {
             let range = self.visual_selection_range();
             self.visible_build_indices
@@ -393,9 +595,15 @@ impl App {
     /// Whether any of the selected builds have a cgroup path assigned.
     pub fn selected_have_cgroups(&self) -> bool {
         let ids = self.selected_activity_ids();
-        ids.iter().any(|id| {
-            self.builds.iter().any(|b| b.activity_id == *id && b.cgroup_path.is_some())
-        })
+        if let Some(snapshot) = &self.snapshot {
+            ids.iter().any(|id| {
+                snapshot.active_builds.get(id).is_some_and(|b| b.cgroup_path.is_some())
+            })
+        } else {
+            ids.iter().any(|id| {
+                self.builds.iter().any(|b| b.activity_id == *id && b.cgroup_path.is_some())
+            })
+        }
     }
 
     pub fn show_action_prompt(&mut self) {

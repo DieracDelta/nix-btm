@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 use nix_analytics_common::event::{ActivityType, AnalyticsEvent};
 use nix_analytics_common::protocol::{MAX_HISTORY, MAX_LOG_LINES};
 use nix_analytics_common::types::{
-    AnalyticsSnapshot, Build, BuildMachine, CompletedBuild, Progress, RemoteMachine,
+    AnalyticsSnapshot, Build, BuildMachine, CompletedBuild, ProcessInfo, Progress, RemoteMachine,
 };
 
 use std::path::Path;
@@ -34,6 +34,7 @@ struct State {
     history: VecDeque<CompletedBuild>,
     machines: Vec<RemoteMachine>,
     dep_graph_manager: DepGraphManager,
+    build_processes: HashMap<u64, Vec<ProcessInfo>>,
 }
 
 impl SharedState {
@@ -44,6 +45,7 @@ impl SharedState {
                 history: VecDeque::with_capacity(MAX_HISTORY),
                 machines: Vec::new(),
                 dep_graph_manager: DepGraphManager::new(),
+                build_processes: HashMap::new(),
             })),
         }
     }
@@ -127,6 +129,7 @@ impl SharedState {
                 timestamp_us,
                 activity_id,
             } => {
+                state.build_processes.remove(&activity_id);
                 if let Some(build) = state.active_builds.remove(&activity_id) {
                     let duration_us = timestamp_us.saturating_sub(build.started_at_us);
                     let success = build.progress.as_ref().is_none_or(|p| p.failed == 0);
@@ -278,6 +281,7 @@ impl SharedState {
             recent_history: state.history.iter().cloned().collect(),
             machines: state.machines.clone(),
             dep_graphs: state.dep_graph_manager.get_graphs(),
+            build_processes: state.build_processes.clone(),
         }
     }
 
@@ -342,6 +346,14 @@ impl SharedState {
             build.cpu_system_us = cpu_system_us;
             build.memory_current = memory_current;
             build.is_frozen = is_frozen;
+        }
+    }
+
+    /// Update the list of processes running inside a build's cgroup.
+    pub async fn update_build_processes(&self, activity_id: u64, processes: Vec<ProcessInfo>) {
+        let mut state = self.inner.write().await;
+        if state.active_builds.contains_key(&activity_id) {
+            state.build_processes.insert(activity_id, processes);
         }
     }
 
