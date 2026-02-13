@@ -302,6 +302,7 @@ pub fn tree_order_builds(mut builds: Vec<Build>) -> TreeOrderResult {
                 memory_current: None,
                 progress: None,
                 machine: BuildMachine::Local,
+                is_frozen: false,
             });
             command_root_ids.insert(synthetic_id);
             synthetic_id
@@ -336,6 +337,7 @@ pub fn tree_order_builds(mut builds: Vec<Build>) -> TreeOrderResult {
                 memory_current: None,
                 progress: None,
                 machine: BuildMachine::Local,
+                is_frozen: false,
             });
             command_root_ids.insert(synthetic_id);
             synthetic_id
@@ -592,6 +594,7 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
         Cell::from(" Derivation"),
         Cell::from("Step"),
         Cell::from("Phase"),
+        Cell::from("St"),
         Cell::from("Progress"),
         Cell::from("User"),
         Cell::from("Machine"),
@@ -727,6 +730,7 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
                                     Cell::from(""),
                                     Cell::from(""),
                                     Cell::from(""),
+                                    Cell::from(""),
                                 ])
                                 .style(style);
                             } else {
@@ -739,6 +743,7 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
                 // Command root: only show the derivation name, rest is empty.
                 return Row::new(vec![
                     Cell::from(drv_name),
+                    Cell::from(""),
                     Cell::from(""),
                     Cell::from(""),
                     Cell::from(""),
@@ -777,10 +782,17 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
                 .map(format_bytes)
                 .unwrap_or_else(|| "-".to_string());
 
+            let status_cell = if build.is_frozen {
+                Cell::from("FROZEN").style(Style::default().fg(GRV_YELLOW))
+            } else {
+                Cell::from("")
+            };
+
             Row::new(vec![
                 Cell::from(drv_name),
                 Cell::from(step),
                 Cell::from(phase.to_string()),
+                status_cell,
                 Cell::from(progress_str),
                 Cell::from(user.to_string()),
                 Cell::from(machine),
@@ -797,6 +809,7 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Min(25),     // Derivation (tree-prefixed, needs space)
             Constraint::Length(12),   // Step
             Constraint::Length(16),   // Phase
+            Constraint::Length(6),    // St (frozen status)
             Constraint::Length(12),   // Progress
             Constraint::Length(8),    // User
             Constraint::Length(12),   // Machine
@@ -1313,6 +1326,7 @@ mod tests {
             memory_current: None,
             progress: None,
             machine: BuildMachine::Local,
+            is_frozen: false,
         }
     }
 

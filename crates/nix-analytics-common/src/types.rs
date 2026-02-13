@@ -65,6 +65,10 @@ pub struct Build {
 
     /// Where this build is running.
     pub machine: BuildMachine,
+
+    /// Whether this build is currently frozen (cgroup.freeze = 1).
+    #[serde(default)]
+    pub is_frozen: bool,
 }
 
 /// A completed build.
@@ -136,6 +140,7 @@ mod tests {
                 failed: 0,
             }),
             machine: BuildMachine::Local,
+            is_frozen: false,
         }
     }
 

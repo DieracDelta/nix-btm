@@ -63,6 +63,7 @@ pub async fn poll_loop(state: SharedState) {
                             stats.cpu_user_us,
                             stats.cpu_system_us,
                             stats.memory_current,
+                            stats.is_frozen,
                         )
                         .await;
                 }
@@ -154,6 +155,7 @@ struct CgroupStats {
     cpu_user_us: u64,
     cpu_system_us: u64,
     memory_current: Option<u64>,
+    is_frozen: bool,
 }
 
 /// Read cpu.stat and memory.current from a cgroup directory.
@@ -183,9 +185,16 @@ async fn read_cgroup_stats(cgroup: &Path) -> Option<CgroupStats> {
         .ok()
         .and_then(|s| s.trim().parse().ok());
 
+    let is_frozen = tokio::fs::read_to_string(cgroup.join("cgroup.freeze"))
+        .await
+        .ok()
+        .map(|s| s.trim() == "1")
+        .unwrap_or(false);
+
     Some(CgroupStats {
         cpu_user_us,
         cpu_system_us,
         memory_current,
+        is_frozen,
     })
 }

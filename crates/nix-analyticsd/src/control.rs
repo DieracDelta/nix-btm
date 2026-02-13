@@ -161,13 +161,23 @@ async fn control_build(
 ) -> Result<()> {
     // Path 1: cgroup (per-build, atomic)
     if let Some(cgroup_path) = state.get_cgroup_path(activity_id).await {
-        return control_build_cgroup(&cgroup_path, activity_id, action).await;
+        control_build_cgroup(&cgroup_path, activity_id, action).await?;
+    } else {
+        // Path 2: PID fallback (per-nix-invocation)
+        let pid = state.get_user_pid(activity_id).await.context(
+            "build has no cgroup and no nix_pid (is use-cgroups enabled? is plugin up to date?)",
+        )?;
+        control_build_pid(pid, activity_id, action).await?;
     }
-    // Path 2: PID fallback (per-nix-invocation)
-    let pid = state.get_user_pid(activity_id).await.context(
-        "build has no cgroup and no nix_pid (is use-cgroups enabled? is plugin up to date?)",
-    )?;
-    control_build_pid(pid, activity_id, action).await
+
+    // Update frozen state in shared state.
+    match action {
+        BuildAction::Freeze => state.set_frozen(activity_id, true).await,
+        BuildAction::Unfreeze => state.set_frozen(activity_id, false).await,
+        BuildAction::Kill => {}
+    }
+
+    Ok(())
 }
 
 async fn write_cgroup_file(path: &std::path::Path, value: &[u8]) -> Result<()> {

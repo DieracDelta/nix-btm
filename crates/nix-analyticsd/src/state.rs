@@ -89,6 +89,7 @@ impl SharedState {
                     memory_current: None,
                     progress: None,
                     machine: BuildMachine::Local,
+                    is_frozen: false,
                 };
                 state.active_builds.insert(activity_id, build);
 
@@ -333,12 +334,14 @@ impl SharedState {
         cpu_user_us: u64,
         cpu_system_us: u64,
         memory_current: Option<u64>,
+        is_frozen: bool,
     ) {
         let mut state = self.inner.write().await;
         if let Some(build) = state.active_builds.get_mut(&activity_id) {
             build.cpu_user_us = cpu_user_us;
             build.cpu_system_us = cpu_system_us;
             build.memory_current = memory_current;
+            build.is_frozen = is_frozen;
         }
     }
 
@@ -432,6 +435,14 @@ impl SharedState {
             .active_builds
             .get(&activity_id)
             .and_then(|b| b.user_pid)
+    }
+
+    /// Set the frozen state for a build.
+    pub async fn set_frozen(&self, activity_id: u64, frozen: bool) {
+        let mut state = self.inner.write().await;
+        if let Some(build) = state.active_builds.get_mut(&activity_id) {
+            build.is_frozen = frozen;
+        }
     }
 
     /// Get unique PIDs of active nix processes (for cgroup parent discovery).
@@ -725,11 +736,21 @@ mod tests {
     async fn update_cgroup_stats_updates_fields() {
         let state = SharedState::new();
         state.handle_event(make_started_event(1, 1000)).await;
-        state.update_cgroup_stats(1, 500, 200, Some(1024)).await;
+        state.update_cgroup_stats(1, 500, 200, Some(1024), false).await;
         let build = state.get_build(1).await.unwrap();
         assert_eq!(build.cpu_user_us, 500);
         assert_eq!(build.cpu_system_us, 200);
         assert_eq!(build.memory_current, Some(1024));
+        assert!(!build.is_frozen);
+    }
+
+    #[tokio::test]
+    async fn update_cgroup_stats_sets_frozen() {
+        let state = SharedState::new();
+        state.handle_event(make_started_event(1, 1000)).await;
+        state.update_cgroup_stats(1, 0, 0, None, true).await;
+        let build = state.get_build(1).await.unwrap();
+        assert!(build.is_frozen);
     }
 
     #[tokio::test]
