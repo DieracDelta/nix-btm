@@ -1,0 +1,30 @@
+[package]
+name = "nix-analyticsd"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "nix_analyticsd"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nix-analyticsd"
+path = "src/main.rs"
+
+[[bin]]
+name = "nix-analytics-ctl"
+path = "src/bin/nix-analytics-ctl.rs"
+
+[dependencies]
+nix-analytics-common = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+nix = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
