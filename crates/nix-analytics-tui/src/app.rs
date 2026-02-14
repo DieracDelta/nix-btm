@@ -37,6 +37,8 @@ pub struct App {
     pub show_log: bool,
     /// Log lines for the selected build.
     pub log_lines: Vec<String>,
+    /// Scroll offset for the log panel (0 = bottom/latest).
+    pub log_scroll: usize,
     /// Whether to show history instead of active builds.
     pub show_history: bool,
     /// Whether to show the machines panel.
@@ -95,6 +97,8 @@ pub struct App {
     pub folded_proc_pids: HashSet<u32>,
     /// Folded derivation activity_ids in processes view.
     pub folded_proc_builds: HashSet<u64>,
+    /// Whether the yank prompt is showing (waiting for field key after y).
+    pub yank_prompt: bool,
 }
 
 impl App {
@@ -109,6 +113,7 @@ impl App {
             selected: 0,
             show_log: false,
             log_lines: Vec::new(),
+            log_scroll: 0,
             show_history: false,
             show_machines: false,
             show_dep_tree: false,
@@ -138,6 +143,7 @@ impl App {
             visible_proc_indices: Vec::new(),
             folded_proc_pids: HashSet::new(),
             folded_proc_builds: HashSet::new(),
+            yank_prompt: false,
         }
     }
 
@@ -319,6 +325,20 @@ impl App {
 
     pub fn toggle_log_panel(&mut self) {
         self.show_log = !self.show_log;
+        self.log_scroll = 0;
+    }
+
+    pub fn log_scroll_up(&mut self) {
+        if self.show_log && !self.log_lines.is_empty() {
+            self.log_scroll = self.log_scroll.saturating_add(1)
+                .min(self.log_lines.len().saturating_sub(1));
+        }
+    }
+
+    pub fn log_scroll_down(&mut self) {
+        if self.show_log {
+            self.log_scroll = self.log_scroll.saturating_sub(1);
+        }
     }
 
     pub fn toggle_history(&mut self) {
@@ -553,6 +573,7 @@ impl App {
     pub fn exit_visual(&mut self) {
         self.visual_mode = false;
         self.action_prompt = false;
+        self.yank_prompt = false;
     }
 
     /// Range lo..=hi between anchor and cursor.
@@ -612,5 +633,182 @@ impl App {
 
     pub fn cancel_action_prompt(&mut self) {
         self.action_prompt = false;
+    }
+
+    pub fn show_yank_prompt(&mut self) {
+        self.yank_prompt = true;
+    }
+
+    pub fn cancel_yank_prompt(&mut self) {
+        self.yank_prompt = false;
+    }
+
+    /// Extract a field value from the builds view for yanking.
+    /// In visual mode, collects from all selected rows, newline-separated.
+    pub fn yank_build_field(&self, field: char) -> Option<String> {
+        let indices: Vec<usize> = if self.visual_mode {
+            let range = self.visual_selection_range();
+            self.visible_build_indices
+                .iter()
+                .enumerate()
+                .filter(|(vis_idx, _)| range.contains(vis_idx))
+                .filter_map(|(_, &build_idx)| {
+                    let build = &self.builds[build_idx];
+                    if self.command_root_ids.contains(&build.activity_id) {
+                        None
+                    } else {
+                        Some(build_idx)
+                    }
+                })
+                .collect()
+        } else {
+            self.visible_build_indices
+                .get(self.selected)
+                .copied()
+                .into_iter()
+                .collect()
+        };
+
+        if indices.is_empty() {
+            return None;
+        }
+
+        let values: Vec<String> = indices
+            .iter()
+            .filter_map(|&idx| {
+                let build = &self.builds[idx];
+                match field {
+                    'd' => {
+                        // Short derivation name (basename, trimmed of hash)
+                        build.drv_path.as_ref().map(|drv| {
+                            drv.rsplit('/')
+                                .next()
+                                .and_then(|name| name.split_once('-').map(|(_, rest)| rest))
+                                .map(|s| s.trim_end_matches(".drv").to_string())
+                                .unwrap_or_else(|| drv.clone())
+                        })
+                    }
+                    'D' => {
+                        // Full derivation path
+                        build.drv_path.clone()
+                    }
+                    'c' => {
+                        // Command line
+                        build.command_line.clone()
+                    }
+                    'p' => {
+                        // PID
+                        build.user_pid.map(|p| p.to_string())
+                    }
+                    'u' => {
+                        // User
+                        build.user.clone()
+                    }
+                    'm' => {
+                        // Memory: prefer cgroup memory_current, fall back to sum of process RSS
+                        if let Some(mem) = build.memory_current {
+                            Some(ui::format_bytes(mem))
+                        } else if let Some(snapshot) = &self.snapshot {
+                            snapshot.build_processes.get(&build.activity_id).map(|procs| {
+                                let total: u64 = procs.iter().map(|p| p.rss_bytes).sum();
+                                ui::format_bytes(total)
+                            })
+                        } else {
+                            None
+                        }
+                    }
+                    'l' => {
+                        // Log lines (from fetched log if available, else recent_log)
+                        if !self.log_lines.is_empty() {
+                            Some(self.log_lines.join("\n"))
+                        } else if !build.recent_log.is_empty() {
+                            let lines: Vec<&str> = build.recent_log.iter().map(|s| s.as_str()).collect();
+                            Some(lines.join("\n"))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+
+        if values.is_empty() {
+            None
+        } else {
+            Some(values.join("\n"))
+        }
+    }
+
+    /// Extract a field value from the processes view for yanking.
+    /// In visual mode, collects from all selected rows, newline-separated.
+    pub fn yank_proc_field(&self, field: char) -> Option<String> {
+        let vis_indices: Vec<usize> = if self.visual_mode {
+            let range = self.visual_selection_range();
+            range.filter(|&i| i < self.visible_proc_indices.len()).collect()
+        } else {
+            if self.proc_selected < self.visible_proc_indices.len() {
+                vec![self.proc_selected]
+            } else {
+                return None;
+            }
+        };
+
+        if vis_indices.is_empty() {
+            return None;
+        }
+
+        let values: Vec<String> = vis_indices
+            .iter()
+            .filter_map(|&vi| {
+                let row_idx = self.visible_proc_indices[vi];
+                let row = &self.proc_rows[row_idx];
+                match field {
+                    'd' => {
+                        // Derivation / name
+                        match row {
+                            ProcRow::NixCommand { cmdline, .. } => Some(cmdline.clone()),
+                            ProcRow::Derivation { drv, .. } => Some(drv.clone()),
+                            ProcRow::Process { info, .. } => {
+                                if info.cmdline.is_empty() {
+                                    Some(info.name.clone())
+                                } else {
+                                    Some(info.name.clone())
+                                }
+                            }
+                        }
+                    }
+                    'p' => {
+                        // PID
+                        match row {
+                            ProcRow::NixCommand { pid, .. } => Some(pid.to_string()),
+                            ProcRow::Derivation { .. } => None,
+                            ProcRow::Process { info, .. } => Some(info.pid.to_string()),
+                        }
+                    }
+                    'c' => {
+                        // Command
+                        match row {
+                            ProcRow::NixCommand { cmdline, .. } => Some(cmdline.clone()),
+                            ProcRow::Derivation { drv, .. } => Some(drv.clone()),
+                            ProcRow::Process { info, .. } => {
+                                if info.cmdline.is_empty() {
+                                    Some(format!("[{}]", info.name))
+                                } else {
+                                    Some(info.cmdline.clone())
+                                }
+                            }
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+
+        if values.is_empty() {
+            None
+        } else {
+            Some(values.join("\n"))
+        }
     }
 }

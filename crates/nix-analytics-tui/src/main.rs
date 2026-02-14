@@ -1,5 +1,6 @@
 mod app;
 mod client;
+mod clipboard;
 mod ui;
 
 use anyhow::Result;
@@ -95,6 +96,34 @@ async fn run_loop(
                     continue;
                 }
 
+                // Handle yank prompt (waiting for field key after y).
+                if app.yank_prompt {
+                    if key.code == KeyCode::Esc {
+                        app.cancel_yank_prompt();
+                        continue;
+                    }
+                    let key_char = match key.code {
+                        KeyCode::Char(c) => c,
+                        _ => { app.cancel_yank_prompt(); continue; }
+                    };
+                    let text = if app.show_processes {
+                        app.yank_proc_field(key_char)
+                    } else {
+                        app.yank_build_field(key_char)
+                    };
+                    if let Some(text) = text {
+                        match clipboard::osc52_copy(&text) {
+                            Ok(()) => app.set_status("Yanked to clipboard".to_string(), STATUS_DURATION),
+                            Err(e) => app.set_status(format!("Yank failed: {e}"), STATUS_DURATION_ERR),
+                        }
+                    } else {
+                        app.set_status("Field not available".to_string(), STATUS_DURATION);
+                    }
+                    app.cancel_yank_prompt();
+                    if app.visual_mode { app.exit_visual(); }
+                    continue;
+                }
+
                 // Handle pending `g` for `gg` chord.
                 if app.pending_g {
                     app.pending_g = false;
@@ -157,6 +186,9 @@ async fn run_loop(
                             app.enter_visual();
                         }
                     }
+                    (KeyCode::Char('y'), KeyModifiers::NONE) => {
+                        app.show_yank_prompt();
+                    }
                     (KeyCode::Char('a'), KeyModifiers::NONE) => app.toggle_show_all(),
                     (KeyCode::Char(' '), _) | (KeyCode::Tab, _) => {
                         if app.show_processes {
@@ -178,6 +210,8 @@ async fn run_loop(
                         app.toggle_dep_tree();
                     }
                     (KeyCode::Char('l'), KeyModifiers::NONE) => app.toggle_log_panel(),
+                    (KeyCode::Char('['), KeyModifiers::NONE) => app.log_scroll_up(),
+                    (KeyCode::Char(']'), KeyModifiers::NONE) => app.log_scroll_down(),
                     (KeyCode::Char('h'), KeyModifiers::NONE) => app.toggle_history(),
                     (KeyCode::Char('r'), KeyModifiers::NONE) => app.toggle_machines(),
                     (KeyCode::Char('/'), KeyModifiers::NONE) => {

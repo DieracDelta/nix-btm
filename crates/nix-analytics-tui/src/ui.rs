@@ -65,7 +65,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let filter_indicator = if !app.builds_filter.is_empty() { " [FILTER]" } else { "" };
     let header = Paragraph::new(format!(
         " nix-analytics | {active_count} active{view_indicator}{visual_indicator}{show_all_indicator}{filter_indicator} | \
-         [q]uit [d]eps [p]roc [K]ill/sig [V]isual [l]og [h]ist [a]ll [/]search [f]ilter | j/k ^u/^d gg/G zc/zo n/N"
+         [q]uit [d]eps [p]roc [K]ill/sig [V]isual [y]ank [l]og [h]ist [a]ll [/]search [f]ilter | j/k ^u/^d gg/G zc/zo n/N"
     ))
     .style(Style::default().fg(GRV_FG4))
     .block(Block::default().borders(Borders::ALL).title("nix-analytics")
@@ -105,6 +105,15 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         };
         let bar = Paragraph::new(prompt)
             .style(Style::default().fg(GRV_RED).bold());
+        frame.render_widget(bar, chunks[status_idx]);
+    } else if app.yank_prompt {
+        let prompt = if app.show_processes {
+            " Yank: [d]rv [p]id [c]md  (Esc cancel)"
+        } else {
+            " Yank: [d]rv [D]rv+hash [c]md [p]id [u]ser [m]em [l]og  (Esc cancel)"
+        };
+        let bar = Paragraph::new(prompt)
+            .style(Style::default().fg(GRV_GREEN).bold());
         frame.render_widget(bar, chunks[status_idx]);
     } else if app.input_mode {
         let label = if app.input_is_search { "/" } else { "filter: " };
@@ -1499,14 +1508,27 @@ fn render_log(frame: &mut Frame, app: &App, area: Rect) {
         .map(|b| format!("Log: {} ({})", drv_display_name(b), b.phase.as_deref().unwrap_or("?")))
         .unwrap_or_else(|| "Log".to_string());
 
-    let text: Vec<Line> = app
-        .log_lines
+    // Visible height inside the block (minus borders).
+    let inner_height = area.height.saturating_sub(2) as usize;
+
+    // Scroll: log_scroll=0 means show latest (bottom), higher values scroll up.
+    let total = app.log_lines.len();
+    let end = total.saturating_sub(app.log_scroll);
+    let start = end.saturating_sub(inner_height);
+
+    let text: Vec<Line> = app.log_lines[start..end]
         .iter()
         .map(|l| Line::from(format!(" > {l}")))
         .collect();
 
+    let scroll_indicator = if app.log_scroll > 0 {
+        format!(" (scroll: +{}, [/] to scroll)", app.log_scroll)
+    } else {
+        String::new()
+    };
+
     let paragraph = Paragraph::new(text)
-        .block(Block::default().borders(Borders::ALL).title(title)
+        .block(Block::default().borders(Borders::ALL).title(format!("{title}{scroll_indicator}"))
             .border_style(Style::default().fg(GRV_GRAY)))
         .wrap(Wrap { trim: false });
 
@@ -1581,7 +1603,7 @@ fn format_duration_us(us: u64) -> String {
     }
 }
 
-fn format_bytes(bytes: u64) -> String {
+pub fn format_bytes(bytes: u64) -> String {
     if bytes >= 1024 * 1024 * 1024 {
         format!("{:.1}G", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
     } else if bytes >= 1024 * 1024 {
