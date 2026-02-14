@@ -63,8 +63,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let visual_indicator = if app.visual_mode { " [VISUAL]" } else { "" };
     let show_all_indicator = if app.show_all_roots { " [ALL]" } else { "" };
     let filter_indicator = if !app.builds_filter.is_empty() { " [FILTER]" } else { "" };
+    let history_indicator = if app.show_history { " [HIST]" } else { "" };
     let header = Paragraph::new(format!(
-        " nix-analytics | {active_count} active{view_indicator}{visual_indicator}{show_all_indicator}{filter_indicator} | \
+        " nix-analytics | {active_count} active{view_indicator}{visual_indicator}{show_all_indicator}{filter_indicator}{history_indicator} | \
          [q]uit [d]eps [p]roc [K]ill/sig [V]isual [y]ank [l]og [h]ist [a]ll [/]search [f]ilter | j/k ^u/^d gg/G zc/zo n/N"
     ))
     .style(Style::default().fg(GRV_FG4))
@@ -84,8 +85,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         render_builds_table(frame, app, chunks[1]);
     }
 
-    // Machines panel.
-    if app.show_machines && chunks.len() > 2 {
+    // Machines or history panel (share the same slot).
+    if app.show_history && chunks.len() > 2 {
+        render_history(frame, app, chunks[2]);
+    } else if app.show_machines && chunks.len() > 2 {
         render_machines(frame, app, chunks[2]);
     }
 
@@ -108,7 +111,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         frame.render_widget(bar, chunks[status_idx]);
     } else if app.yank_prompt {
         let prompt = if app.show_processes {
-            " Yank: [d]rv [p]id [c]md  (Esc cancel)"
+            " Yank: [d]rv [p]id [c]md [m]em  (Esc cancel)"
         } else {
             " Yank: [d]rv [D]rv+hash [c]md [p]id [u]ser [m]em [l]og  (Esc cancel)"
         };
@@ -1376,7 +1379,9 @@ fn render_processes_table(frame: &mut Frame, app: &mut App, area: Rect) {
                     Row::new(vec![
                         Cell::from(format!("   {branch_char}{cap}")),
                         st,
-                        Cell::from(drv.clone()),
+                        Cell::from(Line::from(vec![
+                            Span::styled(format!("{drv}.drv"), Style::default().fg(GRV_AQUA)),
+                        ])),
                     ])
                     .style(style)
                 }
@@ -1500,6 +1505,80 @@ fn render_machines(frame: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(GRV_GRAY)));
 
     frame.render_widget(table, area);
+}
+
+fn render_history(frame: &mut Frame, app: &App, area: Rect) {
+    let history = app.history();
+    if history.is_empty() {
+        let p = Paragraph::new(" No completed builds yet")
+            .style(Style::default().fg(GRV_GRAY))
+            .block(Block::default().borders(Borders::ALL).title("History (h to close)")
+                .border_style(Style::default().fg(GRV_GRAY)));
+        frame.render_widget(p, area);
+        return;
+    }
+
+    let header = Row::new(vec![
+        Cell::from(" Derivation"),
+        Cell::from("Result"),
+        Cell::from("Duration"),
+        Cell::from("CPU usr"),
+        Cell::from("CPU sys"),
+        Cell::from("User"),
+    ])
+    .style(Style::default().bold());
+
+    let rows: Vec<Row> = history
+        .iter()
+        .map(|c| {
+            let name = drv_display_name(&c.build);
+            let (result_text, result_style) = if c.success {
+                ("ok", Style::default().fg(GRV_GREEN))
+            } else {
+                ("FAIL", Style::default().fg(GRV_RED).bold())
+            };
+            let duration = format_duration_secs(c.duration.as_secs());
+            let cpu_usr = format_duration_secs(c.cpu_user_total_us / 1_000_000);
+            let cpu_sys = format_duration_secs(c.cpu_system_total_us / 1_000_000);
+            let user = c.build.user.as_deref().unwrap_or("-");
+
+            Row::new(vec![
+                Cell::from(format!(" {name}")),
+                Cell::from(result_text).style(result_style),
+                Cell::from(duration),
+                Cell::from(cpu_usr),
+                Cell::from(cpu_sys),
+                Cell::from(user.to_string()),
+            ])
+        })
+        .collect();
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Min(25),     // Derivation
+            Constraint::Length(6),    // Result
+            Constraint::Length(8),    // Duration
+            Constraint::Length(8),    // CPU usr
+            Constraint::Length(8),    // CPU sys
+            Constraint::Length(8),    // User
+        ],
+    )
+    .header(header)
+    .block(Block::default().borders(Borders::ALL).title("History (h to close)")
+        .border_style(Style::default().fg(GRV_GRAY)));
+
+    frame.render_widget(table, area);
+}
+
+fn format_duration_secs(secs: u64) -> String {
+    let mins = secs / 60;
+    let secs = secs % 60;
+    if mins > 0 {
+        format!("{mins}m{secs:02}s")
+    } else {
+        format!("{secs}s")
+    }
 }
 
 fn render_log(frame: &mut Frame, app: &App, area: Rect) {

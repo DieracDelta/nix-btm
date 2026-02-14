@@ -800,6 +800,24 @@ impl App {
                             }
                         }
                     }
+                    'm' => {
+                        // Memory (RSS)
+                        match row {
+                            ProcRow::Process { info, .. } => {
+                                Some(ui::format_bytes(info.rss_bytes))
+                            }
+                            ProcRow::Derivation { activity_id, .. } => {
+                                // Sum RSS of all processes under this build
+                                self.snapshot.as_ref().and_then(|s| {
+                                    s.build_processes.get(activity_id).map(|procs| {
+                                        let total: u64 = procs.iter().map(|p| p.rss_bytes).sum();
+                                        ui::format_bytes(total)
+                                    })
+                                })
+                            }
+                            ProcRow::NixCommand { .. } => None,
+                        }
+                    }
                     _ => None,
                 }
             })
