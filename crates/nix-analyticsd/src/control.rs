@@ -1,5 +1,7 @@
 //! Control server: handles queries and commands from the TUI.
 
+use std::os::unix::fs::PermissionsExt;
+
 use anyhow::{Context, Result};
 use nix::sys::signal::Signal as NixSignal;
 use nix::unistd::Pid;
@@ -23,6 +25,10 @@ pub async fn run(socket_path: impl AsRef<std::path::Path>, state: SharedState) -
 
     let listener = UnixListener::bind(socket_path)
         .with_context(|| format!("binding to {}", socket_path.display()))?;
+
+    // Allow non-root users to connect to the control socket.
+    std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o666))
+        .with_context(|| format!("setting permissions on {}", socket_path.display()))?;
 
     tracing::info!(path = %socket_path.display(), "control server ready");
 
