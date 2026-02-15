@@ -43,8 +43,13 @@ struct AnalyticsSettings : Config
         )"};
 };
 
-static AnalyticsSettings analyticsSettings;
-static GlobalConfig::Register rAnalyticsSettings(&analyticsSettings);
+// Heap-allocated to avoid static destruction order fiasco in forked children.
+// nix-daemon forks per-connection children that call exit(), triggering all
+// static destructors.  If our GlobalConfig-registered objects destruct before
+// nix's own (e.g. FileTransferSettings), they corrupt shared state causing
+// double-free / segfault.  "Leaking" is safe: the OS reclaims everything.
+static AnalyticsSettings & analyticsSettings = *new AnalyticsSettings();
+static auto * rAnalyticsSettings = new GlobalConfig::Register(&analyticsSettings);
 
 // -- Socket connection --
 
@@ -118,7 +123,8 @@ public:
     }
 };
 
-static SocketWriter socketWriter;
+// Heap-allocated — same rationale as AnalyticsSettings above.
+static SocketWriter & socketWriter = *new SocketWriter();
 
 // -- Command line --
 
