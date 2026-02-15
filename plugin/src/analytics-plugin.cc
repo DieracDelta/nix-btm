@@ -19,6 +19,7 @@
 #include <sys/uio.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <link.h>
 #include <cstring>
 #include <chrono>
 #include <fstream>
@@ -379,10 +380,65 @@ public:
     }
 };
 
+// -- Version mismatch detection --
+
+struct NixLibScanResult
+{
+    int count = 0;
+    std::string paths;
+};
+
+static int countNixutilCallback(struct dl_phdr_info * info, size_t, void * data)
+{
+    auto * result = static_cast<NixLibScanResult *>(data);
+    std::string name = info->dlpi_name ? info->dlpi_name : "";
+    if (name.find("libnixutil") != std::string::npos) {
+        result->count++;
+        if (!result->paths.empty())
+            result->paths += ", ";
+        result->paths += name;
+    }
+    return 0;
+}
+
+/// Returns true if multiple copies of libnixutil are loaded (SONAME mismatch).
+static bool detectDuplicateNixLibs(std::string & details)
+{
+    NixLibScanResult scan;
+    dl_iterate_phdr(countNixutilCallback, &scan);
+    if (scan.count > 1) {
+        details = scan.paths;
+        return true;
+    }
+    return false;
+}
+
 // -- Plugin entry point --
 
 extern "C" void nix_plugin_entry()
 {
+    // Check for nix version mismatch (SONAME conflict).
+    // If the plugin was compiled against a different nix version than the
+    // running daemon, the dynamic linker loads two copies of libnixutil with
+    // different SONAMEs.  This causes duplicate global state (GlobalConfig,
+    // Settings, etc.) leading to double-free crashes when forked children exit.
+    {
+        std::string details;
+        if (detectDuplicateNixLibs(details)) {
+            fprintf(stderr,
+                "\n"
+                "WARNING: nix-analytics plugin DISABLED — nix version mismatch detected!\n"
+                "  Plugin compiled against: nix %s\n"
+                "  Loaded libnixutil copies: %s\n"
+                "  This causes duplicate global state and will crash nix-daemon.\n"
+                "  Rebuild the plugin against the same nix version as your daemon.\n"
+                "\n",
+                NIX_ANALYTICS_COMPILED_NIX_VERSION,
+                details.c_str());
+            return;  // Bail out — do NOT wrap the logger
+        }
+    }
+
     // Capture the nix command line for display in the TUI.
     nixCommandLine = readCommandLine();
 
