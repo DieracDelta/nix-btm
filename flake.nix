@@ -28,6 +28,39 @@
     {
       nixosModules.default = import ./module.nix;
 
+      overlays.default = final: prev: {
+        nix-analytics = final.rustPlatform.buildRustPackage {
+          pname = "nix-analytics";
+          version = "0.1.0";
+          src = final.lib.cleanSource ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+        };
+
+        nix-analytics-plugin = let
+          nixDev = final.nix.dev;
+          nixDevClosure = final.closureInfo { rootPaths = [ nixDev ]; };
+          nixPkgConfigDir = final.runCommand "nix-dev-pkgconfig" {} ''
+            mkdir -p $out/lib/pkgconfig
+            while read storePath; do
+              for d in "$storePath/lib/pkgconfig" "$storePath/share/pkgconfig"; do
+                if [ -d "$d" ]; then
+                  for f in "$d"/*.pc; do
+                    [ -f "$f" ] && ln -sf "$f" "$out/lib/pkgconfig/"
+                  done
+                fi
+              done
+            done < ${nixDevClosure}/store-paths
+          '';
+        in final.stdenv.mkDerivation {
+          pname = "nix-analytics-plugin";
+          version = "0.1.0";
+          src = ./plugin;
+          nativeBuildInputs = [ final.meson final.ninja final.pkg-config ];
+          buildInputs = [ nixDev final.boost ];
+          PKG_CONFIG_PATH = "${nixPkgConfigDir}/lib/pkgconfig";
+        };
+      };
+
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs {
