@@ -1,18 +1,23 @@
-{ self, pkgs }:
+{ self, pkgs
+, analyticsPackage ? self.packages.${pkgs.system}.default
+, pluginPackage ? self.packages.${pkgs.system}.nix-analytics-plugin
+, nixVersionLabel ? "default"
+}:
 
 let
   system = pkgs.system;
+  testSuffix = if nixVersionLabel == "default" then "" else "-nix-${nixVersionLabel}";
 in
 pkgs.testers.runNixOSTest {
-  name = "nix-analytics-e2e";
+  name = "nix-analytics-e2e${testSuffix}";
 
   nodes.machine = { config, pkgs, ... }: {
     imports = [ self.nixosModules.default ];
 
     services.nix-analytics = {
       enable = true;
-      package = self.packages.${system}.default;
-      pluginPackage = self.packages.${system}.nix-analytics-plugin;
+      package = analyticsPackage;
+      pluginPackage = pluginPackage;
     };
 
     virtualisation = {
@@ -29,8 +34,8 @@ pkgs.testers.runNixOSTest {
 
     services.nix-analytics = {
       enable = true;
-      package = self.packages.${system}.default;
-      pluginPackage = self.packages.${system}.nix-analytics-plugin;
+      package = analyticsPackage;
+      pluginPackage = pluginPackage;
       socketDir = "/run/custom-analytics";
     };
 
@@ -45,6 +50,23 @@ pkgs.testers.runNixOSTest {
   testScript = ''
     import json
     import time
+
+    crash_patterns = [
+        "SIGABRT", "SIGSEGV", "double free", "corrupted",
+        "core dumped", "segfault",
+    ]
+
+    def check_no_crashes(node, name):
+        journal = node.succeed("journalctl --no-pager -b")
+        for pat in crash_patterns:
+            if pat.lower() in journal.lower():
+                # Grab surrounding context
+                lines = journal.splitlines()
+                matches = [l for l in lines if pat.lower() in l.lower()]
+                context = "\n".join(matches[:10])
+                raise Exception(
+                    f"Crash indicator '{pat}' found on {name}:\n{context}"
+                )
 
     # ── Scenario A: Standard multi-user NixOS (default socket dir) ──
 
@@ -64,6 +86,7 @@ pkgs.testers.runNixOSTest {
     )
 
     time.sleep(2)
+    check_no_crashes(machine, "machine")
 
     # Query history — should have at least 1 entry.
     result = machine.succeed("nix-analytics-ctl get-history")
@@ -108,5 +131,7 @@ pkgs.testers.runNixOSTest {
     data = json.loads(result)
     assert data["status"] == "History", f"custom_socket: expected History, got {data}"
     assert len(data["builds"]) >= 1, f"custom_socket: expected at least 1 history entry, got {len(data['builds'])}"
+
+    check_no_crashes(custom_socket, "custom_socket")
   '';
 }

@@ -186,7 +186,7 @@ static std::string jsonEscape(const std::string & s)
 
 class AnalyticsLogger : public Logger
 {
-    Logger & inner;
+    std::unique_ptr<Logger> inner;
 
     // State for detecting cached derivations: a Realise activity that stops
     // without ever spawning a child Build/Substitute means the drv was already
@@ -196,41 +196,41 @@ class AnalyticsLogger : public Logger
     std::unordered_set<ActivityId> realiseWithChild;               // had a Build/Substitute child
 
 public:
-    explicit AnalyticsLogger(Logger & inner) : inner(inner) {}
+    explicit AnalyticsLogger(std::unique_ptr<Logger> inner) : inner(std::move(inner)) {}
 
     void log(Verbosity lvl, std::string_view s) override
     {
-        inner.log(lvl, s);
+        inner->log(lvl, s);
     }
 
     void logEI(const ErrorInfo & ei) override
     {
-        inner.logEI(ei);
+        inner->logEI(ei);
     }
 
     void warn(const std::string & msg) override
     {
-        inner.warn(msg);
+        inner->warn(msg);
     }
 
-    bool isVerbose() override { return inner.isVerbose(); }
-    void stop() override { inner.stop(); }
-    void pause() override { inner.pause(); }
-    void resume() override { inner.resume(); }
+    bool isVerbose() override { return inner->isVerbose(); }
+    void stop() override { inner->stop(); }
+    void pause() override { inner->pause(); }
+    void resume() override { inner->resume(); }
 
     void writeToStdout(std::string_view s) override
     {
-        inner.writeToStdout(s);
+        inner->writeToStdout(s);
     }
 
     std::optional<char> ask(std::string_view s) override
     {
-        return inner.ask(s);
+        return inner->ask(s);
     }
 
     void setPrintBuildLogs(bool b) override
     {
-        inner.setPrintBuildLogs(b);
+        inner->setPrintBuildLogs(b);
     }
 
     void startActivity(
@@ -241,7 +241,7 @@ public:
         const Fields & fields,
         ActivityId parent) override
     {
-        inner.startActivity(act, lvl, type, s, fields, parent);
+        inner->startActivity(act, lvl, type, s, fields, parent);
 
         // Extract drv_path from fields if this is a build activity.
         std::string drvPath;
@@ -284,7 +284,7 @@ public:
 
     void stopActivity(ActivityId act) override
     {
-        inner.stopActivity(act);
+        inner->stopActivity(act);
 
         // Detect cached derivations: a Realise that stops without ever
         // spawning a child Build/Substitute means the drv was already
@@ -317,7 +317,7 @@ public:
 
     void result(ActivityId act, ResultType type, const Fields & fields) override
     {
-        inner.result(act, type, fields);
+        inner->result(act, type, fields);
 
         switch (type) {
         case resSetPhase:
@@ -375,21 +375,17 @@ public:
 
 // -- Plugin entry point --
 
-// We keep the analytics logger alive for the lifetime of the process.
-static AnalyticsLogger * analyticsLogger = nullptr;
-
 extern "C" void nix_plugin_entry()
 {
     // Capture the nix command line for display in the TUI.
     nixCommandLine = readCommandLine();
 
     // Wrap the existing global logger.
-    // nix::logger is a unique_ptr<Logger> — we release the old one (keeping it
-    // alive via our wrapper's reference) and install our wrapper.
-    if (nix::logger && !analyticsLogger) {
-        // Release ownership of the original logger but keep it alive.
-        static std::unique_ptr<Logger> originalLogger = std::move(nix::logger);
-        analyticsLogger = new AnalyticsLogger(*originalLogger);
-        nix::logger.reset(analyticsLogger);
+    // nix::logger is a unique_ptr<Logger> — we move the original into our
+    // wrapper so there is a single ownership chain:
+    //   nix::logger owns AnalyticsLogger owns originalLogger
+    if (nix::logger) {
+        auto wrapper = std::make_unique<AnalyticsLogger>(std::move(nix::logger));
+        nix::logger = std::move(wrapper);
     }
 }

@@ -18,9 +18,13 @@
       url = "github:numtide/devshell";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    nix-2-33 = {
+      url = "github:NixOS/nix/2.33.0";
+    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, fenix, devshell, ... }:
+  outputs = { self, nixpkgs, rust-overlay, fenix, devshell, nix-2-33, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
@@ -119,6 +123,25 @@
             inherit system;
             overlays = [ rust-overlay.overlays.default ];
           };
+
+          mkVersionedTest = nixFlakeInput: versionLabel:
+            let
+              nixPkg = nixFlakeInput.packages.${system}.nix;
+              versionedPkgs = import nixpkgs {
+                inherit system;
+                overlays = [
+                  rust-overlay.overlays.default
+                  (final: prev: { nix = nixPkg; })
+                  self.overlays.default
+                ];
+              };
+            in import ./tests/vm-test.nix {
+              inherit self;
+              pkgs = versionedPkgs;
+              analyticsPackage = versionedPkgs.nix-analytics;
+              pluginPackage = versionedPkgs.nix-analytics-plugin;
+              nixVersionLabel = versionLabel;
+            };
         in
         {
           rust-tests = pkgs.rustPlatform.buildRustPackage {
@@ -130,6 +153,7 @@
           };
 
           vm-e2e = import ./tests/vm-test.nix { inherit self pkgs; };
+          vm-e2e-nix-2-33 = mkVersionedTest nix-2-33 "2.33.0";
         }
       );
 
