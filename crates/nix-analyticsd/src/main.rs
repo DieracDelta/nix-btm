@@ -14,14 +14,26 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    tracing::info!("nix-analyticsd starting");
+    let event_socket = protocol::event_socket_path();
+    let control_socket = protocol::control_socket_path();
+
+    tracing::info!(
+        ?event_socket,
+        ?control_socket,
+        "nix-analyticsd starting"
+    );
+
+    // Ensure the socket directory exists.
+    if let Some(parent) = event_socket.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
 
     let state = state::SharedState::new();
 
     // Spawn the event listener (reads from plugin socket)
     let event_state = state.clone();
     let event_handle = tokio::spawn(async move {
-        if let Err(e) = event_listener::run(protocol::DEFAULT_EVENT_SOCKET, event_state).await {
+        if let Err(e) = event_listener::run(&event_socket, event_state).await {
             tracing::error!("event listener failed: {e}");
         }
     });
@@ -29,7 +41,7 @@ async fn main() -> Result<()> {
     // Spawn the control server (serves TUI queries)
     let control_state = state.clone();
     let control_handle = tokio::spawn(async move {
-        if let Err(e) = control::run(protocol::DEFAULT_CONTROL_SOCKET, control_state).await {
+        if let Err(e) = control::run(&control_socket, control_state).await {
             tracing::error!("control server failed: {e}");
         }
     });

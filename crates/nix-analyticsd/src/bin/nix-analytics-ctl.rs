@@ -25,9 +25,10 @@ async fn main() -> Result<()> {
         other => anyhow::bail!("unknown command: {other}"),
     };
 
-    let mut stream = UnixStream::connect(protocol::DEFAULT_CONTROL_SOCKET)
+    let socket_path = protocol::control_socket_path();
+    let mut stream = UnixStream::connect(&socket_path)
         .await
-        .context("connecting to control socket")?;
+        .with_context(|| format!("connecting to {}", socket_path.display()))?;
 
     let request_bytes = protocol::encode_message(&request)?;
     stream.write_all(&request_bytes).await?;

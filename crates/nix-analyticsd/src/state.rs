@@ -23,6 +23,14 @@ fn parse_uid_from_cgroup_dir(path: &Path) -> Option<u32> {
     rest.split('-').next()?.parse().ok()
 }
 
+/// Resolve a UID to a username via the system passwd database.
+fn resolve_username(uid: u32) -> Option<String> {
+    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
+        .ok()
+        .flatten()
+        .map(|u| u.name)
+}
+
 /// Thread-safe shared state handle.
 #[derive(Clone)]
 pub struct SharedState {
@@ -361,15 +369,9 @@ impl SharedState {
     pub async fn set_cgroup_path(&self, activity_id: u64, path: std::path::PathBuf) {
         let mut state = self.inner.write().await;
         if let Some(build) = state.active_builds.get_mut(&activity_id) {
-            // Parse UID from cgroup name like "nix-build-uid-1000-0"
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if let Some(rest) = name.strip_prefix("nix-build-uid-") {
-                    if let Some(uid_str) = rest.split('-').next() {
-                        if let Ok(uid) = uid_str.parse::<u32>() {
-                            build.user_uid = Some(uid);
-                        }
-                    }
-                }
+            if let Some(uid) = parse_uid_from_cgroup_dir(&path) {
+                build.user_uid = Some(uid);
+                build.user = resolve_username(uid);
             }
             build.cgroup_path = Some(path);
         }
@@ -379,6 +381,7 @@ impl SharedState {
     /// don't already have a cgroup.  Also parses the UID from the cgroup dir name.
     pub async fn assign_cgroup_by_pid(&self, pid: u32, path: std::path::PathBuf) {
         let uid = parse_uid_from_cgroup_dir(&path);
+        let username = uid.and_then(resolve_username);
         let mut state = self.inner.write().await;
         for build in state.active_builds.values_mut() {
             if build.cgroup_path.is_none() && build.user_pid == Some(pid) {
@@ -386,6 +389,7 @@ impl SharedState {
                 if let Some(uid) = uid {
                     build.user_uid = Some(uid);
                 }
+                build.user = username.clone();
                 build.cgroup_path = Some(path.clone());
             }
         }
@@ -394,6 +398,7 @@ impl SharedState {
     /// Assign a cgroup to any unassigned build (fallback for daemon-socket builds).
     pub async fn assign_cgroup_to_any(&self, path: &std::path::Path) {
         let uid = parse_uid_from_cgroup_dir(path);
+        let username = uid.and_then(resolve_username);
         let mut state = self.inner.write().await;
         for build in state.active_builds.values_mut() {
             if build.cgroup_path.is_none() {
@@ -401,6 +406,7 @@ impl SharedState {
                 if let Some(uid) = uid {
                     build.user_uid = Some(uid);
                 }
+                build.user = username.clone();
                 build.cgroup_path = Some(path.to_path_buf());
             }
         }
@@ -769,6 +775,44 @@ mod tests {
     async fn get_build_returns_none_for_missing() {
         let state = SharedState::new();
         assert!(state.get_build(999).await.is_none());
+    }
+
+    #[test]
+    fn resolve_username_for_root() {
+        // UID 0 is always "root" on any Unix system.
+        assert_eq!(resolve_username(0), Some("root".to_string()));
+    }
+
+    #[test]
+    fn resolve_username_nonexistent_uid() {
+        // Very high UID should not resolve to anything.
+        assert_eq!(resolve_username(4_000_000_000), None);
+    }
+
+    #[tokio::test]
+    async fn set_cgroup_path_resolves_user() {
+        let state = SharedState::new();
+        state.handle_event(make_started_event(1, 1000)).await;
+        // UID 0 = root, which should always be resolvable.
+        state
+            .set_cgroup_path(1, PathBuf::from("/sys/fs/cgroup/nix-daemon/nix-build-uid-0-0"))
+            .await;
+        let build = state.get_build(1).await.unwrap();
+        assert_eq!(build.user_uid, Some(0));
+        assert_eq!(build.user.as_deref(), Some("root"));
+    }
+
+    #[tokio::test]
+    async fn set_cgroup_path_no_uid_no_user() {
+        let state = SharedState::new();
+        state.handle_event(make_started_event(1, 1000)).await;
+        // A cgroup path without uid pattern should not set user.
+        state
+            .set_cgroup_path(1, PathBuf::from("/sys/fs/cgroup/nix-daemon/nix-build-pid-1234-0"))
+            .await;
+        let build = state.get_build(1).await.unwrap();
+        assert_eq!(build.user_uid, None);
+        assert_eq!(build.user, None);
     }
 
     #[tokio::test]

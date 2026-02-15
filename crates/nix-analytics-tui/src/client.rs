@@ -9,17 +9,18 @@ use nix_analytics_common::types::AnalyticsSnapshot;
 
 pub struct AnalyticsClient {
     stream: UnixStream,
-    socket_path: String,
+    socket_path: std::path::PathBuf,
 }
 
 impl AnalyticsClient {
-    pub async fn connect(socket_path: &str) -> Result<Self> {
-        let stream = UnixStream::connect(socket_path)
+    pub async fn connect(socket_path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let socket_path = socket_path.as_ref().to_path_buf();
+        let stream = UnixStream::connect(&socket_path)
             .await
-            .with_context(|| format!("connecting to {socket_path}"))?;
+            .with_context(|| format!("connecting to {}", socket_path.display()))?;
         Ok(Self {
             stream,
-            socket_path: socket_path.to_string(),
+            socket_path,
         })
     }
 
@@ -30,7 +31,7 @@ impl AnalyticsClient {
                 // Connection may be broken — reconnect and retry once.
                 self.stream = UnixStream::connect(&self.socket_path)
                     .await
-                    .with_context(|| format!("reconnecting to {}", self.socket_path))?;
+                    .with_context(|| format!("reconnecting to {}", self.socket_path.display()))?;
                 self.try_send_request(request).await
             }
         }

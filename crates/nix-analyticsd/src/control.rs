@@ -11,18 +11,20 @@ use nix_analytics_common::protocol::{self, BuildAction, Request, Response};
 use crate::state::SharedState;
 
 /// Run the control server loop.
-pub async fn run(socket_path: &str, state: SharedState) -> Result<()> {
+pub async fn run(socket_path: impl AsRef<std::path::Path>, state: SharedState) -> Result<()> {
+    let socket_path = socket_path.as_ref();
+
     let _ = std::fs::remove_file(socket_path);
 
-    if let Some(parent) = std::path::Path::new(socket_path).parent() {
+    if let Some(parent) = socket_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating directory {}", parent.display()))?;
     }
 
-    let listener =
-        UnixListener::bind(socket_path).with_context(|| format!("binding to {socket_path}"))?;
+    let listener = UnixListener::bind(socket_path)
+        .with_context(|| format!("binding to {}", socket_path.display()))?;
 
-    tracing::info!("control server ready on {socket_path}");
+    tracing::info!(path = %socket_path.display(), "control server ready");
 
     loop {
         let (stream, _addr) = listener.accept().await?;

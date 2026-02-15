@@ -5,6 +5,8 @@
 //!
 //!   [4 bytes: big-endian u32 length][MessagePack payload]
 
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::types::{AnalyticsSnapshot, Build, CompletedBuild, RemoteMachine};
@@ -14,6 +16,32 @@ pub const DEFAULT_EVENT_SOCKET: &str = "/run/nix-analytics/events.sock";
 
 /// Default path for the TUI → daemon control socket.
 pub const DEFAULT_CONTROL_SOCKET: &str = "/run/nix-analytics/control.sock";
+
+/// Resolve the socket directory.
+///
+/// Priority:
+/// 1. `NIX_ANALYTICS_SOCKET_DIR` environment variable
+/// 2. `$XDG_RUNTIME_DIR/nix-analytics` (user-scoped, for rootless nix)
+/// 3. `/run/nix-analytics` (system default)
+pub fn socket_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("NIX_ANALYTICS_SOCKET_DIR") {
+        return PathBuf::from(dir);
+    }
+    if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+        return PathBuf::from(xdg).join("nix-analytics");
+    }
+    PathBuf::from("/run/nix-analytics")
+}
+
+/// Resolve the event socket path (plugin → daemon).
+pub fn event_socket_path() -> PathBuf {
+    socket_dir().join("events.sock")
+}
+
+/// Resolve the control socket path (TUI/ctl → daemon).
+pub fn control_socket_path() -> PathBuf {
+    socket_dir().join("control.sock")
+}
 
 /// Maximum number of log lines to keep per build.
 pub const MAX_LOG_LINES: usize = 500;
@@ -277,5 +305,72 @@ mod tests {
         let garbage = b"this is not valid msgpack";
         let result = decode_message::<Request>(garbage);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn socket_dir_from_env() {
+        // Save and restore env to avoid poisoning other tests.
+        let saved = std::env::var("NIX_ANALYTICS_SOCKET_DIR").ok();
+        let saved_xdg = std::env::var("XDG_RUNTIME_DIR").ok();
+        std::env::set_var("NIX_ANALYTICS_SOCKET_DIR", "/tmp/custom-analytics");
+        assert_eq!(socket_dir(), PathBuf::from("/tmp/custom-analytics"));
+        assert_eq!(
+            event_socket_path(),
+            PathBuf::from("/tmp/custom-analytics/events.sock")
+        );
+        assert_eq!(
+            control_socket_path(),
+            PathBuf::from("/tmp/custom-analytics/control.sock")
+        );
+        // Restore
+        std::env::remove_var("NIX_ANALYTICS_SOCKET_DIR");
+        match saved {
+            Some(v) => std::env::set_var("NIX_ANALYTICS_SOCKET_DIR", v),
+            None => {}
+        }
+        match saved_xdg {
+            Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+            None => {}
+        }
+    }
+
+    #[test]
+    fn socket_dir_from_xdg_runtime() {
+        let saved = std::env::var("NIX_ANALYTICS_SOCKET_DIR").ok();
+        let saved_xdg = std::env::var("XDG_RUNTIME_DIR").ok();
+        std::env::remove_var("NIX_ANALYTICS_SOCKET_DIR");
+        std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
+        assert_eq!(
+            socket_dir(),
+            PathBuf::from("/run/user/1000/nix-analytics")
+        );
+        // Restore
+        std::env::remove_var("XDG_RUNTIME_DIR");
+        match saved {
+            Some(v) => std::env::set_var("NIX_ANALYTICS_SOCKET_DIR", v),
+            None => {}
+        }
+        match saved_xdg {
+            Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+            None => {}
+        }
+    }
+
+    #[test]
+    fn socket_dir_default_fallback() {
+        let saved = std::env::var("NIX_ANALYTICS_SOCKET_DIR").ok();
+        let saved_xdg = std::env::var("XDG_RUNTIME_DIR").ok();
+        std::env::remove_var("NIX_ANALYTICS_SOCKET_DIR");
+        std::env::remove_var("XDG_RUNTIME_DIR");
+        assert_eq!(socket_dir(), PathBuf::from("/run/nix-analytics"));
+        // Restore
+        match saved {
+            Some(v) => std::env::set_var("NIX_ANALYTICS_SOCKET_DIR", v),
+            None => {}
+        }
+        match saved_xdg {
+            Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+            None => {}
+        }
     }
 }

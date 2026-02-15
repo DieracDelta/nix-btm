@@ -13,20 +13,22 @@ use crate::state::SharedState;
 /// Accepts connections from the plugin on the given socket path and processes
 /// events. The plugin opens a new connection from each daemon fork, so we
 /// handle multiple concurrent connections.
-pub async fn run(socket_path: &str, state: SharedState) -> Result<()> {
+pub async fn run(socket_path: impl AsRef<std::path::Path>, state: SharedState) -> Result<()> {
+    let socket_path = socket_path.as_ref();
+
     // Clean up stale socket file.
     let _ = std::fs::remove_file(socket_path);
 
     // Ensure parent directory exists.
-    if let Some(parent) = std::path::Path::new(socket_path).parent() {
+    if let Some(parent) = socket_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating directory {}", parent.display()))?;
     }
 
-    let listener =
-        UnixListener::bind(socket_path).with_context(|| format!("binding to {socket_path}"))?;
+    let listener = UnixListener::bind(socket_path)
+        .with_context(|| format!("binding to {}", socket_path.display()))?;
 
-    tracing::info!("event listener ready on {socket_path}");
+    tracing::info!(path = %socket_path.display(), "event listener ready");
 
     loop {
         let (stream, _addr) = listener.accept().await?;

@@ -19,7 +19,7 @@ const STATUS_DURATION_ERR: std::time::Duration = std::time::Duration::from_secs(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut client = client::AnalyticsClient::connect(protocol::DEFAULT_CONTROL_SOCKET).await?;
+    let mut client = client::AnalyticsClient::connect(protocol::control_socket_path()).await?;
     let mut app = app::App::new();
 
     // Initial data fetch.

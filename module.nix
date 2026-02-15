@@ -18,6 +18,17 @@ in
       default = pkgs.nix-analytics-plugin or (throw "nix-analytics-plugin package not found; add the flake overlay or set services.nix-analytics.pluginPackage");
       description = "The nix-analytics C++ plugin package (provides libnix-analytics.so).";
     };
+
+    socketDir = lib.mkOption {
+      type = lib.types.str;
+      default = "/run/nix-analytics";
+      description = ''
+        Directory for the daemon's Unix sockets (events.sock and control.sock).
+        Override this for rootless nix or custom deployments. The daemon, TUI, and
+        ctl tool all respect the NIX_ANALYTICS_SOCKET_DIR environment variable,
+        which this option sets.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -26,14 +37,21 @@ in
       use-cgroups = true;
     };
 
+    # Tell the plugin where to send events when using a custom socket dir.
+    nix.extraOptions = lib.mkIf (cfg.socketDir != "/run/nix-analytics") ''
+      analytics-socket = ${cfg.socketDir}/events.sock
+    '';
+
     systemd.tmpfiles.rules = [
-      "d /run/nix-analytics 0755 root root -"
+      "d ${cfg.socketDir} 0755 root root -"
     ];
 
     systemd.services.nix-analyticsd = {
       description = "Nix Analytics Daemon";
       after = [ "nix-daemon.service" ];
       wantedBy = [ "multi-user.target" ];
+
+      environment.NIX_ANALYTICS_SOCKET_DIR = cfg.socketDir;
 
       serviceConfig = {
         ExecStart = "${cfg.package}/bin/nix-analyticsd";
@@ -42,6 +60,8 @@ in
       };
     };
 
+    # Set the env var system-wide so TUI and ctl find the sockets.
+    environment.sessionVariables.NIX_ANALYTICS_SOCKET_DIR = cfg.socketDir;
     environment.systemPackages = [ cfg.package ];
   };
 }
