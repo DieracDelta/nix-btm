@@ -378,6 +378,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

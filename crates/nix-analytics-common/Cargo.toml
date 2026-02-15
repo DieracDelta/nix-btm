@@ -7,3 +7,6 @@ edition.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

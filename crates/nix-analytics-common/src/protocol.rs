@@ -20,15 +20,18 @@ pub const DEFAULT_CONTROL_SOCKET: &str = "/run/nix-analytics/control.sock";
 /// Resolve the socket directory.
 ///
 /// Priority:
-/// 1. `NIX_ANALYTICS_SOCKET_DIR` environment variable
-/// 2. `$XDG_RUNTIME_DIR/nix-analytics` (user-scoped, for rootless nix)
+/// 1. `NIX_ANALYTICS_SOCKET_DIR` environment variable (explicit override)
+/// 2. `$XDG_RUNTIME_DIR/nix-analytics` if it exists and has a socket (rootless nix)
 /// 3. `/run/nix-analytics` (system default)
 pub fn socket_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("NIX_ANALYTICS_SOCKET_DIR") {
         return PathBuf::from(dir);
     }
     if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
-        return PathBuf::from(xdg).join("nix-analytics");
+        let user_dir = PathBuf::from(xdg).join("nix-analytics");
+        if user_dir.join("control.sock").exists() || user_dir.join("events.sock").exists() {
+            return user_dir;
+        }
     }
     PathBuf::from("/run/nix-analytics")
 }
@@ -335,15 +338,23 @@ mod tests {
     }
 
     #[test]
-    fn socket_dir_from_xdg_runtime() {
+    fn socket_dir_from_xdg_runtime_with_socket() {
         let saved = std::env::var("NIX_ANALYTICS_SOCKET_DIR").ok();
         let saved_xdg = std::env::var("XDG_RUNTIME_DIR").ok();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let user_dir = tmp.path().join("nix-analytics");
+        std::fs::create_dir_all(&user_dir).unwrap();
+        std::fs::write(user_dir.join("control.sock"), b"").unwrap();
+
         std::env::remove_var("NIX_ANALYTICS_SOCKET_DIR");
-        std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
-        assert_eq!(
-            socket_dir(),
-            PathBuf::from("/run/user/1000/nix-analytics")
-        );
+        std::env::set_var("XDG_RUNTIME_DIR", tmp.path());
+        assert_eq!(socket_dir(), user_dir);
+
+        // Without a socket file, XDG is skipped
+        std::fs::remove_file(user_dir.join("control.sock")).unwrap();
+        assert_eq!(socket_dir(), PathBuf::from("/run/nix-analytics"));
+
         // Restore
         std::env::remove_var("XDG_RUNTIME_DIR");
         match saved {
