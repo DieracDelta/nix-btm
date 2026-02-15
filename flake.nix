@@ -102,15 +102,23 @@
 
       apps = forAllSystems (system:
         let
-          vm = import ./dev-vm.nix {
-            inherit self nixpkgs system;
+          mkVm = scenario: import ./dev-vm.nix {
+            inherit self nixpkgs system scenario;
             projectDir = builtins.getEnv "PWD";
           };
         in
         {
           dev-vm = {
             type = "app";
-            program = "${vm}/bin/run-nixos-vm";
+            program = "${mkVm "default"}/bin/run-nixos-vm";
+          };
+          dev-vm-root = {
+            type = "app";
+            program = "${mkVm "root"}/bin/run-nixos-vm";
+          };
+          dev-vm-daemonless = {
+            type = "app";
+            program = "${mkVm "daemonless"}/bin/run-nixos-vm";
           };
         }
       );
