@@ -260,9 +260,11 @@ async fn run_loop(
                         app.show_yank_prompt();
                     }
                     (KeyCode::Char('a'), KeyModifiers::NONE) => app.toggle_show_all(),
-                    (KeyCode::Char('H'), KeyModifiers::SHIFT | KeyModifiers::NONE) => {
+                    (KeyCode::Char('H'), _) => {
                         if app.show_dep_tree {
                             app.toggle_dep_history();
+                        } else if !app.show_processes {
+                            app.toggle_show_all();
                         }
                     }
                     (KeyCode::Char(' '), _) => {
