@@ -38,6 +38,7 @@
           version = "0.1.0";
           src = final.lib.cleanSource ./.;
           cargoLock.lockFile = ./Cargo.lock;
+          GIT_HASH = self.shortRev or self.dirtyShortRev or "dev";
         };
 
         nix-analytics-plugin = let
@@ -94,6 +95,7 @@
             version = "0.1.0";
             src = pkgs.lib.cleanSource ./.;
             cargoLock.lockFile = ./Cargo.lock;
+            GIT_HASH = self.shortRev or self.dirtyShortRev or "dev";
           };
 
           nix-analytics-plugin = pkgs.stdenv.mkDerivation {
@@ -150,6 +152,7 @@
             src = pkgs.lib.cleanSource ./.;
             cargoLock.lockFile = ./Cargo.lock;
             doCheck = true;
+            GIT_HASH = self.shortRev or self.dirtyShortRev or "dev";
           };
 
           vm-e2e = import ./tests/vm-test.nix { inherit self pkgs; };
