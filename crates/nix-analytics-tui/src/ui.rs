@@ -137,6 +137,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             .style(Style::default().fg(GRV_YELLOW));
         frame.render_widget(status, chunks[status_idx]);
     }
+
+    // Version hash in bottom-right corner.
+    let hash = env!("GIT_HASH");
+    if !hash.is_empty() {
+        let label = format!("{hash} ");
+        let w = label.len() as u16;
+        let bar = chunks[status_idx];
+        if bar.width > w {
+            let version_area = Rect::new(bar.x + bar.width - w, bar.y, w, 1);
+            let version = Paragraph::new(label)
+                .style(Style::default().fg(GRV_GRAY))
+                .alignment(Alignment::Right);
+            frame.render_widget(version, version_area);
+        }
+    }
 }
 
 /// Result of tree-ordering builds.
@@ -272,7 +287,11 @@ pub fn tree_order_builds(mut builds: Vec<Build>) -> TreeOrderResult {
     // Use a counter for synthetic root IDs, starting from u64::MAX and going down.
     let mut synthetic_counter: u64 = 0;
 
-    for (cmd, group) in &cmd_groups {
+    // Sort cmd_groups by command_line for deterministic synthetic ID assignment.
+    let mut cmd_groups_sorted: Vec<_> = cmd_groups.into_iter().collect();
+    cmd_groups_sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+    for (cmd, group) in &cmd_groups_sorted {
         // Find the best representative: prefer Builds > CopyPaths > none.
         let builds_type_id = group.iter().find(|&&id| {
             builds
