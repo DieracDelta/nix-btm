@@ -1,14 +1,14 @@
-//! Shared mutable state for the analytics daemon.
+//! Shared mutable state for the btm daemon.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use nix_analytics_common::event::{ActivityType, AnalyticsEvent};
-use nix_analytics_common::protocol::{MAX_HISTORY, MAX_LOG_LINES};
-use nix_analytics_common::types::{
-    AnalyticsSnapshot, Build, BuildMachine, CompletedBuild, ProcessInfo, Progress, RemoteMachine,
+use nix_btm_common::event::{ActivityType, BtmEvent};
+use nix_btm_common::protocol::{MAX_HISTORY, MAX_LOG_LINES};
+use nix_btm_common::types::{
+    BtmSnapshot, Build, BuildMachine, CompletedBuild, ProcessInfo, Progress, RemoteMachine,
 };
 
 use std::path::Path;
@@ -59,10 +59,10 @@ impl SharedState {
     }
 
     /// Process an incoming event from the plugin.
-    pub async fn handle_event(&self, event: AnalyticsEvent) {
+    pub async fn handle_event(&self, event: BtmEvent) {
         let mut state = self.inner.write().await;
         match event {
-            AnalyticsEvent::ActivityStarted {
+            BtmEvent::ActivityStarted {
                 timestamp_us,
                 activity_id,
                 activity_type,
@@ -133,7 +133,7 @@ impl SharedState {
                 }
             }
 
-            AnalyticsEvent::ActivityStopped {
+            BtmEvent::ActivityStopped {
                 timestamp_us,
                 activity_id,
             } => {
@@ -164,7 +164,7 @@ impl SharedState {
                 }
             }
 
-            AnalyticsEvent::PhaseChanged {
+            BtmEvent::PhaseChanged {
                 activity_id, phase, ..
             } => {
                 if let Some(build) = state.active_builds.get_mut(&activity_id) {
@@ -173,7 +173,7 @@ impl SharedState {
                 state.dep_graph_manager.update_phase(activity_id, &phase);
             }
 
-            AnalyticsEvent::LogLine {
+            BtmEvent::LogLine {
                 activity_id, text, ..
             } => {
                 if let Some(build) = state.active_builds.get_mut(&activity_id) {
@@ -184,7 +184,7 @@ impl SharedState {
                 }
             }
 
-            AnalyticsEvent::Progress {
+            BtmEvent::Progress {
                 activity_id,
                 done,
                 expected,
@@ -203,7 +203,7 @@ impl SharedState {
                 state.dep_graph_manager.update_progress(activity_id, done, expected);
             }
 
-            AnalyticsEvent::PostBuildLogLine {
+            BtmEvent::PostBuildLogLine {
                 activity_id, text, ..
             } => {
                 if let Some(build) = state.active_builds.get_mut(&activity_id) {
@@ -214,7 +214,7 @@ impl SharedState {
                 }
             }
 
-            AnalyticsEvent::DrvCached {
+            BtmEvent::DrvCached {
                 activity_id,
                 drv_path,
                 ..
@@ -238,7 +238,7 @@ impl SharedState {
                 }
             }
 
-            AnalyticsEvent::RemoteDispatch {
+            BtmEvent::RemoteDispatch {
                 activity_id,
                 machine_uri,
                 ..
@@ -282,9 +282,9 @@ impl SharedState {
     }
 
     /// Get a snapshot of the current state for the TUI.
-    pub async fn snapshot(&self) -> AnalyticsSnapshot {
+    pub async fn snapshot(&self) -> BtmSnapshot {
         let state = self.inner.read().await;
-        AnalyticsSnapshot {
+        BtmSnapshot {
             active_builds: state.active_builds.clone(),
             recent_history: state.history.iter().cloned().collect(),
             machines: state.machines.clone(),
@@ -482,8 +482,8 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn make_started_event(id: u64, ts: u64) -> AnalyticsEvent {
-        AnalyticsEvent::ActivityStarted {
+    fn make_started_event(id: u64, ts: u64) -> BtmEvent {
+        BtmEvent::ActivityStarted {
             timestamp_us: ts,
             activity_id: id,
             activity_type: 105,
@@ -510,7 +510,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1, 1000)).await;
         state
-            .handle_event(AnalyticsEvent::ActivityStopped {
+            .handle_event(BtmEvent::ActivityStopped {
                 timestamp_us: 2000,
                 activity_id: 1,
             })
@@ -528,7 +528,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1, 1000)).await;
         state
-            .handle_event(AnalyticsEvent::ActivityStopped {
+            .handle_event(BtmEvent::ActivityStopped {
                 timestamp_us: 2000,
                 activity_id: 1,
             })
@@ -542,7 +542,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1, 1000)).await;
         state
-            .handle_event(AnalyticsEvent::Progress {
+            .handle_event(BtmEvent::Progress {
                 timestamp_us: 1500,
                 activity_id: 1,
                 done: 5,
@@ -552,7 +552,7 @@ mod tests {
             })
             .await;
         state
-            .handle_event(AnalyticsEvent::ActivityStopped {
+            .handle_event(BtmEvent::ActivityStopped {
                 timestamp_us: 2000,
                 activity_id: 1,
             })
@@ -566,7 +566,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1, 1000)).await;
         state
-            .handle_event(AnalyticsEvent::Progress {
+            .handle_event(BtmEvent::Progress {
                 timestamp_us: 1500,
                 activity_id: 1,
                 done: 5,
@@ -576,7 +576,7 @@ mod tests {
             })
             .await;
         state
-            .handle_event(AnalyticsEvent::ActivityStopped {
+            .handle_event(BtmEvent::ActivityStopped {
                 timestamp_us: 2000,
                 activity_id: 1,
             })
@@ -590,7 +590,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1, 1000)).await;
         state
-            .handle_event(AnalyticsEvent::PhaseChanged {
+            .handle_event(BtmEvent::PhaseChanged {
                 timestamp_us: 1500,
                 activity_id: 1,
                 phase: "buildPhase".to_string(),
@@ -605,7 +605,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1, 1000)).await;
         state
-            .handle_event(AnalyticsEvent::LogLine {
+            .handle_event(BtmEvent::LogLine {
                 timestamp_us: 1500,
                 activity_id: 1,
                 text: "compiling main.c".to_string(),
@@ -621,7 +621,7 @@ mod tests {
         state.handle_event(make_started_event(1, 1000)).await;
         for i in 0..MAX_LOG_LINES + 10 {
             state
-                .handle_event(AnalyticsEvent::LogLine {
+                .handle_event(BtmEvent::LogLine {
                     timestamp_us: 1500 + i as u64,
                     activity_id: 1,
                     text: format!("line {i}"),
@@ -639,7 +639,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1, 1000)).await;
         state
-            .handle_event(AnalyticsEvent::PostBuildLogLine {
+            .handle_event(BtmEvent::PostBuildLogLine {
                 timestamp_us: 1500,
                 activity_id: 1,
                 text: "signing path".to_string(),
@@ -654,7 +654,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1, 1000)).await;
         state
-            .handle_event(AnalyticsEvent::Progress {
+            .handle_event(BtmEvent::Progress {
                 timestamp_us: 1500,
                 activity_id: 1,
                 done: 3,
@@ -691,7 +691,7 @@ mod tests {
             .await;
 
         state
-            .handle_event(AnalyticsEvent::RemoteDispatch {
+            .handle_event(BtmEvent::RemoteDispatch {
                 timestamp_us: 1500,
                 activity_id: 1,
                 machine_uri: "ssh-ng://builder".to_string(),
@@ -714,7 +714,7 @@ mod tests {
         for i in 0..(MAX_HISTORY as u64 + 5) {
             state.handle_event(make_started_event(i, i * 1000)).await;
             state
-                .handle_event(AnalyticsEvent::ActivityStopped {
+                .handle_event(BtmEvent::ActivityStopped {
                     timestamp_us: i * 1000 + 500,
                     activity_id: i,
                 })
@@ -819,7 +819,7 @@ mod tests {
     async fn activity_started_stores_nix_pid() {
         let state = SharedState::new();
         state
-            .handle_event(AnalyticsEvent::ActivityStarted {
+            .handle_event(BtmEvent::ActivityStarted {
                 timestamp_us: 1000,
                 activity_id: 42,
                 activity_type: 105,

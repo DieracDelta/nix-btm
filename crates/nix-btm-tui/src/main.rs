@@ -12,14 +12,14 @@ use crossterm::{
 use ratatui::prelude::*;
 use std::io::stdout;
 
-use nix_analytics_common::protocol::{self, BuildAction};
+use nix_btm_common::protocol::{self, BuildAction};
 
 const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(3);
 const STATUS_DURATION_ERR: std::time::Duration = std::time::Duration::from_secs(8);
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut client = client::AnalyticsClient::connect(protocol::control_socket_path()).await?;
+    let mut client = client::BtmClient::connect(protocol::control_socket_path()).await?;
     let mut app = app::App::new();
 
     // Initial data fetch.
@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
 async fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut app::App,
-    client: &mut client::AnalyticsClient,
+    client: &mut client::BtmClient,
 ) -> Result<()> {
     let refresh_interval = std::time::Duration::from_secs(1);
     let mut last_refresh = std::time::Instant::now();

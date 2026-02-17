@@ -1,12 +1,12 @@
-# nix-analytics: Design Document
+# nix-btm: Design Document
 
 ## Overview
 
-nix-analytics is a build monitoring and control system for Nix. It consists of three components:
+nix-btm is a build monitoring and control system for Nix. It consists of three components:
 
-1. **libnix-analytics.so** — A C++ plugin loaded by the nix-daemon that taps into the Logger to emit structured build events
-2. **nix-analyticsd** — A Rust daemon that consumes events, maintains live build state, and exposes a query/control API
-3. **nix-analytics** — A Rust TUI client for monitoring and controlling builds
+1. **libnix-btm.so** — A C++ plugin loaded by the nix-daemon that taps into the Logger to emit structured build events
+2. **nix-btmd** — A Rust daemon that consumes events, maintains live build state, and exposes a query/control API
+3. **nix-btm** — A Rust TUI client for monitoring and controlling builds
 
 No fork of Nix is required. The plugin uses Nix's existing `plugin-files` mechanism.
 
@@ -17,9 +17,9 @@ No fork of Nix is required. The plugin uses Nix's existing `plugin-files` mechan
                            │                  USER MACHINE                   │
                            │                                                 │
   ┌──────────┐  unix sock  │  ┌───────────────────────────────────────────┐  │
-  │  nix-    │◄────────────┼──┤           nix-analyticsd (Rust)           │  │
-  │ analytics│  query API  │  │                                           │  │
-  │   (TUI)  │────────────►│  │  ┌─────────────┐  ┌───────────────────┐  │  │
+  │ nix-btm  │◄────────────┼──┤           nix-btmd (Rust)           │  │
+  │  (TUI)   │  query API  │  │                                           │  │
+  │          │────────────►│  │  ┌─────────────┐  ┌───────────────────┐  │  │
   └──────────┘  commands   │  │  │ BuildState   │  │ Control Actions   │  │  │
      kill,                 │  │  │              │  │                   │  │  │
      renice,               │  │  │ active_builds│  │ kill → cgroup.   │  │  │
@@ -39,10 +39,10 @@ No fork of Nix is required. The plugin uses Nix's existing `plugin-files` mechan
                            │  │              nix-daemon                     │  │
                            │  │                                            │  │
                            │  │  ┌──────────────────────────────────────┐  │  │
-                           │  │  │  libnix-analytics.so  (C++ plugin)  │  │  │
+                           │  │  │  libnix-btm.so  (C++ plugin)  │  │  │
                            │  │  │                                      │  │  │
                            │  │  │  wraps Logger → emits events         │  │  │
-                           │  │  │  RegisterSetting("analytics-socket") │  │  │
+                           │  │  │  RegisterSetting("btm-socket") │  │  │
                            │  │  └──────────────────────────────────────┘  │  │
                            │  │                                            │  │
                            │  │  forks per connection:                      │  │
@@ -76,14 +76,14 @@ The daemon is the correct place because it:
 
 A client-side plugin would only see its own session's builds and would lack access to cgroups, other users' builds, and remote dispatch information.
 
-## Component 1: libnix-analytics.so (C++ Plugin)
+## Component 1: libnix-btm.so (C++ Plugin)
 
 ### Plugin entry point
 
 The plugin exports `nix_plugin_entry()`, which the daemon calls during `initPlugins()` (`src/libmain/plugin.cc:102-104`). The function:
 
-1. Registers a custom setting `analytics-socket` via Nix's config system
-2. Wraps the global `nix::logger` with an `AnalyticsLogger` that intercepts events
+1. Registers a custom setting `btm-socket` via Nix's config system
+2. Wraps the global `nix::logger` with an `BtmLogger` that intercepts events
 
 ### Logger wrapper
 
@@ -98,7 +98,7 @@ Nix's `Logger` class (`src/libutil/include/nix/util/logging.hh:72-175`) has thes
 | `result(act, resProgress, fields)` | `progress` | activity_id, done/expected/running/failed |
 | `result(act, resPostBuildLogLine, fields)` | `post_build_log` | activity_id, text |
 
-The wrapper delegates all calls to the original logger (so normal Nix behavior is unchanged) and additionally serializes events to the analytics socket.
+The wrapper delegates all calls to the original logger (so normal Nix behavior is unchanged) and additionally serializes events to the btm socket.
 
 ### Activity types captured
 
@@ -134,7 +134,7 @@ A cleaner approach: extend the event protocol so the daemon's per-connection chi
 
 ### Wire format
 
-Events are serialized as length-prefixed MessagePack (or protobuf) and written to the Unix socket configured by `analytics-socket`. MessagePack is preferred for simplicity — no schema compilation needed.
+Events are serialized as length-prefixed MessagePack (or protobuf) and written to the Unix socket configured by `btm-socket`. MessagePack is preferred for simplicity — no schema compilation needed.
 
 ```
 [4 bytes: length][payload]
@@ -158,11 +158,11 @@ Each payload:
 
 ~200-300 lines of C++. The plugin is intentionally thin — it does not store state, make decisions, or modify Nix behavior.
 
-## Component 2: nix-analyticsd (Rust)
+## Component 2: nix-btmd (Rust)
 
 ### Responsibilities
 
-1. Listen on the analytics Unix socket for events from the plugin
+1. Listen on the btm Unix socket for events from the plugin
 2. Maintain a live model of all builds across all clients
 3. Poll cgroup filesystem for resource usage stats
 4. Parse `/etc/nix/machines` for remote builder info
@@ -173,7 +173,7 @@ Each payload:
 ### Data model
 
 ```rust
-struct AnalyticsState {
+struct BtmState {
     /// Currently active builds, keyed by activity ID
     active_builds: HashMap<u64, Build>,
 
@@ -258,7 +258,7 @@ When `use-cgroups = true`, the nix-daemon creates cgroups at (`src/nix/unix/daem
 /sys/fs/cgroup/<root>/nix-daemon/build-N/  # per-build
 ```
 
-The analytics daemon polls these paths for:
+The btm daemon polls these paths for:
 
 | File | Data |
 |---|---|
@@ -274,7 +274,7 @@ Nix already reads `cpu.stat` for `CgroupStats` (`src/libutil/linux/cgroup.cc:52-
 
 ### Remote builder monitoring
 
-The analytics daemon reads the same data sources that `build-remote` uses:
+The btm daemon reads the same data sources that `build-remote` uses:
 
 1. **Machine list**: Parse `/etc/nix/machines` (or `builders` setting) using the same format as `Machine::parseConfig` (`src/libstore/include/nix/store/machines.hh:79`)
 2. **Slot utilization**: Check lock files at `/nix/var/nix/current-load/<uri>-<slot>` — a locked file = active build on that slot (`build-remote.cc:40-43, 152-160`)
@@ -282,7 +282,7 @@ The analytics daemon reads the same data sources that `build-remote` uses:
 
 ### Control API
 
-The analytics daemon listens on a second Unix socket (e.g. `/run/nix-analytics-ctl.sock`) for commands from the TUI:
+The btm daemon listens on a second Unix socket (e.g. `/run/nix-btm-ctl.sock`) for commands from the TUI:
 
 ```
 Query commands:
@@ -301,7 +301,7 @@ Control commands:
 
 ### Permissions
 
-The analytics daemon needs:
+The btm daemon needs:
 - Read access to the event socket (plugin writes to it)
 - Read access to `/sys/fs/cgroup/...` for monitoring
 - Write access to `/sys/fs/cgroup/.../nix-daemon/build-*/` for control actions
@@ -309,12 +309,12 @@ The analytics daemon needs:
 
 In practice, it should run as root or in the same cgroup hierarchy as the nix-daemon. A systemd service is the natural deployment.
 
-## Component 3: nix-analytics TUI (Rust)
+## Component 3: nix-btm TUI (Rust)
 
 ### UI layout
 
 ```
-┌─ nix-analytics ────────────────────────────────────────────────┐
+┌─ nix-btm ────────────────────────────────────────────────┐
 │ Builds (3 active, 2 queued)                    [q]uit [k]ill  │
 │────────────────────────────────────────────────────────────────│
 │ ID  DRV              PHASE     USER   MACHINE   TIME   CPU%   │
@@ -363,7 +363,7 @@ In practice, it should run as root or in the same cgroup hierarchy as the nix-da
 ### nix.conf changes (3 lines)
 
 ```ini
-plugin-files = /path/to/libnix-analytics.so
+plugin-files = /path/to/libnix-btm.so
 extra-experimental-features = cgroups
 use-cgroups = true
 ```
@@ -372,11 +372,11 @@ use-cgroups = true
 
 ```ini
 [Unit]
-Description=Nix Analytics Daemon
+Description=Nix BTM Daemon
 After=nix-daemon.service
 
 [Service]
-ExecStart=/path/to/nix-analyticsd
+ExecStart=/path/to/nix-btmd
 Restart=always
 
 [Install]
@@ -386,7 +386,7 @@ WantedBy=multi-user.target
 ### NixOS module (future)
 
 ```nix
-services.nix-analytics.enable = true;
+services.nix-btm.enable = true;
 # Automatically adds plugin-files, enables cgroups,
 # sets up systemd service, etc.
 ```
@@ -407,14 +407,14 @@ Key files in the Nix source that this design depends on:
 | `src/nix/build-remote/build-remote.cc` | Remote builder dispatch, machine selection, slot locks |
 | `src/libstore/include/nix/store/machines.hh` | `Machine` struct (storeUri, maxJobs, speedFactor, etc.) |
 | `src/libstore/include/nix/store/globals.hh` | `buildCores`, `maxBuildJobs`, `build-hook`, `post-build-hook` settings |
-| `src/libcmd/include/nix/cmd/command.hh` | `RegisterCommand` for adding `nix analytics` subcommand |
+| `src/libcmd/include/nix/cmd/command.hh` | `RegisterCommand` for adding `nix btm` subcommand |
 
 ## Open questions
 
-1. **Event delivery guarantee**: If the analytics daemon is down, should the plugin buffer events, drop them, or block? Recommendation: non-blocking write with small kernel buffer; drop events if socket is full. The plugin must never slow down builds.
+1. **Event delivery guarantee**: If the btm daemon is down, should the plugin buffer events, drop them, or block? Recommendation: non-blocking write with small kernel buffer; drop events if socket is full. The plugin must never slow down builds.
 
 2. **Remote builder deep monitoring**: Should we SSH into remote builders to get their cgroup stats, or just track what we can see from the coordinator side (slot usage, build duration, result)? Phase 1: coordinator-side only. Phase 2: optional agent on remote builders.
 
-3. **Historical data persistence**: Should nix-analyticsd persist build history to disk (SQLite)? Recommendation: yes, for post-hoc analysis. The TUI can show "last N builds" and query historical stats.
+3. **Historical data persistence**: Should nix-btmd persist build history to disk (SQLite)? Recommendation: yes, for post-hoc analysis. The TUI can show "last N builds" and query historical stats.
 
 4. **Multi-user auth for TUI**: Should the TUI enforce that user A can only kill user A's builds? Recommendation: yes, check the TUI client's UID against the build's user. Root can control everything.

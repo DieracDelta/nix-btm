@@ -5,9 +5,9 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
 
-use nix_analytics_common::event::AnalyticsEvent;
-use nix_analyticsd::event_listener;
-use nix_analyticsd::state::SharedState;
+use nix_btm_common::event::BtmEvent;
+use nix_btmd::event_listener;
+use nix_btmd::state::SharedState;
 
 /// Wait for a Unix socket to become available, retrying with backoff.
 async fn wait_for_socket(path: &str, timeout: Duration) -> UnixStream {
@@ -24,15 +24,15 @@ async fn wait_for_socket(path: &str, timeout: Duration) -> UnixStream {
 }
 
 /// Send a length-prefixed JSON event over a UnixStream (same wire format as the C++ plugin).
-async fn send_event(stream: &mut UnixStream, event: &AnalyticsEvent) {
+async fn send_event(stream: &mut UnixStream, event: &BtmEvent) {
     let json = serde_json::to_vec(event).unwrap();
     let len = (json.len() as u32).to_be_bytes();
     stream.write_all(&len).await.unwrap();
     stream.write_all(&json).await.unwrap();
 }
 
-fn make_started_event(id: u64) -> AnalyticsEvent {
-    AnalyticsEvent::ActivityStarted {
+fn make_started_event(id: u64) -> BtmEvent {
+    BtmEvent::ActivityStarted {
         timestamp_us: 1000 + id,
         activity_id: id,
         activity_type: 105,

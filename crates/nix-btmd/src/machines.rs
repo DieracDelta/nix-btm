@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use nix_analytics_common::types::RemoteMachine;
+use nix_btm_common::types::RemoteMachine;
 
 use crate::state::SharedState;
 

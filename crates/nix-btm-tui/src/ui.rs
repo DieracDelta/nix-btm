@@ -5,9 +5,9 @@ use std::collections::{HashMap, HashSet};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-use nix_analytics_common::dep_graph::DrvStatus;
-use nix_analytics_common::event::ActivityType;
-use nix_analytics_common::types::{AnalyticsSnapshot, Build, BuildMachine, Progress};
+use nix_btm_common::dep_graph::DrvStatus;
+use nix_btm_common::event::ActivityType;
+use nix_btm_common::types::{BtmSnapshot, Build, BuildMachine, Progress};
 
 use crate::app::{App, ProcRow};
 
@@ -65,11 +65,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let filter_indicator = if !app.builds_filter.is_empty() { " [FILTER]" } else { "" };
     let history_indicator = if app.show_history { " [HIST]" } else { "" };
     let header = Paragraph::new(format!(
-        " nix-analytics | {active_count} active{view_indicator}{visual_indicator}{show_all_indicator}{filter_indicator}{history_indicator} | \
+        " nix-btm | {active_count} active{view_indicator}{visual_indicator}{show_all_indicator}{filter_indicator}{history_indicator} | \
          [q]uit [d]eps [p]roc [K]ill/sig [V]isual [y]ank [l]og [h]ist [a]ll [/]search [f]ilter | j/k ^u/^d gg/G zc/zo n/N"
     ))
     .style(Style::default().fg(GRV_FG4))
-    .block(Block::default().borders(Borders::ALL).title("nix-analytics")
+    .block(Block::default().borders(Borders::ALL).title("nix-btm")
         .border_style(Style::default().fg(GRV_GRAY)));
     frame.render_widget(header, chunks[0]);
 
@@ -1196,7 +1196,7 @@ fn format_dep_status(status: &DrvStatus) -> (String, Style) {
 /// Groups active builds by `user_pid` (nix command roots), then for each build
 /// lists the processes from `build_processes`.
 pub fn build_process_tree(
-    snapshot: &AnalyticsSnapshot,
+    snapshot: &BtmSnapshot,
     builds: &[Build],
     command_root_ids: &HashSet<u64>,
 ) -> Vec<ProcRow> {
@@ -1716,8 +1716,8 @@ pub fn format_bytes(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nix_analytics_common::event::ActivityType;
-    use nix_analytics_common::types::Progress;
+    use nix_btm_common::event::ActivityType;
+    use nix_btm_common::types::Progress;
     use std::collections::VecDeque;
 
     fn make_build(id: u64, drv_path: Option<&str>, description: &str) -> Build {

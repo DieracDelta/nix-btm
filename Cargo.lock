@@ -37,9 +37,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bitflags"
-version = "2.10.0"
+version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
+checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
 
 [[package]]
 name = "bytes"
@@ -292,9 +292,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.181"
+version = "0.2.182"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "459427e2af2b9c839b132acb702a1c654d95e10f8c326bfc2ad11310e458b1c5"
+checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
 
 [[package]]
 name = "linux-raw-sys"
@@ -372,7 +372,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix-analytics-common"
+name = "nix-btm-common"
 version = "0.1.0"
 dependencies = [
  "rmp-serde",
@@ -382,13 +382,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix-analytics-tui"
+name = "nix-btm-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
  "crossterm",
- "nix-analytics-common",
+ "nix-btm-common",
  "ratatui",
  "rmp-serde",
  "serde",
@@ -399,12 +399,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix-analyticsd"
+name = "nix-btmd"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "nix",
- "nix-analytics-common",
+ "nix-btm-common",
  "rmp-serde",
  "serde",
  "serde_json",
@@ -758,9 +758,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.115"
+version = "2.0.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e614ed320ac28113fa64972c4262d5dbc89deacdfd00c34a3e4cea073243c12"
+checksum = "3df424c70518695237746f84cede799c9c58fcb37450d7b23716568cc8bc69cb"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -880,9 +880,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.23"
+version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "537dd038a89878be9b64dd4bd1b260315c1bb94f4d784956b81e27a088d9a09e"
+checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "unicode-segmentation"

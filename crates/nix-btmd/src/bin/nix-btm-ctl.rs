@@ -1,16 +1,16 @@
-//! Minimal CLI for querying the nix-analyticsd control socket.
+//! Minimal CLI for querying the nix-btmd control socket.
 //!
 //! Usage:
-//!   nix-analytics-ctl snapshot
-//!   nix-analytics-ctl list-builds
-//!   nix-analytics-ctl list-machines
-//!   nix-analytics-ctl get-history
+//!   nix-btm-ctl snapshot
+//!   nix-btm-ctl list-builds
+//!   nix-btm-ctl list-machines
+//!   nix-btm-ctl get-history
 
 use anyhow::{Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-use nix_analytics_common::protocol::{self, Request, Response};
+use nix_btm_common::protocol::{self, Request, Response};
 
 #[tokio::main]
 async fn main() -> Result<()> {

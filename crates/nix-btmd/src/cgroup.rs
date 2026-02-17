@@ -13,7 +13,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use nix_analytics_common::types::ProcessInfo;
+use nix_btm_common::types::ProcessInfo;
 
 use crate::state::SharedState;
 

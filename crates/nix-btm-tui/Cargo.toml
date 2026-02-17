@@ -1,14 +1,14 @@
 [package]
-name = "nix-analytics-tui"
+name = "nix-btm-tui"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "nix-analytics"
+name = "nix-btm"
 path = "src/main.rs"
 
 [dependencies]
-nix-analytics-common = { workspace = true }
+nix-btm-common = { workspace = true }
 serde = { workspace = true }
 rmp-serde = { workspace = true }
 tokio = { workspace = true }

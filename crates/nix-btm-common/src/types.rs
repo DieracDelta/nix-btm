@@ -1,4 +1,4 @@
-//! Shared types for the analytics system state.
+//! Shared types for the btm system state.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -114,9 +114,9 @@ pub struct ProcessInfo {
     pub rss_bytes: u64,
 }
 
-/// Full snapshot of the analytics state, used for TUI queries.
+/// Full snapshot of the btm state, used for TUI queries.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnalyticsSnapshot {
+pub struct BtmSnapshot {
     pub active_builds: HashMap<u64, Build>,
     pub recent_history: Vec<CompletedBuild>,
     pub machines: Vec<RemoteMachine>,
@@ -212,10 +212,10 @@ mod tests {
     }
 
     #[test]
-    fn analytics_snapshot_json_roundtrip() {
+    fn btm_snapshot_json_roundtrip() {
         let mut active = HashMap::new();
         active.insert(1, sample_build());
-        let snapshot = AnalyticsSnapshot {
+        let snapshot = BtmSnapshot {
             active_builds: active,
             recent_history: Vec::new(),
             machines: Vec::new(),
@@ -223,13 +223,13 @@ mod tests {
             build_processes: HashMap::new(),
         };
         let json = serde_json::to_string(&snapshot).unwrap();
-        let parsed: AnalyticsSnapshot = serde_json::from_str(&json).unwrap();
+        let parsed: BtmSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.active_builds.len(), 1);
     }
 
     #[test]
-    fn analytics_snapshot_msgpack_roundtrip() {
-        let snapshot = AnalyticsSnapshot {
+    fn btm_snapshot_msgpack_roundtrip() {
+        let snapshot = BtmSnapshot {
             active_builds: HashMap::new(),
             recent_history: Vec::new(),
             dep_graphs: Vec::new(),
@@ -246,7 +246,7 @@ mod tests {
             }],
         };
         let bytes = rmp_serde::to_vec_named(&snapshot).unwrap();
-        let parsed: AnalyticsSnapshot = rmp_serde::from_slice(&bytes).unwrap();
+        let parsed: BtmSnapshot = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(parsed.machines.len(), 1);
         assert_eq!(parsed.machines[0].store_uri, "ssh-ng://builder");
     }

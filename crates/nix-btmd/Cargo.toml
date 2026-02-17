@@ -1,22 +1,22 @@
 [package]
-name = "nix-analyticsd"
+name = "nix-btmd"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "nix_analyticsd"
+name = "nix_btmd"
 path = "src/lib.rs"
 
 [[bin]]
-name = "nix-analyticsd"
+name = "nix-btmd"
 path = "src/main.rs"
 
 [[bin]]
-name = "nix-analytics-ctl"
-path = "src/bin/nix-analytics-ctl.rs"
+name = "nix-btm-ctl"
+path = "src/bin/nix-btm-ctl.rs"
 
 [dependencies]
-nix-analytics-common = { workspace = true }
+nix-btm-common = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }

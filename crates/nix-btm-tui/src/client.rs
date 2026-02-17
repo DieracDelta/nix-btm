@@ -1,18 +1,18 @@
-//! Client for communicating with nix-analyticsd over Unix socket.
+//! Client for communicating with nix-btmd over Unix socket.
 
 use anyhow::{Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-use nix_analytics_common::protocol::{self, Request, Response};
-use nix_analytics_common::types::AnalyticsSnapshot;
+use nix_btm_common::protocol::{self, Request, Response};
+use nix_btm_common::types::BtmSnapshot;
 
-pub struct AnalyticsClient {
+pub struct BtmClient {
     stream: UnixStream,
     socket_path: std::path::PathBuf,
 }
 
-impl AnalyticsClient {
+impl BtmClient {
     pub async fn connect(socket_path: impl AsRef<std::path::Path>) -> Result<Self> {
         let socket_path = socket_path.as_ref().to_path_buf();
         let stream = UnixStream::connect(&socket_path)
@@ -52,7 +52,7 @@ impl AnalyticsClient {
         Ok(response)
     }
 
-    pub async fn get_snapshot(&mut self) -> Result<AnalyticsSnapshot> {
+    pub async fn get_snapshot(&mut self) -> Result<BtmSnapshot> {
         match self.send_request(&Request::GetSnapshot).await? {
             Response::Snapshot { snapshot } => Ok(snapshot),
             Response::Error { message } => anyhow::bail!("server error: {message}"),

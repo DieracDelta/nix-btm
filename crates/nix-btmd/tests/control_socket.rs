@@ -5,10 +5,10 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-use nix_analytics_common::event::AnalyticsEvent;
-use nix_analytics_common::protocol::{self, Request, Response};
-use nix_analyticsd::control;
-use nix_analyticsd::state::SharedState;
+use nix_btm_common::event::BtmEvent;
+use nix_btm_common::protocol::{self, Request, Response};
+use nix_btmd::control;
+use nix_btmd::state::SharedState;
 
 /// Wait for a Unix socket to become available, retrying with backoff.
 async fn wait_for_socket(path: &str, timeout: Duration) -> UnixStream {
@@ -39,8 +39,8 @@ async fn roundtrip(stream: &mut UnixStream, request: &Request) -> Response {
     protocol::decode_message(&payload).unwrap()
 }
 
-fn make_started_event(id: u64) -> AnalyticsEvent {
-    AnalyticsEvent::ActivityStarted {
+fn make_started_event(id: u64) -> BtmEvent {
+    BtmEvent::ActivityStarted {
         timestamp_us: 1000 + id,
         activity_id: id,
         activity_type: 105,
@@ -118,7 +118,7 @@ async fn get_snapshot_with_populated_state() {
     state.handle_event(make_started_event(2)).await;
     // Complete one build so there's history.
     state
-        .handle_event(AnalyticsEvent::ActivityStopped {
+        .handle_event(BtmEvent::ActivityStopped {
             timestamp_us: 5000,
             activity_id: 1,
         })

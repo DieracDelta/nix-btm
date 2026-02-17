@@ -1,4 +1,4 @@
-//! Wire protocol between the TUI client and the analytics daemon.
+//! Wire protocol between the TUI client and the btm daemon.
 //!
 //! Communication happens over a Unix domain socket. Messages are
 //! length-prefixed MessagePack:
@@ -9,31 +9,31 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{AnalyticsSnapshot, Build, CompletedBuild, RemoteMachine};
+use crate::types::{BtmSnapshot, Build, CompletedBuild, RemoteMachine};
 
 /// Default path for the plugin → daemon event socket.
-pub const DEFAULT_EVENT_SOCKET: &str = "/run/nix-analytics/events.sock";
+pub const DEFAULT_EVENT_SOCKET: &str = "/run/nix-btm/events.sock";
 
 /// Default path for the TUI → daemon control socket.
-pub const DEFAULT_CONTROL_SOCKET: &str = "/run/nix-analytics/control.sock";
+pub const DEFAULT_CONTROL_SOCKET: &str = "/run/nix-btm/control.sock";
 
 /// Resolve the socket directory.
 ///
 /// Priority:
-/// 1. `NIX_ANALYTICS_SOCKET_DIR` environment variable (explicit override)
-/// 2. `$XDG_RUNTIME_DIR/nix-analytics` if it exists and has a socket (rootless nix)
-/// 3. `/run/nix-analytics` (system default)
+/// 1. `NIX_BTM_SOCKET_DIR` environment variable (explicit override)
+/// 2. `$XDG_RUNTIME_DIR/nix-btm` if it exists and has a socket (rootless nix)
+/// 3. `/run/nix-btm` (system default)
 pub fn socket_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("NIX_ANALYTICS_SOCKET_DIR") {
+    if let Ok(dir) = std::env::var("NIX_BTM_SOCKET_DIR") {
         return PathBuf::from(dir);
     }
     if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
-        let user_dir = PathBuf::from(xdg).join("nix-analytics");
+        let user_dir = PathBuf::from(xdg).join("nix-btm");
         if user_dir.join("control.sock").exists() || user_dir.join("events.sock").exists() {
             return user_dir;
         }
     }
-    PathBuf::from("/run/nix-analytics")
+    PathBuf::from("/run/nix-btm")
 }
 
 /// Resolve the event socket path (plugin → daemon).
@@ -104,7 +104,7 @@ pub enum Request {
 #[serde(tag = "status")]
 pub enum Response {
     Snapshot {
-        snapshot: AnalyticsSnapshot,
+        snapshot: BtmSnapshot,
     },
     Builds {
         builds: Vec<Build>,
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn response_roundtrip_snapshot() {
         roundtrip_response(&Response::Snapshot {
-            snapshot: AnalyticsSnapshot {
+            snapshot: BtmSnapshot {
                 active_builds: HashMap::new(),
                 recent_history: Vec::new(),
                 machines: Vec::new(),
@@ -313,22 +313,22 @@ mod tests {
     #[test]
     fn socket_dir_from_env() {
         // Save and restore env to avoid poisoning other tests.
-        let saved = std::env::var("NIX_ANALYTICS_SOCKET_DIR").ok();
+        let saved = std::env::var("NIX_BTM_SOCKET_DIR").ok();
         let saved_xdg = std::env::var("XDG_RUNTIME_DIR").ok();
-        std::env::set_var("NIX_ANALYTICS_SOCKET_DIR", "/tmp/custom-analytics");
-        assert_eq!(socket_dir(), PathBuf::from("/tmp/custom-analytics"));
+        std::env::set_var("NIX_BTM_SOCKET_DIR", "/tmp/custom-btm");
+        assert_eq!(socket_dir(), PathBuf::from("/tmp/custom-btm"));
         assert_eq!(
             event_socket_path(),
-            PathBuf::from("/tmp/custom-analytics/events.sock")
+            PathBuf::from("/tmp/custom-btm/events.sock")
         );
         assert_eq!(
             control_socket_path(),
-            PathBuf::from("/tmp/custom-analytics/control.sock")
+            PathBuf::from("/tmp/custom-btm/control.sock")
         );
         // Restore
-        std::env::remove_var("NIX_ANALYTICS_SOCKET_DIR");
+        std::env::remove_var("NIX_BTM_SOCKET_DIR");
         match saved {
-            Some(v) => std::env::set_var("NIX_ANALYTICS_SOCKET_DIR", v),
+            Some(v) => std::env::set_var("NIX_BTM_SOCKET_DIR", v),
             None => {}
         }
         match saved_xdg {
@@ -339,26 +339,26 @@ mod tests {
 
     #[test]
     fn socket_dir_from_xdg_runtime_with_socket() {
-        let saved = std::env::var("NIX_ANALYTICS_SOCKET_DIR").ok();
+        let saved = std::env::var("NIX_BTM_SOCKET_DIR").ok();
         let saved_xdg = std::env::var("XDG_RUNTIME_DIR").ok();
 
         let tmp = tempfile::tempdir().unwrap();
-        let user_dir = tmp.path().join("nix-analytics");
+        let user_dir = tmp.path().join("nix-btm");
         std::fs::create_dir_all(&user_dir).unwrap();
         std::fs::write(user_dir.join("control.sock"), b"").unwrap();
 
-        std::env::remove_var("NIX_ANALYTICS_SOCKET_DIR");
+        std::env::remove_var("NIX_BTM_SOCKET_DIR");
         std::env::set_var("XDG_RUNTIME_DIR", tmp.path());
         assert_eq!(socket_dir(), user_dir);
 
         // Without a socket file, XDG is skipped
         std::fs::remove_file(user_dir.join("control.sock")).unwrap();
-        assert_eq!(socket_dir(), PathBuf::from("/run/nix-analytics"));
+        assert_eq!(socket_dir(), PathBuf::from("/run/nix-btm"));
 
         // Restore
         std::env::remove_var("XDG_RUNTIME_DIR");
         match saved {
-            Some(v) => std::env::set_var("NIX_ANALYTICS_SOCKET_DIR", v),
+            Some(v) => std::env::set_var("NIX_BTM_SOCKET_DIR", v),
             None => {}
         }
         match saved_xdg {
@@ -369,14 +369,14 @@ mod tests {
 
     #[test]
     fn socket_dir_default_fallback() {
-        let saved = std::env::var("NIX_ANALYTICS_SOCKET_DIR").ok();
+        let saved = std::env::var("NIX_BTM_SOCKET_DIR").ok();
         let saved_xdg = std::env::var("XDG_RUNTIME_DIR").ok();
-        std::env::remove_var("NIX_ANALYTICS_SOCKET_DIR");
+        std::env::remove_var("NIX_BTM_SOCKET_DIR");
         std::env::remove_var("XDG_RUNTIME_DIR");
-        assert_eq!(socket_dir(), PathBuf::from("/run/nix-analytics"));
+        assert_eq!(socket_dir(), PathBuf::from("/run/nix-btm"));
         // Restore
         match saved {
-            Some(v) => std::env::set_var("NIX_ANALYTICS_SOCKET_DIR", v),
+            Some(v) => std::env::set_var("NIX_BTM_SOCKET_DIR", v),
             None => {}
         }
         match saved_xdg {

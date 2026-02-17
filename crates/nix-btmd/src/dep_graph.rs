@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use nix_analytics_common::dep_graph::{DepGraph, DepNode, DrvStatus, drv_name_from_path};
+use nix_btm_common::dep_graph::{DepGraph, DepNode, DrvStatus, drv_name_from_path};
 
 use crate::drv_parser;
 

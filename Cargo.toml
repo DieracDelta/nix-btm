@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/nix-analyticsd",
-    "crates/nix-analytics-tui",
-    "crates/nix-analytics-common",
+    "crates/nix-btmd",
+    "crates/nix-btm-tui",
+    "crates/nix-btm-common",
 ]
 
 [workspace.package]
@@ -13,7 +13,7 @@ license = "MIT"
 rust-version = "1.75"
 
 [workspace.dependencies]
-nix-analytics-common = { path = "crates/nix-analytics-common" }
+nix-btm-common = { path = "crates/nix-btm-common" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rmp-serde = "1"

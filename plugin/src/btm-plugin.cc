@@ -1,14 +1,14 @@
-// libnix-analytics: A Nix daemon plugin that taps into the Logger to emit
+// libnix-btm: A Nix daemon plugin that taps into the Logger to emit
 // structured build events over a Unix domain socket.
 //
-// The plugin wraps nix::logger with an AnalyticsLogger that intercepts
+// The plugin wraps nix::logger with an BtmLogger that intercepts
 // startActivity/stopActivity/result calls, serializes them as JSON, and
-// sends them to the analytics daemon (nix-analyticsd).
+// sends them to the btm daemon (nix-btmd).
 //
 // Build with:
 //   g++ -shared -fPIC -std=c++23 -O2 \
 //     $(pkg-config --cflags nix-main nix-store nix-util) \
-//     -o libnix-analytics.so analytics-plugin.cc \
+//     -o libnix-btm.so btm-plugin.cc \
 //     $(pkg-config --libs nix-main nix-store nix-util)
 
 #include <nix/util/logging.hh>
@@ -32,15 +32,15 @@ using namespace nix;
 
 // -- Configuration --
 
-struct AnalyticsSettings : Config
+struct BtmSettings : Config
 {
-    Setting<std::string> analyticsSocket{
+    Setting<std::string> btmSocket{
         this,
-        "/run/nix-analytics/events.sock",
-        "analytics-socket",
+        "/run/nix-btm/events.sock",
+        "btm-socket",
         R"(
-          Path to the Unix domain socket where build analytics events are sent.
-          The nix-analyticsd daemon should be listening on this socket.
+          Path to the Unix domain socket where build btm events are sent.
+          The nix-btmd daemon should be listening on this socket.
         )"};
 };
 
@@ -49,8 +49,8 @@ struct AnalyticsSettings : Config
 // static destructors.  If our GlobalConfig-registered objects destruct before
 // nix's own (e.g. FileTransferSettings), they corrupt shared state causing
 // double-free / segfault.  "Leaking" is safe: the OS reclaims everything.
-static AnalyticsSettings & analyticsSettings = *new AnalyticsSettings();
-static auto * rAnalyticsSettings = new GlobalConfig::Register(&analyticsSettings);
+static BtmSettings & btmSettings = *new BtmSettings();
+static auto * rBtmSettings = new GlobalConfig::Register(&btmSettings);
 
 // -- Socket connection --
 
@@ -81,7 +81,7 @@ public:
         memset(&addr, 0, sizeof(addr));
         addr.sun_family = AF_UNIX;
 
-        auto path = analyticsSettings.analyticsSocket.get();
+        auto path = btmSettings.btmSocket.get();
         if (path.size() >= sizeof(addr.sun_path)) {
             close(fd);
             fd = -1;
@@ -124,7 +124,7 @@ public:
     }
 };
 
-// Heap-allocated — same rationale as AnalyticsSettings above.
+// Heap-allocated — same rationale as BtmSettings above.
 static SocketWriter & socketWriter = *new SocketWriter();
 
 // -- Command line --
@@ -189,9 +189,9 @@ static std::string jsonEscape(const std::string & s)
     return out;
 }
 
-// -- Analytics Logger --
+// -- BTM Logger --
 
-class AnalyticsLogger : public Logger
+class BtmLogger : public Logger
 {
     std::unique_ptr<Logger> inner;
 
@@ -203,7 +203,7 @@ class AnalyticsLogger : public Logger
     std::unordered_set<ActivityId> realiseWithChild;               // had a Build/Substitute child
 
 public:
-    explicit AnalyticsLogger(std::unique_ptr<Logger> inner) : inner(std::move(inner)) {}
+    explicit BtmLogger(std::unique_ptr<Logger> inner) : inner(std::move(inner)) {}
 
     void log(Verbosity lvl, std::string_view s) override
     {
@@ -427,13 +427,13 @@ extern "C" void nix_plugin_entry()
         if (detectDuplicateNixLibs(details)) {
             fprintf(stderr,
                 "\n"
-                "WARNING: nix-analytics plugin DISABLED — nix version mismatch detected!\n"
+                "WARNING: nix-btm plugin DISABLED — nix version mismatch detected!\n"
                 "  Plugin compiled against: nix %s\n"
                 "  Loaded libnixutil copies: %s\n"
                 "  This causes duplicate global state and will crash nix-daemon.\n"
                 "  Rebuild the plugin against the same nix version as your daemon.\n"
                 "\n",
-                NIX_ANALYTICS_COMPILED_NIX_VERSION,
+                NIX_BTM_COMPILED_NIX_VERSION,
                 details.c_str());
             return;  // Bail out — do NOT wrap the logger
         }
@@ -445,11 +445,11 @@ extern "C" void nix_plugin_entry()
     // Wrap the existing global logger.
     // nix::logger is a unique_ptr<Logger> — we move the original into our
     // wrapper so there is a single ownership chain:
-    //   nix::logger owns AnalyticsLogger owns originalLogger
+    //   nix::logger owns BtmLogger owns originalLogger
     if (nix::logger) {
-        auto wrapper = std::make_unique<AnalyticsLogger>(std::move(nix::logger));
+        auto wrapper = std::make_unique<BtmLogger>(std::move(nix::logger));
         nix::logger = std::move(wrapper);
     } else {
-        fprintf(stderr, "nix-analytics: WARNING — nix::logger is null, cannot wrap!\n");
+        fprintf(stderr, "nix-btm: WARNING — nix::logger is null, cannot wrap!\n");
     }
 }

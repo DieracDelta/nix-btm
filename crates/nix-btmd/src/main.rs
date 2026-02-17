@@ -1,9 +1,9 @@
-use nix_analyticsd::{cgroup, control, event_listener, machines, state};
+use nix_btmd::{cgroup, control, event_listener, machines, state};
 
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 
-use nix_analytics_common::protocol;
+use nix_btm_common::protocol;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
     tracing::info!(
         ?event_socket,
         ?control_socket,
-        "nix-analyticsd starting"
+        "nix-btmd starting"
     );
 
     // Ensure the socket directory exists.

@@ -1,6 +1,6 @@
 { self, pkgs
-, analyticsPackage ? self.packages.${pkgs.system}.default
-, pluginPackage ? self.packages.${pkgs.system}.nix-analytics-plugin
+, btmPackage ? self.packages.${pkgs.system}.default
+, pluginPackage ? self.packages.${pkgs.system}.nix-btm-plugin
 , nixVersionLabel ? "default"
 }:
 
@@ -9,14 +9,14 @@ let
   testSuffix = if nixVersionLabel == "default" then "" else "-nix-${nixVersionLabel}";
 in
 pkgs.testers.runNixOSTest {
-  name = "nix-analytics-e2e${testSuffix}";
+  name = "nix-btm-e2e${testSuffix}";
 
   nodes.machine = { config, pkgs, ... }: {
     imports = [ self.nixosModules.default ];
 
-    services.nix-analytics = {
+    services.nix-btm = {
       enable = true;
-      package = analyticsPackage;
+      package = btmPackage;
       pluginPackage = pluginPackage;
     };
 
@@ -28,15 +28,15 @@ pkgs.testers.runNixOSTest {
     nix.settings.experimental-features = [ "nix-command" ];
   };
 
-  # Node with a custom socket directory to test NIX_ANALYTICS_SOCKET_DIR.
+  # Node with a custom socket directory to test NIX_BTM_SOCKET_DIR.
   nodes.custom_socket = { config, pkgs, ... }: {
     imports = [ self.nixosModules.default ];
 
-    services.nix-analytics = {
+    services.nix-btm = {
       enable = true;
-      package = analyticsPackage;
+      package = btmPackage;
       pluginPackage = pluginPackage;
-      socketDir = "/run/custom-analytics";
+      socketDir = "/run/custom-btm";
     };
 
     virtualisation = {
@@ -71,11 +71,11 @@ pkgs.testers.runNixOSTest {
     # ── Scenario A: Standard multi-user NixOS (default socket dir) ──
 
     machine.wait_for_unit("nix-daemon.socket")
-    machine.wait_for_unit("nix-analyticsd.service")
-    machine.wait_for_file("/run/nix-analytics/control.sock")
+    machine.wait_for_unit("nix-btmd.service")
+    machine.wait_for_file("/run/nix-btm/control.sock")
 
     # Verify empty state.
-    result = machine.succeed("nix-analytics-ctl list-builds")
+    result = machine.succeed("nix-btm-ctl list-builds")
     data = json.loads(result)
     assert data["status"] == "Builds", f"expected Builds status, got {data}"
     assert data["builds"] == [], f"expected no builds, got {data['builds']}"
@@ -89,7 +89,7 @@ pkgs.testers.runNixOSTest {
     check_no_crashes(machine, "machine")
 
     # Query history — should have at least 1 entry.
-    result = machine.succeed("nix-analytics-ctl get-history")
+    result = machine.succeed("nix-btm-ctl get-history")
     data = json.loads(result)
     assert data["status"] == "History", f"expected History status, got {data}"
     assert len(data["builds"]) >= 1, f"expected at least 1 history entry, got {len(data['builds'])}"
@@ -109,14 +109,14 @@ pkgs.testers.runNixOSTest {
     # ── Scenario B: Custom socket directory ──
 
     custom_socket.wait_for_unit("nix-daemon.socket")
-    custom_socket.wait_for_unit("nix-analyticsd.service")
-    custom_socket.wait_for_file("/run/custom-analytics/control.sock")
+    custom_socket.wait_for_unit("nix-btmd.service")
+    custom_socket.wait_for_file("/run/custom-btm/control.sock")
 
-    # The default /run/nix-analytics should NOT exist on this node.
-    custom_socket.succeed("test ! -e /run/nix-analytics/control.sock")
+    # The default /run/nix-btm should NOT exist on this node.
+    custom_socket.succeed("test ! -e /run/nix-btm/control.sock")
 
     # Verify ctl works with the custom socket dir (env var is set system-wide).
-    result = custom_socket.succeed("nix-analytics-ctl list-builds")
+    result = custom_socket.succeed("nix-btm-ctl list-builds")
     data = json.loads(result)
     assert data["status"] == "Builds", f"custom_socket: expected Builds, got {data}"
 
@@ -127,7 +127,7 @@ pkgs.testers.runNixOSTest {
 
     time.sleep(2)
 
-    result = custom_socket.succeed("nix-analytics-ctl get-history")
+    result = custom_socket.succeed("nix-btm-ctl get-history")
     data = json.loads(result)
     assert data["status"] == "History", f"custom_socket: expected History, got {data}"
     assert len(data["builds"]) >= 1, f"custom_socket: expected at least 1 history entry, got {len(data['builds'])}"

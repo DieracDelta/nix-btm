@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use tokio::io::AsyncReadExt;
 use tokio::net::UnixListener;
 
-use nix_analytics_common::event::AnalyticsEvent;
+use nix_btm_common::event::BtmEvent;
 
 use crate::state::SharedState;
 
@@ -70,7 +70,7 @@ async fn handle_connection(
         let mut payload = vec![0u8; len];
         stream.read_exact(&mut payload).await?;
 
-        match serde_json::from_slice::<AnalyticsEvent>(&payload) {
+        match serde_json::from_slice::<BtmEvent>(&payload) {
             Ok(event) => {
                 tracing::trace!(?event, "received event");
                 state.handle_event(event).await;

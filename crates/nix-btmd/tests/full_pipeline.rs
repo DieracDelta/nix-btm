@@ -7,11 +7,11 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-use nix_analytics_common::event::AnalyticsEvent;
-use nix_analytics_common::protocol::{self, Request, Response};
-use nix_analyticsd::control;
-use nix_analyticsd::event_listener;
-use nix_analyticsd::state::SharedState;
+use nix_btm_common::event::BtmEvent;
+use nix_btm_common::protocol::{self, Request, Response};
+use nix_btmd::control;
+use nix_btmd::event_listener;
+use nix_btmd::state::SharedState;
 
 async fn wait_for_socket(path: &str, timeout: Duration) -> UnixStream {
     let start = tokio::time::Instant::now();
@@ -26,7 +26,7 @@ async fn wait_for_socket(path: &str, timeout: Duration) -> UnixStream {
     }
 }
 
-async fn send_event(stream: &mut UnixStream, event: &AnalyticsEvent) {
+async fn send_event(stream: &mut UnixStream, event: &BtmEvent) {
     let json = serde_json::to_vec(event).unwrap();
     let len = (json.len() as u32).to_be_bytes();
     stream.write_all(&len).await.unwrap();
@@ -77,7 +77,7 @@ async fn complete_build_lifecycle() {
     // 1. ActivityStarted
     send_event(
         &mut plugin,
-        &AnalyticsEvent::ActivityStarted {
+        &BtmEvent::ActivityStarted {
             timestamp_us: 1000,
             activity_id: 42,
             activity_type: 105,
@@ -93,7 +93,7 @@ async fn complete_build_lifecycle() {
     // 2. PhaseChanged
     send_event(
         &mut plugin,
-        &AnalyticsEvent::PhaseChanged {
+        &BtmEvent::PhaseChanged {
             timestamp_us: 1100,
             activity_id: 42,
             phase: "unpackPhase".to_string(),
@@ -104,7 +104,7 @@ async fn complete_build_lifecycle() {
     // 3. LogLine
     send_event(
         &mut plugin,
-        &AnalyticsEvent::LogLine {
+        &BtmEvent::LogLine {
             timestamp_us: 1200,
             activity_id: 42,
             text: "unpacking source".to_string(),
@@ -115,7 +115,7 @@ async fn complete_build_lifecycle() {
     // 4. Progress
     send_event(
         &mut plugin,
-        &AnalyticsEvent::Progress {
+        &BtmEvent::Progress {
             timestamp_us: 1300,
             activity_id: 42,
             done: 1,
@@ -129,7 +129,7 @@ async fn complete_build_lifecycle() {
     // 5. ActivityStopped
     send_event(
         &mut plugin,
-        &AnalyticsEvent::ActivityStopped {
+        &BtmEvent::ActivityStopped {
             timestamp_us: 2000,
             activity_id: 42,
         },

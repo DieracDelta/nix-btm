@@ -8,7 +8,7 @@ use nix::unistd::Pid;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 
-use nix_analytics_common::protocol::{self, BuildAction, Request, Response};
+use nix_btm_common::protocol::{self, BuildAction, Request, Response};
 
 use crate::state::SharedState;
 
@@ -258,11 +258,11 @@ async fn set_cgroup_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nix_analytics_common::event::AnalyticsEvent;
-    use nix_analytics_common::protocol::BuildAction;
+    use nix_btm_common::event::BtmEvent;
+    use nix_btm_common::protocol::BuildAction;
 
-    fn make_started_event(id: u64) -> AnalyticsEvent {
-        AnalyticsEvent::ActivityStarted {
+    fn make_started_event(id: u64) -> BtmEvent {
+        BtmEvent::ActivityStarted {
             timestamp_us: 1000,
             activity_id: id,
             activity_type: 105,
@@ -328,7 +328,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1)).await;
         state
-            .handle_event(AnalyticsEvent::LogLine {
+            .handle_event(BtmEvent::LogLine {
                 timestamp_us: 1500,
                 activity_id: 1,
                 text: "hello".to_string(),
@@ -363,7 +363,7 @@ mod tests {
         let state = SharedState::new();
         state.handle_event(make_started_event(1)).await;
         state
-            .handle_event(AnalyticsEvent::ActivityStopped {
+            .handle_event(BtmEvent::ActivityStopped {
                 timestamp_us: 2000,
                 activity_id: 1,
             })

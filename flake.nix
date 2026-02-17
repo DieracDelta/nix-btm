@@ -1,5 +1,5 @@
 {
-  description = "nix-analytics: Build monitoring and control for Nix";
+  description = "nix-btm: Build monitoring and control for Nix";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -33,15 +33,15 @@
       nixosModules.default = import ./module.nix;
 
       overlays.default = final: prev: {
-        nix-analytics = final.rustPlatform.buildRustPackage {
-          pname = "nix-analytics";
+        nix-btm = final.rustPlatform.buildRustPackage {
+          pname = "nix-btm";
           version = "0.1.0";
           src = final.lib.cleanSource ./.;
           cargoLock.lockFile = ./Cargo.lock;
           GIT_HASH = self.shortRev or self.dirtyShortRev or "dev";
         };
 
-        nix-analytics-plugin = let
+        nix-btm-plugin = let
           nixDev = final.nix.dev;
           nixDevClosure = final.closureInfo { rootPaths = [ nixDev ]; };
           nixPkgConfigDir = final.runCommand "nix-dev-pkgconfig" {} ''
@@ -57,7 +57,7 @@
             done < ${nixDevClosure}/store-paths
           '';
         in final.stdenv.mkDerivation {
-          pname = "nix-analytics-plugin";
+          pname = "nix-btm-plugin";
           version = "0.1.0";
           src = ./plugin;
           nativeBuildInputs = [ final.meson final.ninja final.pkg-config ];
@@ -91,15 +91,15 @@
         in
         {
           default = pkgs.rustPlatform.buildRustPackage {
-            pname = "nix-analytics";
+            pname = "nix-btm";
             version = "0.1.0";
             src = pkgs.lib.cleanSource ./.;
             cargoLock.lockFile = ./Cargo.lock;
             GIT_HASH = self.shortRev or self.dirtyShortRev or "dev";
           };
 
-          nix-analytics-plugin = pkgs.stdenv.mkDerivation {
-            pname = "nix-analytics-plugin";
+          nix-btm-plugin = pkgs.stdenv.mkDerivation {
+            pname = "nix-btm-plugin";
             version = "0.1.0";
             src = ./plugin;
 
@@ -140,14 +140,14 @@
             in import ./tests/vm-test.nix {
               inherit self;
               pkgs = versionedPkgs;
-              analyticsPackage = versionedPkgs.nix-analytics;
-              pluginPackage = versionedPkgs.nix-analytics-plugin;
+              btmPackage = versionedPkgs.nix-btm;
+              pluginPackage = versionedPkgs.nix-btm-plugin;
               nixVersionLabel = versionLabel;
             };
         in
         {
           rust-tests = pkgs.rustPlatform.buildRustPackage {
-            pname = "nix-analytics-tests";
+            pname = "nix-btm-tests";
             version = "0.1.0";
             src = pkgs.lib.cleanSource ./.;
             cargoLock.lockFile = ./Cargo.lock;
@@ -218,7 +218,7 @@
         in
         {
           default = pkgs.devshell.mkShell {
-            name = "nix-analytics";
+            name = "nix-btm";
 
             packages = [
               # Rust toolchain (oxalica)

@@ -3,10 +3,10 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
 
-use nix_analytics_common::dep_graph::DepGraph;
-use nix_analytics_common::types::{AnalyticsSnapshot, Build, CompletedBuild, ProcessInfo, Progress, RemoteMachine};
+use nix_btm_common::dep_graph::DepGraph;
+use nix_btm_common::types::{BtmSnapshot, Build, CompletedBuild, ProcessInfo, Progress, RemoteMachine};
 
-use crate::client::AnalyticsClient;
+use crate::client::BtmClient;
 use crate::ui;
 
 /// A row in the flattened processes tree view.
@@ -20,7 +20,7 @@ pub enum ProcRow {
 }
 
 pub struct App {
-    pub snapshot: Option<AnalyticsSnapshot>,
+    pub snapshot: Option<BtmSnapshot>,
     /// Builds in depth-first tree order (with Realise nodes collapsed).
     pub builds: Vec<Build>,
     /// Activity IDs whose original parent was a collapsed Realise node.
@@ -150,7 +150,7 @@ impl App {
         }
     }
 
-    pub async fn refresh(&mut self, client: &mut AnalyticsClient) -> anyhow::Result<()> {
+    pub async fn refresh(&mut self, client: &mut BtmClient) -> anyhow::Result<()> {
         // Clear transient status message after it expires.
         if let Some((_, expires_at)) = &self.status_message {
             if std::time::Instant::now() >= *expires_at {

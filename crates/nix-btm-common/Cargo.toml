@@ -1,5 +1,5 @@
 [package]
-name = "nix-analytics-common"
+name = "nix-btm-common"
 version.workspace = true
 edition.workspace = true
 
