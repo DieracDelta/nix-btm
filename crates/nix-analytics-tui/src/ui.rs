@@ -475,9 +475,9 @@ pub fn tree_order_builds(mut builds: Vec<Build>) -> TreeOrderResult {
         }
     }
 
-    roots.sort_by_key(|&i| builds[i].started_at_us);
+    roots.sort_by_key(|&i| (builds[i].started_at_us, builds[i].activity_id));
     for children in children_of.values_mut() {
-        children.sort_by_key(|&i| builds[i].started_at_us);
+        children.sort_by_key(|&i| (builds[i].started_at_us, builds[i].activity_id));
     }
 
     let mut result = Vec::with_capacity(builds.len());
