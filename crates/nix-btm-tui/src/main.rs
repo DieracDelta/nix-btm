@@ -184,14 +184,18 @@ async fn run_loop(
                         app.select_next()
                     }
                     (KeyCode::Up, _) => {
-                        if app.show_history {
+                        if app.show_log {
+                            app.log_scroll_up()
+                        } else if app.show_history {
                             app.history_scroll_up()
                         } else {
                             app.select_prev()
                         }
                     }
                     (KeyCode::Down, _) => {
-                        if app.show_history {
+                        if app.show_log {
+                            app.log_scroll_down()
+                        } else if app.show_history {
                             app.history_scroll_down()
                         } else {
                             app.select_next()
