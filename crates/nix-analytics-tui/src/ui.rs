@@ -714,10 +714,8 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
 
             let in_visual =
                 app.visual_mode && app.visual_selection_range().contains(&vis_idx);
-            let style = if vis_idx == app.selected && in_visual {
+            let style = if in_visual {
                 Style::default().bg(GRV_BLUE).fg(GRV_FG)
-            } else if vis_idx == app.selected || in_visual {
-                Style::default().bg(GRV_BG1).fg(GRV_FG)
             } else if is_command_root {
                 Style::default().bold()
             } else {
@@ -838,10 +836,12 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
         ],
     )
     .header(header)
+    .row_highlight_style(Style::default().bg(GRV_BG1).fg(GRV_FG))
     .block(Block::default().borders(Borders::ALL).title("Builds")
         .border_style(Style::default().fg(GRV_GRAY)));
 
-    frame.render_widget(table, area);
+    let mut table_state = TableState::default().with_selected(Some(app.selected));
+    frame.render_stateful_widget(table, area, &mut table_state);
 }
 
 /// Format progress counters for display on command root rows.

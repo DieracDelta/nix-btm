@@ -99,6 +99,8 @@ pub struct App {
     pub folded_proc_builds: HashSet<u64>,
     /// Whether the yank prompt is showing (waiting for field key after y).
     pub yank_prompt: bool,
+    /// Whether the UI needs a redraw (set on data refresh or key press).
+    pub dirty: bool,
 }
 
 impl App {
@@ -144,6 +146,7 @@ impl App {
             folded_proc_pids: HashSet::new(),
             folded_proc_builds: HashSet::new(),
             yank_prompt: false,
+            dirty: true,
         }
     }
 
@@ -155,7 +158,7 @@ impl App {
             }
         }
 
-        let snapshot = client.get_snapshot().await?;
+        let mut snapshot = client.get_snapshot().await?;
 
         let builds: Vec<Build> = snapshot.active_builds.values().cloned().collect();
         let tree_result = ui::tree_order_builds(builds);
@@ -165,7 +168,7 @@ impl App {
         self.hoisted_download = tree_result.hoisted_download;
         self.hoisted_progress = tree_result.hoisted_progress;
         self.command_root_ids = tree_result.command_root_ids;
-        self.dep_graphs = snapshot.dep_graphs.clone();
+        self.dep_graphs = std::mem::take(&mut snapshot.dep_graphs);
 
         // Build process tree rows from snapshot data.
         self.proc_rows = ui::build_process_tree(&snapshot, &self.builds, &self.command_root_ids);
@@ -192,6 +195,7 @@ impl App {
             }
         }
 
+        self.dirty = true;
         Ok(())
     }
 

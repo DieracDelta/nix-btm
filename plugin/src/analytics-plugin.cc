@@ -439,6 +439,9 @@ extern "C" void nix_plugin_entry()
         }
     }
 
+    fprintf(stderr, "nix-analytics: plugin entry called, logger=%p\n",
+            (void *)nix::logger.get());
+
     // Capture the nix command line for display in the TUI.
     nixCommandLine = readCommandLine();
 
@@ -449,5 +452,8 @@ extern "C" void nix_plugin_entry()
     if (nix::logger) {
         auto wrapper = std::make_unique<AnalyticsLogger>(std::move(nix::logger));
         nix::logger = std::move(wrapper);
+        fprintf(stderr, "nix-analytics: logger wrapped successfully\n");
+    } else {
+        fprintf(stderr, "nix-analytics: WARNING — nix::logger is null, cannot wrap!\n");
     }
 }

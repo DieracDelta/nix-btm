@@ -45,26 +45,46 @@ async fn run_loop(
     app: &mut app::App,
     client: &mut client::AnalyticsClient,
 ) -> Result<()> {
-    let tick_rate = std::time::Duration::from_secs(1);
+    let refresh_interval = std::time::Duration::from_secs(1);
+    let mut last_refresh = std::time::Instant::now();
 
     loop {
-        terminal.draw(|frame| ui::render(frame, app))?;
+        // Only redraw when something changed.
+        if app.dirty {
+            terminal.draw(|frame| ui::render(frame, app))?;
+            app.dirty = false;
+        }
 
-        if event::poll(tick_rate)? {
+        // Drain all pending key events, then wait up to 50ms for the next one.
+        let mut had_event = false;
+        loop {
+            let timeout = if had_event {
+                std::time::Duration::ZERO
+            } else {
+                std::time::Duration::from_millis(50)
+            };
+
+            if !event::poll(timeout)? {
+                break;
+            }
+
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press {
                     continue;
                 }
+                had_event = true;
+                app.dirty = true;
 
                 // Handle text input mode (search / filter).
                 if app.input_mode {
                     match key.code {
-                        KeyCode::Esc => { app.cancel_input(); continue; }
-                        KeyCode::Enter => { app.exit_input(); continue; }
-                        KeyCode::Backspace => { app.input_pop(); continue; }
-                        KeyCode::Char(c) => { app.input_push(c); continue; }
-                        _ => { continue; }
+                        KeyCode::Esc => { app.cancel_input(); }
+                        KeyCode::Enter => { app.exit_input(); }
+                        KeyCode::Backspace => { app.input_pop(); }
+                        KeyCode::Char(c) => { app.input_push(c); }
+                        _ => {}
                     }
+                    continue;
                 }
 
                 // Handle action prompt (waiting for action key after K).
@@ -263,7 +283,10 @@ async fn run_loop(
             }
         }
 
-        // Refresh data each tick.
-        app.refresh(client).await?;
+        // Refresh data on a 1-second timer.
+        if last_refresh.elapsed() >= refresh_interval {
+            app.refresh(client).await?;
+            last_refresh = std::time::Instant::now();
+        }
     }
 }
