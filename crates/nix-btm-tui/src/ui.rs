@@ -9,7 +9,7 @@ use nix_btm_common::dep_graph::DrvStatus;
 use nix_btm_common::event::ActivityType;
 use nix_btm_common::types::{BtmSnapshot, Build, BuildMachine, Progress};
 
-use crate::app::{App, ProcRow};
+use crate::app::{App, DepTreeRowId, FocusPane, ProcRow};
 
 // Gruvbox dark palette.
 #[allow(dead_code)]
@@ -64,8 +64,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let show_all_indicator = if app.show_all_roots { " [ALL]" } else { "" };
     let filter_indicator = if !app.builds_filter.is_empty() { " [FILTER]" } else { "" };
     let history_indicator = if app.show_history { " [HIST]" } else { "" };
+    let dep_history_indicator = if app.show_dep_history { " [DHIST]" } else { "" };
     let header = Paragraph::new(format!(
-        " nix-btm | {active_count} active{view_indicator}{visual_indicator}{show_all_indicator}{filter_indicator}{history_indicator} | \
+        " nix-btm | {active_count} active{view_indicator}{visual_indicator}{show_all_indicator}{dep_history_indicator}{filter_indicator}{history_indicator} | \
          [q]uit [d]eps [p]roc [K]ill/sig [V]isual [y]ank [l]og [h]ist [a]ll [/]search [f]ilter | j/k ^u/^d gg/G zc/zo n/N"
     ))
     .style(Style::default().fg(GRV_FG4))
@@ -136,6 +137,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let status = Paragraph::new(format!(" {msg}"))
             .style(Style::default().fg(GRV_YELLOW));
         frame.render_widget(status, chunks[status_idx]);
+    }
+
+    // Help overlay (rendered on top of everything).
+    if app.show_help {
+        render_help(frame, frame.area());
     }
 
     // Version hash in bottom-right corner.
@@ -857,7 +863,9 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
     .header(header)
     .row_highlight_style(Style::default().bg(GRV_BG1).fg(GRV_FG))
     .block(Block::default().borders(Borders::ALL).title("Builds")
-        .border_style(Style::default().fg(GRV_GRAY)));
+        .border_style(Style::default().fg(
+            if app.focused_pane == FocusPane::Top { GRV_YELLOW } else { GRV_GRAY }
+        )));
 
     let mut table_state = TableState::default().with_selected(Some(app.selected));
     frame.render_stateful_widget(table, area, &mut table_state);
@@ -894,12 +902,19 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
         .unwrap_or(0);
 
     let mut rows: Vec<Row> = Vec::new();
-    let mut drv_at_row: Vec<Option<String>> = Vec::new();
+    let mut drv_at_row: Vec<DepTreeRowId> = Vec::new();
     let mut search_match_rows: Vec<usize> = Vec::new();
     let search_active = app.input_is_search && !app.input_query.is_empty();
     let query_lower = app.input_query.to_lowercase();
 
+    const MAX_DEP_ROOTS: usize = 50;
+    let mut rendered_roots: usize = 0;
+
     for graph in &app.dep_graphs {
+        if rendered_roots >= MAX_DEP_ROOTS {
+            break;
+        }
+
         // Try to find the matching command root in active builds for accurate progress.
         let build_progress: Option<&Progress> = graph.command_line.as_ref().and_then(|cmd| {
             app.builds.iter().find(|b| {
@@ -933,7 +948,7 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
                     .values()
                     .all(|n| matches!(n.status, DrvStatus::Done | DrvStatus::Failed))
         };
-        if !app.show_all_roots && all_finished {
+        if !app.show_dep_history && all_finished {
             continue;
         }
 
@@ -970,7 +985,15 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
                 progress_parts.push(format!("{failed_count} failed"));
             }
         }
-        let mut root_label = format!("{cmd_label} ({})", progress_parts.join(", "));
+
+        // Determine if this command root is folded.
+        let is_root_folded = graph
+            .command_line
+            .as_ref()
+            .is_some_and(|cmd| app.folded_dep_roots.contains(cmd));
+
+        let fold_indicator = if is_root_folded { "▶ " } else { "▼ " };
+        let mut root_label = format!("{fold_indicator}{cmd_label} ({})", progress_parts.join(", "));
 
         // Append status label for finished graphs that are shown.
         if all_finished {
@@ -984,7 +1007,6 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
                     ])
                     .style(Style::default().bold()),
                 );
-                drv_at_row.push(None);
             } else {
                 root_label = format!("{root_label} [done]");
                 rows.push(
@@ -995,7 +1017,6 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
                     ])
                     .style(Style::default().bold()),
                 );
-                drv_at_row.push(None);
             }
         } else {
             rows.push(
@@ -1006,7 +1027,13 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
                 ])
                 .style(Style::default().bold()),
             );
-            drv_at_row.push(None);
+        }
+        drv_at_row.push(DepTreeRowId::CommandRoot(graph.command_line.clone()));
+        rendered_roots += 1;
+
+        // Skip DFS children if this command root is folded.
+        if is_root_folded {
+            continue;
         }
 
         // DFS traversal of each root in the graph.
@@ -1055,7 +1082,7 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
                         ])
                         .style(Style::default().fg(GRV_GRAY).italic()),
                     );
-                    drv_at_row.push(Some(drv_path.to_string()));
+                    drv_at_row.push(DepTreeRowId::DrvNode(drv_path.to_string()));
                     continue; // Don't recurse into duplicates.
                 }
 
@@ -1097,7 +1124,7 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
                     ])
                     .style(row_style),
                 );
-                drv_at_row.push(Some(drv_path.to_string()));
+                drv_at_row.push(DepTreeRowId::DrvNode(drv_path.to_string()));
 
                 if is_search_match {
                     search_match_rows.push(row_idx);
@@ -1160,7 +1187,9 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
     .header(header)
     .row_highlight_style(Style::default().bg(GRV_BG1).fg(GRV_FG))
     .block(Block::default().borders(Borders::ALL).title("Dependency Tree")
-        .border_style(Style::default().fg(GRV_GRAY)));
+        .border_style(Style::default().fg(
+            if app.focused_pane == FocusPane::Top { GRV_YELLOW } else { GRV_GRAY }
+        )));
 
     let mut table_state = TableState::default().with_selected(Some(app.dep_tree_selected));
     frame.render_stateful_widget(table, area, &mut table_state);
@@ -1452,7 +1481,9 @@ fn render_processes_table(frame: &mut Frame, app: &mut App, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .title("Processes (p to go back)")
-                .border_style(Style::default().fg(GRV_GRAY)),
+                .border_style(Style::default().fg(
+                    if app.focused_pane == FocusPane::Top { GRV_YELLOW } else { GRV_GRAY }
+                )),
         );
         frame.render_widget(table, area);
         return;
@@ -1472,7 +1503,9 @@ fn render_processes_table(frame: &mut Frame, app: &mut App, area: Rect) {
         Block::default()
             .borders(Borders::ALL)
             .title("Processes (p to go back)")
-            .border_style(Style::default().fg(GRV_GRAY)),
+            .border_style(Style::default().fg(
+                if app.focused_pane == FocusPane::Top { GRV_YELLOW } else { GRV_GRAY }
+            )),
     );
 
     let mut table_state = TableState::default().with_selected(Some(app.proc_selected));
@@ -1485,7 +1518,9 @@ fn render_machines(frame: &mut Frame, app: &App, area: Rect) {
         let p = Paragraph::new(" No remote builders configured")
             .style(Style::default().fg(GRV_GRAY))
             .block(Block::default().borders(Borders::ALL).title("Remote Builders")
-                .border_style(Style::default().fg(GRV_GRAY)));
+                .border_style(Style::default().fg(
+                    if app.focused_pane == FocusPane::Bottom { GRV_YELLOW } else { GRV_GRAY }
+                )));
         frame.render_widget(p, area);
         return;
     }
@@ -1521,7 +1556,9 @@ fn render_machines(frame: &mut Frame, app: &App, area: Rect) {
     )
     .header(header)
     .block(Block::default().borders(Borders::ALL).title("Remote Builders")
-        .border_style(Style::default().fg(GRV_GRAY)));
+        .border_style(Style::default().fg(
+            if app.focused_pane == FocusPane::Bottom { GRV_YELLOW } else { GRV_GRAY }
+        )));
 
     frame.render_widget(table, area);
 }
@@ -1532,7 +1569,9 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
         let p = Paragraph::new(" No completed builds yet")
             .style(Style::default().fg(GRV_GRAY))
             .block(Block::default().borders(Borders::ALL).title("History (h to close)")
-                .border_style(Style::default().fg(GRV_GRAY)));
+                .border_style(Style::default().fg(
+                    if app.focused_pane == FocusPane::Bottom { GRV_YELLOW } else { GRV_GRAY }
+                )));
         frame.render_widget(p, area);
         return;
     }
@@ -1591,8 +1630,10 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
     )
     .header(header)
     .row_highlight_style(Style::default().bg(GRV_BG1).fg(GRV_FG))
-    .block(Block::default().borders(Borders::ALL).title("History (h to close, ↑/↓ scroll)")
-        .border_style(Style::default().fg(GRV_GRAY)));
+    .block(Block::default().borders(Borders::ALL).title("History (h to close, j/k/↑/↓ scroll)")
+        .border_style(Style::default().fg(
+            if app.focused_pane == FocusPane::Bottom { GRV_YELLOW } else { GRV_GRAY }
+        )));
 
     let mut table_state = TableState::default().with_selected(Some(app.history_selected));
     frame.render_stateful_widget(table, area, &mut table_state);
@@ -1635,7 +1676,9 @@ fn render_log(frame: &mut Frame, app: &App, area: Rect) {
 
     let paragraph = Paragraph::new(text)
         .block(Block::default().borders(Borders::ALL).title(format!("{title}{scroll_indicator}"))
-            .border_style(Style::default().fg(GRV_GRAY)))
+            .border_style(Style::default().fg(
+                if app.focused_pane == FocusPane::Bottom { GRV_YELLOW } else { GRV_GRAY }
+            )))
         .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);
@@ -1719,6 +1762,63 @@ pub fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{bytes}B")
     }
+}
+
+fn render_help(frame: &mut Frame, area: Rect) {
+    let help_text = "\
+ Navigation
+   j / k            scroll focused pane up/down
+   ↑ / ↓            scroll bottom panel (log / history)
+   Ctrl-u / Ctrl-d  half-page up/down (focused pane)
+   gg / G           jump to top / bottom (focused pane)
+
+ Views
+   d                dependency tree
+   p                processes
+   h                history panel
+   l                log panel
+   r                remote builders
+   a                toggle show-all roots
+
+ Actions
+   K                kill/freeze/unfreeze prompt
+   V                visual (multi-select) mode
+   y                yank field to clipboard
+   n                set nice (builds) / search next (deps)
+   N                search prev (deps)
+   c                set CPU limit
+   m                set memory limit
+
+ Focus
+   Tab              switch focus between top/bottom pane
+
+ Dep Tree / Processes
+   Space            toggle fold
+   zc / zo / za     fold close / open / toggle
+   /                search (dep tree)
+   f                filter (builds)
+   H                toggle dep tree history
+
+ Other
+   [ / ]            scroll log up/down
+   q                quit
+   ?                this help";
+
+    let w = 60u16.min(area.width.saturating_sub(4));
+    let h = 34u16.min(area.height.saturating_sub(4));
+    let x = area.x + (area.width.saturating_sub(w)) / 2;
+    let y = area.y + (area.height.saturating_sub(h)) / 2;
+    let popup = Rect::new(x, y, w, h);
+
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Help (?/Esc to close) ")
+        .border_style(Style::default().fg(GRV_YELLOW));
+    let paragraph = Paragraph::new(help_text)
+        .block(block)
+        .style(Style::default().fg(GRV_FG));
+    frame.render_widget(paragraph, popup);
 }
 
 #[cfg(test)]

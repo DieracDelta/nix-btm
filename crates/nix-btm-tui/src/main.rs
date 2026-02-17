@@ -13,6 +13,7 @@ use ratatui::prelude::*;
 use std::io::stdout;
 
 use nix_btm_common::protocol::{self, BuildAction};
+use app::FocusPane;
 
 const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(3);
 const STATUS_DURATION_ERR: std::time::Duration = std::time::Duration::from_secs(8);
@@ -74,6 +75,15 @@ async fn run_loop(
                 }
                 had_event = true;
                 app.dirty = true;
+
+                // Handle help overlay: only ? and Esc dismiss it.
+                if app.show_help {
+                    match key.code {
+                        KeyCode::Char('?') | KeyCode::Esc => app.toggle_help(),
+                        _ => {}
+                    }
+                    continue;
+                }
 
                 // Handle text input mode (search / filter).
                 if app.input_mode {
@@ -148,7 +158,10 @@ async fn run_loop(
                 if app.pending_g {
                     app.pending_g = false;
                     if key.code == KeyCode::Char('g') {
-                        app.select_top();
+                        match app.focused_pane {
+                            FocusPane::Bottom => app.bottom_select_top(),
+                            FocusPane::Top => app.select_top(),
+                        }
                         continue;
                     }
                     // Not `g` — fall through to normal handling.
@@ -178,10 +191,16 @@ async fn run_loop(
                 match (key.code, key.modifiers) {
                     (KeyCode::Char('q'), _) => return Ok(()),
                     (KeyCode::Char('k'), KeyModifiers::NONE) => {
-                        app.select_prev()
+                        match app.focused_pane {
+                            FocusPane::Bottom => app.bottom_select_prev(),
+                            FocusPane::Top => app.select_prev(),
+                        }
                     }
                     (KeyCode::Char('j'), KeyModifiers::NONE) => {
-                        app.select_next()
+                        match app.focused_pane {
+                            FocusPane::Bottom => app.bottom_select_next(),
+                            FocusPane::Top => app.select_next(),
+                        }
                     }
                     (KeyCode::Up, _) => {
                         if app.show_log {
@@ -201,8 +220,18 @@ async fn run_loop(
                             app.select_next()
                         }
                     }
-                    (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.half_page_up(),
-                    (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.half_page_down(),
+                    (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                        match app.focused_pane {
+                            FocusPane::Bottom => app.bottom_half_page_up(),
+                            FocusPane::Top => app.half_page_up(),
+                        }
+                    }
+                    (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                        match app.focused_pane {
+                            FocusPane::Bottom => app.bottom_half_page_down(),
+                            FocusPane::Top => app.half_page_down(),
+                        }
+                    }
                     (KeyCode::Char('g'), KeyModifiers::NONE) => {
                         app.pending_g = true;
                     }
@@ -210,7 +239,10 @@ async fn run_loop(
                         app.pending_z = true;
                     }
                     (KeyCode::Char('G'), KeyModifiers::SHIFT | KeyModifiers::NONE) => {
-                        app.select_bottom()
+                        match app.focused_pane {
+                            FocusPane::Bottom => app.bottom_select_bottom(),
+                            FocusPane::Top => app.select_bottom(),
+                        }
                     }
                     (KeyCode::Char('K'), KeyModifiers::SHIFT | KeyModifiers::NONE) => {
                         if !app.selected_activity_ids().is_empty() {
@@ -228,12 +260,20 @@ async fn run_loop(
                         app.show_yank_prompt();
                     }
                     (KeyCode::Char('a'), KeyModifiers::NONE) => app.toggle_show_all(),
-                    (KeyCode::Char(' '), _) | (KeyCode::Tab, _) => {
+                    (KeyCode::Char('H'), KeyModifiers::SHIFT | KeyModifiers::NONE) => {
+                        if app.show_dep_tree {
+                            app.toggle_dep_history();
+                        }
+                    }
+                    (KeyCode::Char(' '), _) => {
                         if app.show_processes {
                             app.proc_toggle_fold();
                         } else if app.show_dep_tree {
                             app.toggle_fold();
                         }
+                    }
+                    (KeyCode::Tab, _) => {
+                        app.cycle_focus();
                     }
                     (KeyCode::Char('p'), KeyModifiers::NONE) => {
                         if app.visual_mode {
@@ -289,6 +329,7 @@ async fn run_loop(
                             }
                         }
                     }
+                    (KeyCode::Char('?'), _) => app.toggle_help(),
                     (KeyCode::Esc, _) => {
                         if app.visual_mode {
                             app.exit_visual();

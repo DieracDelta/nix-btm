@@ -9,6 +9,22 @@ use nix_btm_common::types::{BtmSnapshot, Build, CompletedBuild, ProcessInfo, Pro
 use crate::client::BtmClient;
 use crate::ui;
 
+/// Which pane currently has keyboard focus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusPane {
+    Top,
+    Bottom,
+}
+
+/// Identifies what a dep tree row represents (for fold/selection dispatch).
+#[derive(Clone, Debug)]
+pub enum DepTreeRowId {
+    /// A command root row (keyed by command_line).
+    CommandRoot(Option<String>),
+    /// A derivation node row (keyed by drv_path).
+    DrvNode(String),
+}
+
 /// A row in the flattened processes tree view.
 pub enum ProcRow {
     /// Top-level nix command (level 0).
@@ -61,12 +77,16 @@ pub struct App {
     pub visible_rows: usize,
     /// Whether to show all roots including finished ones (default false = hide finished).
     pub show_all_roots: bool,
+    /// Whether to show finished dep tree graphs (independent of show_all_roots).
+    pub show_dep_history: bool,
     /// Maps visible row index → index in `self.builds` (for active builds view filtering).
     pub visible_build_indices: Vec<usize>,
     /// Drv paths that are collapsed in the dep tree view.
     pub folded_nodes: HashSet<String>,
-    /// Maps dep tree row index → drv_path (None for command root rows).
-    pub dep_tree_drv_at_row: Vec<Option<String>>,
+    /// Command roots that are collapsed in the dep tree view.
+    pub folded_dep_roots: HashSet<String>,
+    /// Maps dep tree row index → row identity (command root or drv node).
+    pub dep_tree_drv_at_row: Vec<DepTreeRowId>,
     /// Whether currently in text input mode (search or filter).
     pub input_mode: bool,
     /// The current search/filter query string.
@@ -103,6 +123,10 @@ pub struct App {
     pub dirty: bool,
     /// Currently selected index in the history panel.
     pub history_selected: usize,
+    /// Whether the help overlay is showing.
+    pub show_help: bool,
+    /// Which pane (top or bottom) has keyboard focus.
+    pub focused_pane: FocusPane,
 }
 
 impl App {
@@ -129,8 +153,10 @@ impl App {
             pending_z: false,
             visible_rows: 20,
             show_all_roots: false,
+            show_dep_history: false,
             visible_build_indices: Vec::new(),
             folded_nodes: HashSet::new(),
+            folded_dep_roots: HashSet::new(),
             dep_tree_drv_at_row: Vec::new(),
             input_mode: false,
             input_query: String::new(),
@@ -150,6 +176,8 @@ impl App {
             yank_prompt: false,
             dirty: true,
             history_selected: 0,
+            show_help: false,
+            focused_pane: FocusPane::Top,
         }
     }
 
@@ -316,29 +344,64 @@ impl App {
         self.show_all_roots = !self.show_all_roots;
     }
 
+    pub fn toggle_dep_history(&mut self) {
+        self.show_dep_history = !self.show_dep_history;
+    }
+
     pub fn toggle_fold(&mut self) {
-        if let Some(Some(drv_path)) = self.dep_tree_drv_at_row.get(self.dep_tree_selected) {
-            if !self.folded_nodes.remove(drv_path) {
-                self.folded_nodes.insert(drv_path.clone());
+        if let Some(row_id) = self.dep_tree_drv_at_row.get(self.dep_tree_selected) {
+            match row_id {
+                DepTreeRowId::DrvNode(drv_path) => {
+                    let drv_path = drv_path.clone();
+                    if !self.folded_nodes.remove(&drv_path) {
+                        self.folded_nodes.insert(drv_path);
+                    }
+                }
+                DepTreeRowId::CommandRoot(Some(cmd)) => {
+                    let cmd = cmd.clone();
+                    if !self.folded_dep_roots.remove(&cmd) {
+                        self.folded_dep_roots.insert(cmd);
+                    }
+                }
+                DepTreeRowId::CommandRoot(None) => {}
             }
         }
     }
 
     pub fn fold_close(&mut self) {
-        if let Some(Some(drv_path)) = self.dep_tree_drv_at_row.get(self.dep_tree_selected) {
-            self.folded_nodes.insert(drv_path.clone());
+        if let Some(row_id) = self.dep_tree_drv_at_row.get(self.dep_tree_selected) {
+            match row_id {
+                DepTreeRowId::DrvNode(drv_path) => {
+                    self.folded_nodes.insert(drv_path.clone());
+                }
+                DepTreeRowId::CommandRoot(Some(cmd)) => {
+                    self.folded_dep_roots.insert(cmd.clone());
+                }
+                DepTreeRowId::CommandRoot(None) => {}
+            }
         }
     }
 
     pub fn fold_open(&mut self) {
-        if let Some(Some(drv_path)) = self.dep_tree_drv_at_row.get(self.dep_tree_selected) {
-            self.folded_nodes.remove(drv_path);
+        if let Some(row_id) = self.dep_tree_drv_at_row.get(self.dep_tree_selected) {
+            match row_id {
+                DepTreeRowId::DrvNode(drv_path) => {
+                    self.folded_nodes.remove(drv_path);
+                }
+                DepTreeRowId::CommandRoot(Some(cmd)) => {
+                    self.folded_dep_roots.remove(cmd);
+                }
+                DepTreeRowId::CommandRoot(None) => {}
+            }
         }
     }
 
     pub fn toggle_log_panel(&mut self) {
         self.show_log = !self.show_log;
         self.log_scroll = 0;
+        if !self.has_bottom_pane() {
+            self.focused_pane = FocusPane::Top;
+        }
     }
 
     pub fn log_scroll_up(&mut self) {
@@ -356,6 +419,9 @@ impl App {
 
     pub fn toggle_history(&mut self) {
         self.show_history = !self.show_history;
+        if !self.has_bottom_pane() {
+            self.focused_pane = FocusPane::Top;
+        }
     }
 
     pub fn history_scroll_up(&mut self) {
@@ -371,6 +437,9 @@ impl App {
 
     pub fn toggle_machines(&mut self) {
         self.show_machines = !self.show_machines;
+        if !self.has_bottom_pane() {
+            self.focused_pane = FocusPane::Top;
+        }
     }
 
     pub fn toggle_dep_tree(&mut self) {
@@ -591,6 +660,7 @@ impl App {
         if !self.show_dep_tree {
             self.visual_mode = true;
             self.visual_anchor = self.selected;
+            self.focused_pane = FocusPane::Top;
         }
     }
 
@@ -665,6 +735,95 @@ impl App {
 
     pub fn cancel_yank_prompt(&mut self) {
         self.yank_prompt = false;
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
+    }
+
+    /// Whether any bottom pane is currently visible.
+    pub fn has_bottom_pane(&self) -> bool {
+        self.show_log || self.show_history || self.show_machines
+    }
+
+    /// Cycle focus between Top and Bottom panes.
+    pub fn cycle_focus(&mut self) {
+        if !self.has_bottom_pane() {
+            return;
+        }
+        self.focused_pane = match self.focused_pane {
+            FocusPane::Top => FocusPane::Bottom,
+            FocusPane::Bottom => FocusPane::Top,
+        };
+    }
+
+    /// Navigate the bottom pane up (toward older entries).
+    pub fn bottom_select_prev(&mut self) {
+        if self.show_log {
+            self.log_scroll_up();
+        } else if self.show_history {
+            self.history_scroll_up();
+        }
+        // machines: no-op (short list)
+    }
+
+    /// Navigate the bottom pane down (toward newer entries).
+    pub fn bottom_select_next(&mut self) {
+        if self.show_log {
+            self.log_scroll_down();
+        } else if self.show_history {
+            self.history_scroll_down();
+        }
+    }
+
+    /// Jump to the top of the bottom pane.
+    pub fn bottom_select_top(&mut self) {
+        if self.show_log {
+            // gg in log = oldest = max scroll
+            self.log_scroll = self.log_lines.len().saturating_sub(1);
+        } else if self.show_history {
+            self.history_selected = 0;
+        }
+    }
+
+    /// Jump to the bottom of the bottom pane.
+    pub fn bottom_select_bottom(&mut self) {
+        if self.show_log {
+            // G in log = latest = scroll 0
+            self.log_scroll = 0;
+        } else if self.show_history {
+            let len = self.history().len();
+            if len > 0 {
+                self.history_selected = len - 1;
+            }
+        }
+    }
+
+    /// Half-page up in the bottom pane.
+    pub fn bottom_half_page_up(&mut self) {
+        let delta = self.visible_rows / 2;
+        if self.show_log {
+            for _ in 0..delta {
+                self.log_scroll_up();
+            }
+        } else if self.show_history {
+            self.history_selected = self.history_selected.saturating_sub(delta);
+        }
+    }
+
+    /// Half-page down in the bottom pane.
+    pub fn bottom_half_page_down(&mut self) {
+        let delta = self.visible_rows / 2;
+        if self.show_log {
+            for _ in 0..delta {
+                self.log_scroll_down();
+            }
+        } else if self.show_history {
+            let len = self.history().len();
+            if len > 0 {
+                self.history_selected = (self.history_selected + delta).min(len - 1);
+            }
+        }
     }
 
     /// Extract a field value from the builds view for yanking.
