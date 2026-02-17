@@ -1526,7 +1526,7 @@ fn render_machines(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(table, area);
 }
 
-fn render_history(frame: &mut Frame, app: &App, area: Rect) {
+fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
     let history = app.history();
     if history.is_empty() {
         let p = Paragraph::new(" No completed builds yet")
@@ -1572,6 +1572,12 @@ fn render_history(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    // Clamp selection.
+    let hist_len = history.len();
+    if hist_len > 0 && app.history_selected >= hist_len {
+        app.history_selected = hist_len - 1;
+    }
+
     let table = Table::new(
         rows,
         [
@@ -1584,10 +1590,12 @@ fn render_history(frame: &mut Frame, app: &App, area: Rect) {
         ],
     )
     .header(header)
-    .block(Block::default().borders(Borders::ALL).title("History (h to close)")
+    .row_highlight_style(Style::default().bg(GRV_BG1).fg(GRV_FG))
+    .block(Block::default().borders(Borders::ALL).title("History (h to close, ↑/↓ scroll)")
         .border_style(Style::default().fg(GRV_GRAY)));
 
-    frame.render_widget(table, area);
+    let mut table_state = TableState::default().with_selected(Some(app.history_selected));
+    frame.render_stateful_widget(table, area, &mut table_state);
 }
 
 fn format_duration_secs(secs: u64) -> String {

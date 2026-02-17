@@ -101,6 +101,8 @@ pub struct App {
     pub yank_prompt: bool,
     /// Whether the UI needs a redraw (set on data refresh or key press).
     pub dirty: bool,
+    /// Currently selected index in the history panel.
+    pub history_selected: usize,
 }
 
 impl App {
@@ -147,6 +149,7 @@ impl App {
             folded_proc_builds: HashSet::new(),
             yank_prompt: false,
             dirty: true,
+            history_selected: 0,
         }
     }
 
@@ -186,6 +189,12 @@ impl App {
         // Keep proc_selected in bounds.
         if !self.visible_proc_indices.is_empty() && self.proc_selected >= self.visible_proc_indices.len() {
             self.proc_selected = self.visible_proc_indices.len() - 1;
+        }
+
+        // Keep history_selected in bounds.
+        let hist_len = self.history().len();
+        if hist_len > 0 && self.history_selected >= hist_len {
+            self.history_selected = hist_len - 1;
         }
 
         // Refresh log if panel is open.
@@ -347,6 +356,17 @@ impl App {
 
     pub fn toggle_history(&mut self) {
         self.show_history = !self.show_history;
+    }
+
+    pub fn history_scroll_up(&mut self) {
+        self.history_selected = self.history_selected.saturating_sub(1);
+    }
+
+    pub fn history_scroll_down(&mut self) {
+        let len = self.history().len();
+        if len > 0 && self.history_selected < len - 1 {
+            self.history_selected += 1;
+        }
     }
 
     pub fn toggle_machines(&mut self) {

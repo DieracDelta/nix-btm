@@ -177,11 +177,25 @@ async fn run_loop(
 
                 match (key.code, key.modifiers) {
                     (KeyCode::Char('q'), _) => return Ok(()),
-                    (KeyCode::Up, _) | (KeyCode::Char('k'), KeyModifiers::NONE) => {
+                    (KeyCode::Char('k'), KeyModifiers::NONE) => {
                         app.select_prev()
                     }
-                    (KeyCode::Down, _) | (KeyCode::Char('j'), KeyModifiers::NONE) => {
+                    (KeyCode::Char('j'), KeyModifiers::NONE) => {
                         app.select_next()
+                    }
+                    (KeyCode::Up, _) => {
+                        if app.show_history {
+                            app.history_scroll_up()
+                        } else {
+                            app.select_prev()
+                        }
+                    }
+                    (KeyCode::Down, _) => {
+                        if app.show_history {
+                            app.history_scroll_down()
+                        } else {
+                            app.select_next()
+                        }
                     }
                     (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.half_page_up(),
                     (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.half_page_down(),
