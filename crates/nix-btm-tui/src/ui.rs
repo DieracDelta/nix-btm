@@ -796,7 +796,7 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
                     if let Some(ref prog) = build.progress {
                         if prog.expected > 0 && prog.done >= prog.expected && prog.running == 0 {
                             if prog.failed > 0 {
-                                drv_name = format!("{drv_name} [FAILED]");
+                                drv_name = format!("{drv_name} ✗");
                                 return Row::new(vec![
                                     Cell::from(drv_name).style(Style::default().fg(GRV_RED)),
                                     Cell::from(""),
@@ -810,7 +810,19 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
                                 ])
                                 .style(style);
                             } else {
-                                drv_name = format!("{drv_name} [done]");
+                                drv_name = format!("{drv_name} ✓");
+                                return Row::new(vec![
+                                    Cell::from(drv_name),
+                                    Cell::from(""),
+                                    Cell::from(""),
+                                    Cell::from(""),
+                                    Cell::from(""),
+                                    Cell::from(""),
+                                    Cell::from(""),
+                                    Cell::from(""),
+                                    Cell::from(""),
+                                ])
+                                .style(style.fg(GRV_FG4));
                             }
                         }
                     }
@@ -835,9 +847,9 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
             if let Some(&(success, duration_us)) = app.completed_meta.get(&build.activity_id) {
                 let step = step_label(build, &app.hoisted_download);
                 let status_cell = if success {
-                    Cell::from("done").style(Style::default().fg(GRV_GREEN))
+                    Cell::from("✓").style(Style::default().fg(GRV_GREEN))
                 } else {
-                    Cell::from("FAIL").style(Style::default().fg(GRV_RED))
+                    Cell::from("✗").style(Style::default().fg(GRV_RED))
                 };
                 let user = build.user.as_deref().unwrap_or("-");
                 let machine = match &build.machine {
