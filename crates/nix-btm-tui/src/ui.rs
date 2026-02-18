@@ -798,6 +798,35 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
                 .style(style);
             }
 
+            // History builds: show completion status instead of live data.
+            if let Some(&(success, duration_us)) = app.completed_meta.get(&build.activity_id) {
+                let step = step_label(build, &app.hoisted_download);
+                let status_cell = if success {
+                    Cell::from("done").style(Style::default().fg(GRV_GREEN))
+                } else {
+                    Cell::from("FAIL").style(Style::default().fg(GRV_RED))
+                };
+                let user = build.user.as_deref().unwrap_or("-");
+                let machine = match &build.machine {
+                    BuildMachine::Local => "local".to_string(),
+                    BuildMachine::Remote { uri } => short_uri(uri),
+                };
+                let elapsed = format_duration_us(duration_us);
+
+                return Row::new(vec![
+                    Cell::from(drv_name),
+                    Cell::from(step),
+                    Cell::from(""),
+                    status_cell,
+                    Cell::from(""),
+                    Cell::from(user.to_string()),
+                    Cell::from(machine),
+                    Cell::from(elapsed),
+                    Cell::from(""),
+                ])
+                .style(style.fg(GRV_GRAY));
+            }
+
             let step = step_label(build, &app.hoisted_download);
             let phase = build.phase.as_deref().unwrap_or("");
 

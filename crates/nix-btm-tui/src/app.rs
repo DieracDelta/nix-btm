@@ -127,6 +127,10 @@ pub struct App {
     pub show_help: bool,
     /// Which pane (top or bottom) has keyboard focus.
     pub focused_pane: FocusPane,
+    /// Activity IDs of builds that came from recent_history (for styling).
+    pub history_build_ids: HashSet<u64>,
+    /// Completion metadata for history builds: activity_id → (success, duration_us).
+    pub completed_meta: HashMap<u64, (bool, u64)>,
 }
 
 impl App {
@@ -178,6 +182,8 @@ impl App {
             history_selected: 0,
             show_help: false,
             focused_pane: FocusPane::Top,
+            history_build_ids: HashSet::new(),
+            completed_meta: HashMap::new(),
         }
     }
 
@@ -191,7 +197,25 @@ impl App {
 
         let mut snapshot = client.get_snapshot().await?;
 
-        let builds: Vec<Build> = snapshot.active_builds.values().cloned().collect();
+        let mut builds: Vec<Build> = snapshot.active_builds.values().cloned().collect();
+
+        // Merge history builds into the list when show_all_roots is on.
+        self.history_build_ids.clear();
+        self.completed_meta.clear();
+        if self.show_all_roots {
+            for completed in &snapshot.recent_history {
+                let aid = completed.build.activity_id;
+                if !snapshot.active_builds.contains_key(&aid) {
+                    builds.push(completed.build.clone());
+                    self.history_build_ids.insert(aid);
+                    self.completed_meta.insert(
+                        aid,
+                        (completed.success, completed.duration.as_micros() as u64),
+                    );
+                }
+            }
+        }
+
         let tree_result = ui::tree_order_builds(builds);
 
         self.builds = tree_result.builds;
