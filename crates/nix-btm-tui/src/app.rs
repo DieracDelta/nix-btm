@@ -509,6 +509,66 @@ impl App {
         }
     }
 
+    /// Fold all command roots in the builds view.
+    pub fn build_fold_all(&mut self) {
+        for &id in &self.command_root_ids {
+            self.folded_build_roots.insert(id);
+        }
+    }
+
+    /// Unfold all command roots in the builds view.
+    pub fn build_unfold_all(&mut self) {
+        self.folded_build_roots.clear();
+    }
+
+    /// Fold all nodes in the dep tree view.
+    pub fn dep_tree_fold_all(&mut self) {
+        for row_id in &self.dep_tree_drv_at_row {
+            match row_id {
+                DepTreeRowId::DrvNode(drv_path) => {
+                    self.folded_nodes.insert(drv_path.clone());
+                }
+                DepTreeRowId::CommandRoot(Some(cmd)) => {
+                    self.folded_dep_roots.insert(cmd.clone());
+                }
+                DepTreeRowId::CommandRoot(None) => {}
+            }
+        }
+    }
+
+    /// Unfold all nodes in the dep tree view.
+    pub fn dep_tree_unfold_all(&mut self) {
+        self.folded_nodes.clear();
+        self.folded_dep_roots.clear();
+    }
+
+    /// Fold all nodes in the processes view.
+    pub fn proc_fold_all(&mut self) {
+        for row in &self.proc_rows {
+            match row {
+                ProcRow::NixCommand { pid, .. } => {
+                    self.folded_proc_pids.insert(*pid);
+                }
+                ProcRow::Derivation { activity_id, .. } => {
+                    self.folded_proc_builds.insert(*activity_id);
+                }
+                ProcRow::Process { .. } => {}
+            }
+        }
+        self.recompute_visible_procs();
+        if !self.visible_proc_indices.is_empty() && self.proc_selected >= self.visible_proc_indices.len() {
+            self.proc_selected = self.visible_proc_indices.len() - 1;
+        }
+        self.proc_state.select(Some(self.proc_selected));
+    }
+
+    /// Unfold all nodes in the processes view.
+    pub fn proc_unfold_all(&mut self) {
+        self.folded_proc_pids.clear();
+        self.folded_proc_builds.clear();
+        self.recompute_visible_procs();
+    }
+
     pub fn toggle_log_panel(&mut self) {
         self.show_log = !self.show_log;
         self.log_scroll = 0;

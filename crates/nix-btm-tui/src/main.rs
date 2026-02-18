@@ -175,6 +175,8 @@ async fn run_loop(
                             KeyCode::Char('c') => { app.proc_fold_close(); continue; }
                             KeyCode::Char('o') => { app.proc_fold_open(); continue; }
                             KeyCode::Char('a') => { app.proc_toggle_fold(); continue; }
+                            KeyCode::Char('M') => { app.proc_fold_all(); continue; }
+                            KeyCode::Char('R') => { app.proc_unfold_all(); continue; }
                             _ => {}
                         }
                     } else if app.show_dep_tree {
@@ -182,6 +184,8 @@ async fn run_loop(
                             KeyCode::Char('c') => { app.fold_close(); continue; }
                             KeyCode::Char('o') => { app.fold_open(); continue; }
                             KeyCode::Char('a') => { app.toggle_fold(); continue; }
+                            KeyCode::Char('M') => { app.dep_tree_fold_all(); continue; }
+                            KeyCode::Char('R') => { app.dep_tree_unfold_all(); continue; }
                             _ => {}
                         }
                     } else {
@@ -189,6 +193,8 @@ async fn run_loop(
                             KeyCode::Char('c') => { app.build_fold_close(); continue; }
                             KeyCode::Char('o') => { app.build_fold_open(); continue; }
                             KeyCode::Char('a') => { app.build_toggle_fold(); continue; }
+                            KeyCode::Char('M') => { app.build_fold_all(); continue; }
+                            KeyCode::Char('R') => { app.build_unfold_all(); continue; }
                             _ => {}
                         }
                     }
