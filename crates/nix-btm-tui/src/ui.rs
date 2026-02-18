@@ -896,8 +896,8 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
             if app.focused_pane == FocusPane::Top { GRV_YELLOW } else { GRV_GRAY }
         )));
 
-    let mut table_state = TableState::default().with_selected(Some(app.selected));
-    frame.render_stateful_widget(table, area, &mut table_state);
+    app.builds_state.select(Some(app.selected));
+    frame.render_stateful_widget(table, area, &mut app.builds_state);
 }
 
 /// Format progress counters for display on command root rows.
@@ -1220,8 +1220,8 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
             if app.focused_pane == FocusPane::Top { GRV_YELLOW } else { GRV_GRAY }
         )));
 
-    let mut table_state = TableState::default().with_selected(Some(app.dep_tree_selected));
-    frame.render_stateful_widget(table, area, &mut table_state);
+    app.dep_tree_state.select(Some(app.dep_tree_selected));
+    frame.render_stateful_widget(table, area, &mut app.dep_tree_state);
 }
 
 /// Format a DrvStatus for display, returning (text, style).
@@ -1537,8 +1537,8 @@ fn render_processes_table(frame: &mut Frame, app: &mut App, area: Rect) {
             )),
     );
 
-    let mut table_state = TableState::default().with_selected(Some(app.proc_selected));
-    frame.render_stateful_widget(table, area, &mut table_state);
+    app.proc_state.select(Some(app.proc_selected));
+    frame.render_stateful_widget(table, area, &mut app.proc_state);
 }
 
 fn render_machines(frame: &mut Frame, app: &App, area: Rect) {
@@ -1664,8 +1664,8 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
             if app.focused_pane == FocusPane::Bottom { GRV_YELLOW } else { GRV_GRAY }
         )));
 
-    let mut table_state = TableState::default().with_selected(Some(app.history_selected));
-    frame.render_stateful_widget(table, area, &mut table_state);
+    app.history_state.select(Some(app.history_selected));
+    frame.render_stateful_widget(table, area, &mut app.history_state);
 }
 
 fn format_duration_secs(secs: u64) -> String {

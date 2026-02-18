@@ -185,7 +185,8 @@ async fn run_loop(
                             _ => {}
                         }
                     }
-                    // Not a fold key — fall through to normal handling.
+                    // Chord consumed — don't let the second key fire independently.
+                    continue;
                 }
 
                 match (key.code, key.modifiers) {

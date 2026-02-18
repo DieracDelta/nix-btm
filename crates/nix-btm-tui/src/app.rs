@@ -5,6 +5,7 @@ use std::ops::RangeInclusive;
 
 use nix_btm_common::dep_graph::DepGraph;
 use nix_btm_common::types::{BtmSnapshot, Build, CompletedBuild, ProcessInfo, Progress, RemoteMachine};
+use ratatui::widgets::TableState;
 
 use crate::client::BtmClient;
 use crate::ui;
@@ -121,6 +122,14 @@ pub struct App {
     pub yank_prompt: bool,
     /// Whether the UI needs a redraw (set on data refresh or key press).
     pub dirty: bool,
+    /// Persistent table state for builds view (retains scroll offset across renders).
+    pub builds_state: TableState,
+    /// Persistent table state for dep tree view.
+    pub dep_tree_state: TableState,
+    /// Persistent table state for processes view.
+    pub proc_state: TableState,
+    /// Persistent table state for history view.
+    pub history_state: TableState,
     /// Currently selected index in the history panel.
     pub history_selected: usize,
     /// Whether the help overlay is showing.
@@ -179,6 +188,10 @@ impl App {
             folded_proc_builds: HashSet::new(),
             yank_prompt: false,
             dirty: true,
+            builds_state: TableState::default(),
+            dep_tree_state: TableState::default(),
+            proc_state: TableState::default(),
+            history_state: TableState::default(),
             history_selected: 0,
             show_help: false,
             focused_pane: FocusPane::Top,
@@ -249,6 +262,12 @@ impl App {
             self.history_selected = hist_len - 1;
         }
 
+        // Sync persistent table states after clamping.
+        self.builds_state.select(Some(self.selected));
+        self.proc_state.select(Some(self.proc_selected));
+        self.dep_tree_state.select(Some(self.dep_tree_selected));
+        self.history_state.select(Some(self.history_selected));
+
         // Refresh log if panel is open.
         if self.show_log {
             if let Some(id) = self.selected_build_id() {
@@ -263,12 +282,15 @@ impl App {
     pub fn select_prev(&mut self) {
         if self.show_processes {
             self.proc_selected = self.proc_selected.saturating_sub(1);
+            self.proc_state.select(Some(self.proc_selected));
         } else if self.show_dep_tree {
             if self.dep_tree_selected > 0 {
                 self.dep_tree_selected -= 1;
             }
+            self.dep_tree_state.select(Some(self.dep_tree_selected));
         } else if self.selected > 0 {
             self.selected -= 1;
+            self.builds_state.select(Some(self.selected));
         }
     }
 
@@ -278,25 +300,31 @@ impl App {
             if len > 0 && self.proc_selected < len - 1 {
                 self.proc_selected += 1;
             }
+            self.proc_state.select(Some(self.proc_selected));
         } else if self.show_dep_tree {
             if self.dep_tree_row_count > 0 && self.dep_tree_selected < self.dep_tree_row_count - 1 {
                 self.dep_tree_selected += 1;
             }
+            self.dep_tree_state.select(Some(self.dep_tree_selected));
         } else {
             let len = self.visible_build_indices.len();
             if len > 0 && self.selected < len - 1 {
                 self.selected += 1;
             }
+            self.builds_state.select(Some(self.selected));
         }
     }
 
     pub fn select_top(&mut self) {
         if self.show_processes {
             self.proc_selected = 0;
+            self.proc_state.select(Some(0));
         } else if self.show_dep_tree {
             self.dep_tree_selected = 0;
+            self.dep_tree_state.select(Some(0));
         } else {
             self.selected = 0;
+            self.builds_state.select(Some(0));
         }
     }
 
@@ -306,15 +334,18 @@ impl App {
             if len > 0 {
                 self.proc_selected = len - 1;
             }
+            self.proc_state.select(Some(self.proc_selected));
         } else if self.show_dep_tree {
             if self.dep_tree_row_count > 0 {
                 self.dep_tree_selected = self.dep_tree_row_count - 1;
             }
+            self.dep_tree_state.select(Some(self.dep_tree_selected));
         } else {
             let len = self.visible_build_indices.len();
             if len > 0 {
                 self.selected = len - 1;
             }
+            self.builds_state.select(Some(self.selected));
         }
     }
 
@@ -322,10 +353,13 @@ impl App {
         let delta = self.visible_rows / 2;
         if self.show_processes {
             self.proc_selected = self.proc_selected.saturating_sub(delta);
+            self.proc_state.select(Some(self.proc_selected));
         } else if self.show_dep_tree {
             self.dep_tree_selected = self.dep_tree_selected.saturating_sub(delta);
+            self.dep_tree_state.select(Some(self.dep_tree_selected));
         } else {
             self.selected = self.selected.saturating_sub(delta);
+            self.builds_state.select(Some(self.selected));
         }
     }
 
@@ -336,6 +370,7 @@ impl App {
             if len > 0 {
                 self.proc_selected = (self.proc_selected + delta).min(len - 1);
             }
+            self.proc_state.select(Some(self.proc_selected));
         } else if self.show_dep_tree {
             let max = if self.dep_tree_row_count > 0 {
                 self.dep_tree_row_count - 1
@@ -343,11 +378,13 @@ impl App {
                 0
             };
             self.dep_tree_selected = (self.dep_tree_selected + delta).min(max);
+            self.dep_tree_state.select(Some(self.dep_tree_selected));
         } else {
             let len = self.visible_build_indices.len();
             if len > 0 {
                 self.selected = (self.selected + delta).min(len - 1);
             }
+            self.builds_state.select(Some(self.selected));
         }
     }
 
@@ -450,6 +487,7 @@ impl App {
 
     pub fn history_scroll_up(&mut self) {
         self.history_selected = self.history_selected.saturating_sub(1);
+        self.history_state.select(Some(self.history_selected));
     }
 
     pub fn history_scroll_down(&mut self) {
@@ -457,6 +495,7 @@ impl App {
         if len > 0 && self.history_selected < len - 1 {
             self.history_selected += 1;
         }
+        self.history_state.select(Some(self.history_selected));
     }
 
     pub fn toggle_machines(&mut self) {
@@ -475,6 +514,7 @@ impl App {
         if self.show_processes {
             self.show_dep_tree = false;
             self.proc_selected = 0;
+            self.proc_state.select(Some(0));
         }
     }
 
@@ -537,6 +577,7 @@ impl App {
             if !self.visible_proc_indices.is_empty() && self.proc_selected >= self.visible_proc_indices.len() {
                 self.proc_selected = self.visible_proc_indices.len() - 1;
             }
+            self.proc_state.select(Some(self.proc_selected));
         }
     }
 
@@ -556,6 +597,7 @@ impl App {
             if !self.visible_proc_indices.is_empty() && self.proc_selected >= self.visible_proc_indices.len() {
                 self.proc_selected = self.visible_proc_indices.len() - 1;
             }
+            self.proc_state.select(Some(self.proc_selected));
         }
     }
 
@@ -666,6 +708,7 @@ impl App {
         if !self.search_matches.is_empty() {
             self.search_match_idx = (self.search_match_idx + 1) % self.search_matches.len();
             self.dep_tree_selected = self.search_matches[self.search_match_idx];
+            self.dep_tree_state.select(Some(self.dep_tree_selected));
         }
     }
 
@@ -677,6 +720,7 @@ impl App {
                 self.search_match_idx -= 1;
             }
             self.dep_tree_selected = self.search_matches[self.search_match_idx];
+            self.dep_tree_state.select(Some(self.dep_tree_selected));
         }
     }
 
@@ -807,6 +851,7 @@ impl App {
             self.log_scroll = self.log_lines.len().saturating_sub(1);
         } else if self.show_history {
             self.history_selected = 0;
+            self.history_state.select(Some(0));
         }
     }
 
@@ -820,6 +865,7 @@ impl App {
             if len > 0 {
                 self.history_selected = len - 1;
             }
+            self.history_state.select(Some(self.history_selected));
         }
     }
 
@@ -832,6 +878,7 @@ impl App {
             }
         } else if self.show_history {
             self.history_selected = self.history_selected.saturating_sub(delta);
+            self.history_state.select(Some(self.history_selected));
         }
     }
 
@@ -847,6 +894,7 @@ impl App {
             if len > 0 {
                 self.history_selected = (self.history_selected + delta).min(len - 1);
             }
+            self.history_state.select(Some(self.history_selected));
         }
     }
 
