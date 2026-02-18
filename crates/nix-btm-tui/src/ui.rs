@@ -679,8 +679,8 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let mut visible_indices: Vec<usize> = Vec::new();
     for (i, build) in app.builds.iter().enumerate() {
+        // Hide builds under finished roots (when show_all_roots is off).
         if !finished_root_ids.is_empty() {
-            // Check if this build belongs to a finished root.
             let mut cur_id = build.activity_id;
             let mut is_under_finished = false;
             loop {
@@ -697,6 +697,33 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
                 }
             }
             if is_under_finished {
+                continue;
+            }
+        }
+        // Hide children of folded command roots (keep the root itself visible).
+        if !app.folded_build_roots.is_empty() && !app.command_root_ids.contains(&build.activity_id) {
+            let mut cur_id = build.activity_id;
+            let mut is_under_folded = false;
+            loop {
+                let cur_build = build_id_to_idx
+                    .get(&cur_id)
+                    .and_then(|&idx| app.builds.get(idx));
+                match cur_build.and_then(|b| b.parent_id) {
+                    Some(pid) => {
+                        if app.folded_build_roots.contains(&pid) {
+                            is_under_folded = true;
+                            break;
+                        }
+                        if build_id_to_idx.contains_key(&pid) {
+                            cur_id = pid;
+                        } else {
+                            break;
+                        }
+                    }
+                    None => break,
+                }
+            }
+            if is_under_folded {
                 continue;
             }
         }
@@ -747,7 +774,13 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
                 Style::default()
             };
 
-            let mut drv_name = format!("{}{}", prefix, drv_display_name(build));
+            let is_folded = is_command_root && app.folded_build_roots.contains(&build.activity_id);
+            let fold_indicator = if is_command_root {
+                if is_folded { "[+] " } else { "[-] " }
+            } else {
+                ""
+            };
+            let mut drv_name = format!("{}{}{}", prefix, fold_indicator, drv_display_name(build));
 
             if is_command_root {
                 // Append progress summary to command root.

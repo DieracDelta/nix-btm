@@ -184,6 +184,13 @@ async fn run_loop(
                             KeyCode::Char('a') => { app.toggle_fold(); continue; }
                             _ => {}
                         }
+                    } else {
+                        match key.code {
+                            KeyCode::Char('c') => { app.build_fold_close(); continue; }
+                            KeyCode::Char('o') => { app.build_fold_open(); continue; }
+                            KeyCode::Char('a') => { app.build_toggle_fold(); continue; }
+                            _ => {}
+                        }
                     }
                     // Chord consumed — don't let the second key fire independently.
                     continue;
@@ -264,7 +271,7 @@ async fn run_loop(
                     (KeyCode::Char('H'), _) => {
                         if app.show_dep_tree {
                             app.toggle_dep_history();
-                        } else if !app.show_processes {
+                        } else {
                             app.toggle_show_all();
                         }
                     }
@@ -273,6 +280,8 @@ async fn run_loop(
                             app.proc_toggle_fold();
                         } else if app.show_dep_tree {
                             app.toggle_fold();
+                        } else {
+                            app.build_toggle_fold();
                         }
                     }
                     (KeyCode::Tab, _) => {

@@ -82,6 +82,8 @@ pub struct App {
     pub show_dep_history: bool,
     /// Maps visible row index → index in `self.builds` (for active builds view filtering).
     pub visible_build_indices: Vec<usize>,
+    /// Command root activity_ids that are collapsed in the builds view.
+    pub folded_build_roots: HashSet<u64>,
     /// Drv paths that are collapsed in the dep tree view.
     pub folded_nodes: HashSet<String>,
     /// Command roots that are collapsed in the dep tree view.
@@ -168,6 +170,7 @@ impl App {
             show_all_roots: false,
             show_dep_history: false,
             visible_build_indices: Vec::new(),
+            folded_build_roots: HashSet::new(),
             folded_nodes: HashSet::new(),
             folded_dep_roots: HashSet::new(),
             dep_tree_drv_at_row: Vec::new(),
@@ -454,6 +457,55 @@ impl App {
                 }
                 DepTreeRowId::CommandRoot(None) => {}
             }
+        }
+    }
+
+    /// Get the command root activity_id for the currently selected build.
+    /// Returns Some(id) if the selected build is a command root, or walks
+    /// up the parent chain to find the nearest command root ancestor.
+    fn selected_build_root_id(&self) -> Option<u64> {
+        let &build_idx = self.visible_build_indices.get(self.selected)?;
+        let build = self.builds.get(build_idx)?;
+        if self.command_root_ids.contains(&build.activity_id) {
+            return Some(build.activity_id);
+        }
+        // Walk parent chain to find root.
+        let id_to_idx: std::collections::HashMap<u64, usize> = self.builds
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (b.activity_id, i))
+            .collect();
+        let mut cur_id = build.activity_id;
+        loop {
+            let cur = id_to_idx.get(&cur_id).and_then(|&i| self.builds.get(i))?;
+            match cur.parent_id {
+                Some(pid) if self.command_root_ids.contains(&pid) => return Some(pid),
+                Some(pid) if id_to_idx.contains_key(&pid) => cur_id = pid,
+                _ => return None,
+            }
+        }
+    }
+
+    /// Toggle fold on the selected build's command root.
+    pub fn build_toggle_fold(&mut self) {
+        if let Some(root_id) = self.selected_build_root_id() {
+            if !self.folded_build_roots.remove(&root_id) {
+                self.folded_build_roots.insert(root_id);
+            }
+        }
+    }
+
+    /// Fold close the selected build's command root.
+    pub fn build_fold_close(&mut self) {
+        if let Some(root_id) = self.selected_build_root_id() {
+            self.folded_build_roots.insert(root_id);
+        }
+    }
+
+    /// Fold open the selected build's command root.
+    pub fn build_fold_open(&mut self) {
+        if let Some(root_id) = self.selected_build_root_id() {
+            self.folded_build_roots.remove(&root_id);
         }
     }
 
