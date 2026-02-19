@@ -756,6 +756,23 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
         app.selected = app.visible_build_indices.len() - 1;
     }
 
+    // Search match computation (only when this is the focused pane and not in dep tree / processes).
+    let search_active = app.focused_pane == FocusPane::Top
+        && !app.show_dep_tree
+        && !app.show_processes
+        && app.input_is_search
+        && !app.input_query.is_empty();
+    let search_query_lower = app.input_query.to_lowercase();
+    let mut search_match_rows: Vec<usize> = Vec::new();
+    if search_active {
+        for (vis_idx, &build_idx) in app.visible_build_indices.iter().enumerate() {
+            let build = &app.builds[build_idx];
+            if drv_display_name(build).to_lowercase().contains(&search_query_lower) {
+                search_match_rows.push(vis_idx);
+            }
+        }
+    }
+
     let prefixes = compute_tree_prefixes(&app.builds);
 
     let rows: Vec<Row> = app
@@ -769,8 +786,11 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
 
             let in_visual =
                 app.visual_mode && app.visual_selection_range().contains(&vis_idx);
+            let is_search_match = search_active && search_match_rows.contains(&vis_idx);
             let style = if in_visual {
                 Style::default().bg(GRV_BLUE).fg(GRV_FG)
+            } else if is_search_match {
+                Style::default().fg(GRV_ORANGE)
             } else if is_command_root {
                 Style::default().bold()
             } else {
@@ -923,6 +943,24 @@ fn render_builds_table(frame: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
 
+    // Update search matches and auto-jump during live search input.
+    if search_active {
+        app.search_matches = search_match_rows;
+        if !app.search_matches.is_empty() {
+            if app.search_match_idx >= app.search_matches.len() {
+                app.search_match_idx = 0;
+            }
+            if app.input_mode {
+                app.search_match_idx = 0;
+                app.selected = app.search_matches[0];
+                app.builds_state.select(Some(app.selected));
+            }
+        }
+    } else if app.focused_pane == FocusPane::Top && !app.show_dep_tree && !app.show_processes {
+        app.search_matches.clear();
+        app.search_match_idx = 0;
+    }
+
     let table = Table::new(
         rows,
         [
@@ -981,7 +1019,9 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut rows: Vec<Row> = Vec::new();
     let mut drv_at_row: Vec<DepTreeRowId> = Vec::new();
     let mut search_match_rows: Vec<usize> = Vec::new();
-    let search_active = app.input_is_search && !app.input_query.is_empty();
+    let search_active = app.focused_pane == FocusPane::Top
+        && app.input_is_search
+        && !app.input_query.is_empty();
     let query_lower = app.input_query.to_lowercase();
 
     const MAX_DEP_ROOTS: usize = 50;
@@ -1464,13 +1504,42 @@ fn render_processes_table(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
+    // Search match computation for processes view.
+    let proc_search_active = app.focused_pane == FocusPane::Top
+        && app.show_processes
+        && app.input_is_search
+        && !app.input_query.is_empty();
+    let proc_query_lower = app.input_query.to_lowercase();
+    let mut proc_search_match_rows: Vec<usize> = Vec::new();
+    if proc_search_active {
+        for (vi, &ri) in vis.iter().enumerate() {
+            let text = match &proc_rows[ri] {
+                ProcRow::NixCommand { cmdline, .. } => cmdline.to_lowercase(),
+                ProcRow::Derivation { drv, .. } => drv.to_lowercase(),
+                ProcRow::Process { info, .. } => {
+                    if info.cmdline.is_empty() {
+                        info.name.to_lowercase()
+                    } else {
+                        info.cmdline.to_lowercase()
+                    }
+                }
+            };
+            if text.contains(&proc_query_lower) {
+                proc_search_match_rows.push(vi);
+            }
+        }
+    }
+
     let rows: Vec<Row> = vis
         .iter()
         .enumerate()
         .map(|(vi, &ri)| {
             let row = &proc_rows[ri];
+            let is_search_match = proc_search_active && proc_search_match_rows.contains(&vi);
             let style = if vi == app.proc_selected {
                 Style::default().bg(GRV_BG1).fg(GRV_FG)
+            } else if is_search_match {
+                Style::default().fg(GRV_ORANGE)
             } else {
                 Style::default()
             };
@@ -1537,6 +1606,24 @@ fn render_processes_table(frame: &mut Frame, app: &mut App, area: Rect) {
             }
         })
         .collect();
+
+    // Update search matches and auto-jump during live search input.
+    if proc_search_active {
+        app.search_matches = proc_search_match_rows;
+        if !app.search_matches.is_empty() {
+            if app.search_match_idx >= app.search_matches.len() {
+                app.search_match_idx = 0;
+            }
+            if app.input_mode {
+                app.search_match_idx = 0;
+                app.proc_selected = app.search_matches[0];
+                app.proc_state.select(Some(app.proc_selected));
+            }
+        }
+    } else if app.focused_pane == FocusPane::Top && app.show_processes {
+        app.search_matches.clear();
+        app.search_match_idx = 0;
+    }
 
     if rows.is_empty() {
         let empty_rows = vec![Row::new(vec![
@@ -1641,8 +1728,8 @@ fn render_machines(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
-    let history = app.history();
-    if history.is_empty() {
+    let hist_len = app.snapshot.as_ref().map_or(0, |s| s.recent_history.len());
+    if hist_len == 0 {
         let p = Paragraph::new(" No completed builds yet")
             .style(Style::default().fg(GRV_GRAY))
             .block(Block::default().borders(Borders::ALL).title("History (h to close)")
@@ -1663,33 +1750,79 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
     ])
     .style(Style::default().bold());
 
-    let rows: Vec<Row> = history
-        .iter()
-        .map(|c| {
-            let name = drv_display_name(&c.build);
-            let (result_text, result_style) = if c.success {
-                ("ok", Style::default().fg(GRV_GREEN))
-            } else {
-                ("FAIL", Style::default().fg(GRV_RED).bold())
-            };
-            let duration = format_duration_secs(c.duration.as_secs());
-            let cpu_usr = format_duration_secs(c.cpu_user_total_us / 1_000_000);
-            let cpu_sys = format_duration_secs(c.cpu_system_total_us / 1_000_000);
-            let user = c.build.user.as_deref().unwrap_or("-");
+    // Search match computation for history view.
+    let hist_search_active = app.focused_pane == FocusPane::Bottom
+        && app.show_history
+        && app.input_is_search
+        && !app.input_query.is_empty();
+    let hist_query_lower = app.input_query.to_lowercase();
+    let mut hist_search_match_rows: Vec<usize> = Vec::new();
+    if hist_search_active {
+        let history = app.snapshot.as_ref().unwrap().recent_history.as_slice();
+        for (i, c) in history.iter().enumerate() {
+            if drv_display_name(&c.build).to_lowercase().contains(&hist_query_lower) {
+                hist_search_match_rows.push(i);
+            }
+        }
+    }
 
-            Row::new(vec![
-                Cell::from(format!(" {name}")),
-                Cell::from(result_text).style(result_style),
-                Cell::from(duration),
-                Cell::from(cpu_usr),
-                Cell::from(cpu_sys),
-                Cell::from(user.to_string()),
-            ])
-        })
-        .collect();
+    // Build rows (scope the borrow to this block).
+    let rows: Vec<Row> = {
+        let history = app.snapshot.as_ref().unwrap().recent_history.as_slice();
+        history
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let name = drv_display_name(&c.build);
+                let is_search_match = hist_search_active && hist_search_match_rows.contains(&i);
+                let (result_text, result_style) = if c.success {
+                    ("ok", Style::default().fg(GRV_GREEN))
+                } else {
+                    ("FAIL", Style::default().fg(GRV_RED).bold())
+                };
+                let duration = format_duration_secs(c.duration.as_secs());
+                let cpu_usr = format_duration_secs(c.cpu_user_total_us / 1_000_000);
+                let cpu_sys = format_duration_secs(c.cpu_system_total_us / 1_000_000);
+                let user = c.build.user.as_deref().unwrap_or("-");
+
+                let row_style = if is_search_match {
+                    Style::default().fg(GRV_ORANGE)
+                } else {
+                    Style::default()
+                };
+
+                Row::new(vec![
+                    Cell::from(format!(" {name}")),
+                    Cell::from(result_text).style(result_style),
+                    Cell::from(duration),
+                    Cell::from(cpu_usr),
+                    Cell::from(cpu_sys),
+                    Cell::from(user.to_string()),
+                ])
+                .style(row_style)
+            })
+            .collect()
+    };
+
+    // Update search matches and auto-jump during live search input.
+    if hist_search_active {
+        app.search_matches = hist_search_match_rows;
+        if !app.search_matches.is_empty() {
+            if app.search_match_idx >= app.search_matches.len() {
+                app.search_match_idx = 0;
+            }
+            if app.input_mode {
+                app.search_match_idx = 0;
+                app.history_selected = app.search_matches[0];
+                app.history_state.select(Some(app.history_selected));
+            }
+        }
+    } else if app.focused_pane == FocusPane::Bottom && app.show_history {
+        app.search_matches.clear();
+        app.search_match_idx = 0;
+    }
 
     // Clamp selection.
-    let hist_len = history.len();
     if hist_len > 0 && app.history_selected >= hist_len {
         app.history_selected = hist_len - 1;
     }
@@ -1726,7 +1859,7 @@ fn format_duration_secs(secs: u64) -> String {
     }
 }
 
-fn render_log(frame: &mut Frame, app: &App, area: Rect) {
+fn render_log(frame: &mut Frame, app: &mut App, area: Rect) {
     let title = app
         .selected_build()
         .map(|b| format!("Log: {} ({})", drv_display_name(b), b.phase.as_deref().unwrap_or("?")))
@@ -1735,6 +1868,49 @@ fn render_log(frame: &mut Frame, app: &App, area: Rect) {
     // Visible height inside the block (minus borders).
     let inner_height = area.height.saturating_sub(2) as usize;
 
+    // Search match computation for log view.
+    let log_search_active = app.focused_pane == FocusPane::Bottom
+        && app.show_log
+        && app.input_is_search
+        && !app.input_query.is_empty();
+    let log_query_lower = app.input_query.to_lowercase();
+    let mut log_search_match_lines: Vec<usize> = Vec::new();
+    if log_search_active {
+        for (i, line) in app.log_lines.iter().enumerate() {
+            if line.to_lowercase().contains(&log_query_lower) {
+                log_search_match_lines.push(i);
+            }
+        }
+    }
+
+    // Update search matches and auto-jump during live search input.
+    if log_search_active {
+        // Convert line indices to scroll offsets for n/N navigation.
+        let total = app.log_lines.len();
+        let scroll_matches: Vec<usize> = log_search_match_lines
+            .iter()
+            .map(|&line_idx| {
+                // Scroll offset that centers the matching line in the viewport.
+                let lines_from_bottom = total.saturating_sub(line_idx + 1);
+                let center_offset = lines_from_bottom.saturating_sub(inner_height / 2);
+                center_offset.min(total.saturating_sub(1))
+            })
+            .collect();
+        app.search_matches = scroll_matches;
+        if !app.search_matches.is_empty() {
+            if app.search_match_idx >= app.search_matches.len() {
+                app.search_match_idx = 0;
+            }
+            if app.input_mode {
+                app.search_match_idx = 0;
+                app.log_scroll = app.search_matches[0];
+            }
+        }
+    } else if app.focused_pane == FocusPane::Bottom && app.show_log {
+        app.search_matches.clear();
+        app.search_match_idx = 0;
+    }
+
     // Scroll: log_scroll=0 means show latest (bottom), higher values scroll up.
     let total = app.log_lines.len();
     let end = total.saturating_sub(app.log_scroll);
@@ -1742,7 +1918,15 @@ fn render_log(frame: &mut Frame, app: &App, area: Rect) {
 
     let text: Vec<Line> = app.log_lines[start..end]
         .iter()
-        .map(|l| Line::from(format!(" > {l}")))
+        .enumerate()
+        .map(|(i, l)| {
+            let line_idx = start + i;
+            if log_search_active && log_search_match_lines.contains(&line_idx) {
+                Line::from(format!(" > {l}")).style(Style::default().fg(GRV_ORANGE))
+            } else {
+                Line::from(format!(" > {l}"))
+            }
+        })
         .collect();
 
     let scroll_indicator = if app.log_scroll > 0 {
@@ -1861,8 +2045,8 @@ fn render_help(frame: &mut Frame, area: Rect) {
    K                kill/freeze/unfreeze prompt
    V                visual (multi-select) mode
    y                yank field to clipboard
-   n                set nice (builds) / search next (deps)
-   N                search prev (deps)
+   n                search next / set nice (builds, no search)
+   N                search prev
    c                set CPU limit
    m                set memory limit
 
@@ -1872,7 +2056,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
  Dep Tree / Processes
    Space            toggle fold
    zc / zo / za     fold close / open / toggle
-   /                search (dep tree)
+   /                search (all views)
    f                filter (builds)
    H                toggle dep tree history
 

@@ -311,13 +311,13 @@ async fn run_loop(
                     (KeyCode::Char('h'), KeyModifiers::NONE) => app.toggle_history(),
                     (KeyCode::Char('r'), KeyModifiers::NONE) => app.toggle_machines(),
                     (KeyCode::Char('/'), KeyModifiers::NONE) => {
-                        if app.show_dep_tree { app.enter_search(); }
+                        app.enter_search();
                     }
                     (KeyCode::Char('f'), KeyModifiers::NONE) => {
                         if !app.show_dep_tree { app.enter_filter(); }
                     }
                     (KeyCode::Char('n'), KeyModifiers::NONE) => {
-                        if app.show_dep_tree {
+                        if !app.search_matches.is_empty() {
                             app.search_next();
                         } else if let Some(id) = app.selected_build_id() {
                             match client.set_nice(id, 10).await {
@@ -327,7 +327,7 @@ async fn run_loop(
                         }
                     }
                     (KeyCode::Char('N'), KeyModifiers::SHIFT | KeyModifiers::NONE) => {
-                        if app.show_dep_tree {
+                        if !app.search_matches.is_empty() {
                             app.search_prev();
                         }
                     }

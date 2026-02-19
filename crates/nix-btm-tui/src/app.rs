@@ -819,8 +819,7 @@ impl App {
     pub fn search_next(&mut self) {
         if !self.search_matches.is_empty() {
             self.search_match_idx = (self.search_match_idx + 1) % self.search_matches.len();
-            self.dep_tree_selected = self.search_matches[self.search_match_idx];
-            self.dep_tree_state.select(Some(self.dep_tree_selected));
+            self.jump_to_search_match();
         }
     }
 
@@ -831,8 +830,29 @@ impl App {
             } else {
                 self.search_match_idx -= 1;
             }
-            self.dep_tree_selected = self.search_matches[self.search_match_idx];
-            self.dep_tree_state.select(Some(self.dep_tree_selected));
+            self.jump_to_search_match();
+        }
+    }
+
+    /// Jump to the current search match in the appropriate view.
+    fn jump_to_search_match(&mut self) {
+        let idx = self.search_matches[self.search_match_idx];
+        if self.focused_pane == FocusPane::Bottom {
+            if self.show_history {
+                self.history_selected = idx;
+                self.history_state.select(Some(idx));
+            } else if self.show_log {
+                self.log_scroll = idx;
+            }
+        } else if self.show_processes {
+            self.proc_selected = idx;
+            self.proc_state.select(Some(idx));
+        } else if self.show_dep_tree {
+            self.dep_tree_selected = idx;
+            self.dep_tree_state.select(Some(idx));
+        } else {
+            self.selected = idx;
+            self.builds_state.select(Some(idx));
         }
     }
 
