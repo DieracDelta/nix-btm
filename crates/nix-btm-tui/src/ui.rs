@@ -192,6 +192,9 @@ pub fn tree_order_builds(mut builds: Vec<Build>) -> TreeOrderResult {
         };
     }
 
+    // Ensure deterministic ordering regardless of HashMap iteration order.
+    builds.sort_by_key(|b| (b.started_at_us, b.activity_id));
+
     // --- Step 1: Collapse Realise nodes with children ---
 
     let realise_ids: HashSet<u64> = builds
