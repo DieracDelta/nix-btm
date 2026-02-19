@@ -62,7 +62,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     };
     let visual_indicator = if app.visual_mode { " [VISUAL]" } else { "" };
     let show_all_indicator = if app.show_all_roots { " [ALL]" } else { "" };
-    let filter_indicator = if !app.builds_filter.is_empty() { " [FILTER]" } else { "" };
+    let filter_indicator = if !app.active_filter().is_empty() { " [FILTER]" } else { "" };
     let history_indicator = if app.show_history { " [HIST]" } else { "" };
     let dep_history_indicator = if app.show_dep_history { " [DHIST]" } else { "" };
     let header = Paragraph::new(format!(
@@ -129,8 +129,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         let bar = Paragraph::new(format!("{label}{}{match_info}", app.input_query))
             .style(Style::default().fg(GRV_FG).bg(GRV_BG1));
         frame.render_widget(bar, chunks[status_idx]);
-    } else if !app.builds_filter.is_empty() {
-        let bar = Paragraph::new(format!(" filter: \"{}\" (Esc to clear)", app.builds_filter))
+    } else if !app.active_filter().is_empty() {
+        let bar = Paragraph::new(format!(" filter: \"{}\" (Esc to clear)", app.active_filter()))
             .style(Style::default().fg(GRV_YELLOW));
         frame.render_widget(bar, chunks[status_idx]);
     } else if let Some((ref msg, _)) = app.status_message {
@@ -1260,6 +1260,39 @@ fn render_dep_tree_table(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
+    // Apply dep tree filter (active filter or live input).
+    let dep_filter_str = if app.input_mode && !app.input_is_search && app.show_dep_tree && app.focused_pane == FocusPane::Top {
+        &app.input_query
+    } else {
+        &app.dep_tree_filter
+    };
+    if !dep_filter_str.is_empty() {
+        let filter_lower = dep_filter_str.to_lowercase();
+        let mut keep = vec![false; rows.len()];
+        for (i, row_id) in drv_at_row.iter().enumerate() {
+            match row_id {
+                DepTreeRowId::CommandRoot(_) => keep[i] = true,
+                DepTreeRowId::DrvNode(drv_path) => {
+                    if let Some(node) = app.dep_graphs.iter().flat_map(|g| g.nodes.get(drv_path.as_str())).next() {
+                        if node.name.to_lowercase().contains(&filter_lower) {
+                            keep[i] = true;
+                        }
+                    }
+                }
+            }
+        }
+        let mut filtered_rows = Vec::new();
+        let mut filtered_drv = Vec::new();
+        for (i, (row, id)) in rows.into_iter().zip(drv_at_row.into_iter()).enumerate() {
+            if keep[i] {
+                filtered_rows.push(row);
+                filtered_drv.push(id);
+            }
+        }
+        rows = filtered_rows;
+        drv_at_row = filtered_drv;
+    }
+
     if rows.is_empty() {
         rows.push(Row::new(vec![
             Cell::from(" No dependency data yet (waiting for builds to start)"),
@@ -1448,8 +1481,31 @@ fn render_processes_table(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut is_last_proc_vis = HashMap::new();
     let mut is_folded_map = HashMap::new();     // row_idx → bool
 
+    // Apply proc filter (active filter or live input).
+    let proc_filter_str = if app.input_mode && !app.input_is_search && app.show_processes && app.focused_pane == FocusPane::Top {
+        &app.input_query
+    } else {
+        &app.proc_filter
+    };
+    let filtered_vis: Vec<usize>;
+    let vis: &Vec<usize> = if !proc_filter_str.is_empty() {
+        let filter_lower = proc_filter_str.to_lowercase();
+        filtered_vis = app.visible_proc_indices.iter().copied().filter(|&ri| {
+            match &proc_rows[ri] {
+                ProcRow::NixCommand { .. } => true, // always keep parent nodes
+                ProcRow::Derivation { drv, .. } => drv.to_lowercase().contains(&filter_lower),
+                ProcRow::Process { info, .. } => {
+                    let text = if info.cmdline.is_empty() { &info.name } else { &info.cmdline };
+                    text.to_lowercase().contains(&filter_lower)
+                }
+            }
+        }).collect();
+        &filtered_vis
+    } else {
+        &app.visible_proc_indices
+    };
+
     // Work from visible_proc_indices to compute tree structure among visible rows.
-    let vis = &app.visible_proc_indices;
     for (vi, &ri) in vis.iter().enumerate() {
         match &proc_rows[ri] {
             ProcRow::NixCommand { pid, .. } => {
@@ -1750,7 +1806,27 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
     ])
     .style(Style::default().bold());
 
-    // Search match computation for history view.
+    // Apply history filter (active filter or live input).
+    let hist_filter_str = if app.input_mode && !app.input_is_search && app.focused_pane == FocusPane::Bottom && app.show_history {
+        &app.input_query
+    } else {
+        &app.history_filter
+    };
+
+    // Build filtered history indices.
+    let visible_hist_indices: Vec<usize> = {
+        let history = app.snapshot.as_ref().unwrap().recent_history.as_slice();
+        if !hist_filter_str.is_empty() {
+            let filter_lower = hist_filter_str.to_lowercase();
+            (0..history.len())
+                .filter(|&i| drv_display_name(&history[i].build).to_lowercase().contains(&filter_lower))
+                .collect()
+        } else {
+            (0..history.len()).collect()
+        }
+    };
+
+    // Search match computation for history view (on filtered indices).
     let hist_search_active = app.focused_pane == FocusPane::Bottom
         && app.show_history
         && app.input_is_search
@@ -1759,22 +1835,23 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut hist_search_match_rows: Vec<usize> = Vec::new();
     if hist_search_active {
         let history = app.snapshot.as_ref().unwrap().recent_history.as_slice();
-        for (i, c) in history.iter().enumerate() {
-            if drv_display_name(&c.build).to_lowercase().contains(&hist_query_lower) {
-                hist_search_match_rows.push(i);
+        for (filtered_idx, &orig_idx) in visible_hist_indices.iter().enumerate() {
+            if drv_display_name(&history[orig_idx].build).to_lowercase().contains(&hist_query_lower) {
+                hist_search_match_rows.push(filtered_idx);
             }
         }
     }
 
-    // Build rows (scope the borrow to this block).
+    // Build rows from filtered indices.
     let rows: Vec<Row> = {
         let history = app.snapshot.as_ref().unwrap().recent_history.as_slice();
-        history
+        visible_hist_indices
             .iter()
             .enumerate()
-            .map(|(i, c)| {
+            .map(|(filtered_idx, &orig_idx)| {
+                let c = &history[orig_idx];
                 let name = drv_display_name(&c.build);
-                let is_search_match = hist_search_active && hist_search_match_rows.contains(&i);
+                let is_search_match = hist_search_active && hist_search_match_rows.contains(&filtered_idx);
                 let (result_text, result_style) = if c.success {
                     ("ok", Style::default().fg(GRV_GREEN))
                 } else {
@@ -1822,9 +1899,10 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
         app.search_match_idx = 0;
     }
 
-    // Clamp selection.
-    if hist_len > 0 && app.history_selected >= hist_len {
-        app.history_selected = hist_len - 1;
+    // Clamp selection to filtered row count.
+    let filtered_hist_len = visible_hist_indices.len();
+    if filtered_hist_len > 0 && app.history_selected >= filtered_hist_len {
+        app.history_selected = filtered_hist_len - 1;
     }
 
     let table = Table::new(
@@ -1911,28 +1989,57 @@ fn render_log(frame: &mut Frame, app: &mut App, area: Rect) {
         app.search_match_idx = 0;
     }
 
-    // Scroll: log_scroll=0 means show latest (bottom), higher values scroll up.
-    let total = app.log_lines.len();
-    let end = total.saturating_sub(app.log_scroll);
-    let start = end.saturating_sub(inner_height);
-
-    let text: Vec<Line> = app.log_lines[start..end]
-        .iter()
-        .enumerate()
-        .map(|(i, l)| {
-            let line_idx = start + i;
-            if log_search_active && log_search_match_lines.contains(&line_idx) {
-                Line::from(format!(" > {l}")).style(Style::default().fg(GRV_ORANGE))
-            } else {
-                Line::from(format!(" > {l}"))
-            }
-        })
-        .collect();
-
-    let scroll_indicator = if app.log_scroll > 0 {
-        format!(" (scroll: +{}, [/] to scroll)", app.log_scroll)
+    // Apply log filter (active filter or live input).
+    let log_filter_str = if app.input_mode && !app.input_is_search && app.focused_pane == FocusPane::Bottom && app.show_log {
+        &app.input_query
     } else {
-        String::new()
+        &app.log_filter
+    };
+    let log_filter_active = !log_filter_str.is_empty();
+    let log_filter_lower = log_filter_str.to_lowercase();
+
+    // When filter is active, show only matching lines (packed together).
+    // When filter is inactive, use normal scroll-based windowing.
+    let (text, scroll_indicator): (Vec<Line>, String) = if log_filter_active {
+        let filtered: Vec<Line> = app.log_lines.iter()
+            .filter(|l| l.to_lowercase().contains(&log_filter_lower))
+            .rev() // newest first (bottom of log)
+            .take(inner_height)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .map(|l| Line::from(format!(" > {l}")))
+            .collect();
+        let match_count = app.log_lines.iter()
+            .filter(|l| l.to_lowercase().contains(&log_filter_lower))
+            .count();
+        let indicator = format!(" ({match_count} matches)");
+        (filtered, indicator)
+    } else {
+        // Scroll: log_scroll=0 means show latest (bottom), higher values scroll up.
+        let total = app.log_lines.len();
+        let end = total.saturating_sub(app.log_scroll);
+        let start = end.saturating_sub(inner_height);
+
+        let lines: Vec<Line> = app.log_lines[start..end]
+            .iter()
+            .enumerate()
+            .map(|(i, l)| {
+                let line_idx = start + i;
+                if log_search_active && log_search_match_lines.contains(&line_idx) {
+                    Line::from(format!(" > {l}")).style(Style::default().fg(GRV_ORANGE))
+                } else {
+                    Line::from(format!(" > {l}"))
+                }
+            })
+            .collect();
+
+        let indicator = if app.log_scroll > 0 {
+            format!(" (scroll: +{}, [/] to scroll)", app.log_scroll)
+        } else {
+            String::new()
+        };
+        (lines, indicator)
     };
 
     let paragraph = Paragraph::new(text)
@@ -2057,7 +2164,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
    Space            toggle fold
    zc / zo / za     fold close / open / toggle
    /                search (all views)
-   f                filter (builds)
+   f                filter (all views)
    H                toggle dep tree history
 
  Other

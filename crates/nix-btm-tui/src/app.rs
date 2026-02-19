@@ -102,6 +102,14 @@ pub struct App {
     pub search_match_idx: usize,
     /// Active filter string for builds view (persists after exiting input mode).
     pub builds_filter: String,
+    /// Active filter string for dep tree view.
+    pub dep_tree_filter: String,
+    /// Active filter string for processes view.
+    pub proc_filter: String,
+    /// Active filter string for history view.
+    pub history_filter: String,
+    /// Active filter string for log view.
+    pub log_filter: String,
     /// Whether visual (multi-select) mode is active.
     pub visual_mode: bool,
     /// Row index where visual mode was entered (anchor for selection range).
@@ -180,6 +188,10 @@ impl App {
             search_matches: Vec::new(),
             search_match_idx: 0,
             builds_filter: String::new(),
+            dep_tree_filter: String::new(),
+            proc_filter: String::new(),
+            history_filter: String::new(),
+            log_filter: String::new(),
             visual_mode: false,
             visual_anchor: 0,
             action_prompt: false,
@@ -777,6 +789,42 @@ impl App {
             .unwrap_or(&[])
     }
 
+    /// Return the active filter string for the currently focused view.
+    pub fn active_filter(&self) -> &str {
+        if self.focused_pane == FocusPane::Bottom {
+            if self.show_history {
+                return &self.history_filter;
+            } else if self.show_log {
+                return &self.log_filter;
+            }
+        }
+        if self.show_processes {
+            &self.proc_filter
+        } else if self.show_dep_tree {
+            &self.dep_tree_filter
+        } else {
+            &self.builds_filter
+        }
+    }
+
+    /// Return a mutable reference to the active filter for the currently focused view.
+    pub fn active_filter_mut(&mut self) -> &mut String {
+        if self.focused_pane == FocusPane::Bottom {
+            if self.show_history {
+                return &mut self.history_filter;
+            } else if self.show_log {
+                return &mut self.log_filter;
+            }
+        }
+        if self.show_processes {
+            &mut self.proc_filter
+        } else if self.show_dep_tree {
+            &mut self.dep_tree_filter
+        } else {
+            &mut self.builds_filter
+        }
+    }
+
     pub fn enter_search(&mut self) {
         self.input_mode = true;
         self.input_is_search = true;
@@ -788,20 +836,20 @@ impl App {
     pub fn enter_filter(&mut self) {
         self.input_mode = true;
         self.input_is_search = false;
-        self.input_query = self.builds_filter.clone();
+        self.input_query = self.active_filter().to_string();
     }
 
     pub fn exit_input(&mut self) {
         self.input_mode = false;
         if !self.input_is_search {
-            self.builds_filter = self.input_query.clone();
+            *self.active_filter_mut() = self.input_query.clone();
         }
     }
 
     pub fn cancel_input(&mut self) {
         self.input_mode = false;
         if !self.input_is_search {
-            self.builds_filter.clear();
+            self.active_filter_mut().clear();
         }
         self.input_query.clear();
         self.search_matches.clear();

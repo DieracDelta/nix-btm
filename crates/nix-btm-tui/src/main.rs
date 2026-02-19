@@ -314,7 +314,7 @@ async fn run_loop(
                         app.enter_search();
                     }
                     (KeyCode::Char('f'), KeyModifiers::NONE) => {
-                        if !app.show_dep_tree { app.enter_filter(); }
+                        app.enter_filter();
                     }
                     (KeyCode::Char('n'), KeyModifiers::NONE) => {
                         if !app.search_matches.is_empty() {
@@ -351,8 +351,8 @@ async fn run_loop(
                     (KeyCode::Esc, _) => {
                         if app.visual_mode {
                             app.exit_visual();
-                        } else if !app.builds_filter.is_empty() {
-                            app.builds_filter.clear();
+                        } else if !app.active_filter().is_empty() {
+                            app.active_filter_mut().clear();
                         }
                     }
                     _ => {}
